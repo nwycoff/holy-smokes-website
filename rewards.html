@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Check your Treehouse Pharmacy rewards points in Ponca City, Oklahoma.">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex, nofollow">
+  <title>My Points | Treehouse Pharmacy</title>
+  <link rel="icon" href="images/img6.png" type="image/png">
+  <link rel="stylesheet" href="assets/rewards.css">
+  <script src="assets/rewards.js" type="module"></script>
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="index.html" aria-label="Treehouse Pharmacy home">
+      <img src="images/img6.png" alt="" width="48" height="48">
+      <span>Treehouse Pharmacy<small>PONCA CITY, OKLAHOMA</small></span>
+    </a>
+    <a class="back-link" href="index.html">Back to website <span aria-hidden="true">↗</span></a>
+  </header>
+
+  <main class="rewards-layout">
+    <section class="intro" aria-labelledby="page-title">
+      <p class="eyebrow"><span aria-hidden="true"></span> TREEHOUSE REWARDS</p>
+      <h1 id="page-title">Your points,<br><em>at a glance.</em></h1>
+      <p class="lead">A little thank-you for choosing Treehouse. Check your balance before your next visit.</p>
+      <div class="intro-rule"></div>
+      <p class="small-heading">Already a Treehouse patient?</p>
+      <p class="intro-detail">Use the name on your customer record and the last five letters or numbers of your patient ID. No email address or phone number needed.</p>
+      <a class="menu-link" href="menu.html">Explore the live menu <span aria-hidden="true">→</span></a>
+    </section>
+
+    <section class="lookup-card" aria-labelledby="lookup-title">
+      <div class="card-heading">
+        <span class="card-mark" aria-hidden="true">✦</span>
+        <p class="eyebrow">A LITTLE CLOSER TO YOUR NEXT REWARD</p>
+        <h2 id="lookup-title">Check my points</h2>
+        <p>Enter your details to view your current balance.</p>
+      </div>
+
+      <p id="service-status" class="status" role="status">Checking availability…</p>
+      <noscript><p class="status">Please enable JavaScript to check your points, or ask your budtender.</p></noscript>
+
+      <form id="points-form" method="post" action="/api/rewards/points" autocomplete="off">
+        <fieldset id="lookup-fields" disabled>
+          <legend class="sr-only">Patient lookup</legend>
+          <label for="patient-name">Full name</label>
+          <input id="patient-name" type="text" minlength="3" maxlength="120" required
+            placeholder="Name on your customer record" autocomplete="off" spellcheck="false">
+
+          <label for="patient-suffix">Last five letters or numbers of patient ID</label>
+          <input id="patient-suffix" type="password" inputmode="text" pattern="[A-Za-z0-9]{3}\-?[A-Za-z0-9]{2}"
+            minlength="5" maxlength="6" required placeholder="•••••" autocomplete="off"
+            aria-describedby="id-help">
+          <p id="id-help" class="field-help">Enter the last five letters or numbers. The dash is optional (for example, ABC-12 or ABC12).</p>
+
+          <div id="challenge" class="challenge"></div>
+          <button id="lookup-button" class="primary-button" type="submit" disabled>Check my points <span aria-hidden="true">→</span></button>
+        </fieldset>
+      </form>
+
+      <section id="points-result" class="points-result" hidden aria-labelledby="balance-title">
+        <p class="eyebrow">YOUR CURRENT BALANCE</p>
+        <h2 id="balance-title" tabindex="-1"><span id="points-value"></span><small>points</small></h2>
+        <p>Ask your budtender about using your rewards on your next visit.</p>
+        <button id="clear-result" type="button" class="secondary-button">Done · clear my balance</button>
+        <p class="field-help">Your balance clears automatically after two minutes.</p>
+      </section>
+
+      <div class="card-footer">
+        <p><strong>Need a hand?</strong> Your budtender can help check your details.</p>
+        <a href="tel:+15807166720">Call (580) 716-6720</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <span>Treehouse Pharmacy · 1801 N Union St · Ponca City, OK</span>
+    <button class="privacy-button" id="privacy-toggle" type="button" aria-expanded="false" aria-controls="privacy-detail">About this lookup</button>
+    <p id="privacy-detail" hidden>This lookup shows only a points balance. Your details are sent securely to check your GrowFlow record and are not saved in this browser. Automated abuse checks and temporary, protected attempt counters help limit guessing. Anyone who knows your name and these five characters may be able to see your points. No purchases, patient details, or redemption controls are shown.</p>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,123 @@
+TREEHOUSE GROWFLOW TOKEN CHECK - MAC v8.1
+
+CUSTOMER NO-MATCH DIAGNOSTIC (NEW)
+Your previous run confirmed one receipt read, but the customer query matched
+no records. This mode checks whether the Name/PatientName choice or optional
+Active/Disabled/IsAnon filters are responsible for the zero result.
+Use the existing token. It needs Read > Customers; no new permissions required.
+In Terminal, type bash followed by a space, drag Diagnose-Customer.command
+from THIS extracted folder into Terminal, and press Enter.
+The heading must say CUSTOMER MATCH DIAGNOSTIC - Mac v8.1.
+Enter the same token, customer name, patient-ID ending and optional balance.
+No receipt is requested or retested in this mode.
+
+Maximum three HTTP requests: schema, original customer check, and (only after
+an accepted complete zero-match result) one targeted comparison request.
+That comparison contains up to TWO bounded findCustomers queries: Name and,
+when present in the live schema, PatientName. Each still requires the entered
+full name AND patient-ID ending and excludes deleted records. It omits Active,
+Disabled and IsAnon solely for this private owner-operated diagnostic. It may
+therefore find a record excluded by business-status restrictions. It does not
+change those flags or alter the website's eligibility rules.
+Each query requests at most two candidates. Internal IDs are used in memory
+to reject ambiguous matches across both name fields and are never displayed.
+There is no comparison after a permission error, incomplete/ambiguous original
+result, or rate-limit stop. No unfiltered customer list is requested.
+Send only the status lines. Public lookup rules still require verification.
+
+THE ORIGINAL GENERAL CHECK IS ALSO INCLUDED BELOW
+
+1. PREPARE
+Use the new GrowFlow API token you saved in Bitwarden. Do not create another
+token if you already have one with the needed Read permissions.
+For the points/phone check, the token needs Read > Customers.
+For the optional receipt check, it also needs Read > Orders and your store.
+No Create permissions, menu key, client ID, or client secret are needed.
+Customer access is organization-wide, regardless of selected stores.
+
+2. NODE.JS (ONE-TIME SETUP, IF NOT ALREADY INSTALLED)
+Open Terminal on your Mac (Command + Space, type Terminal, press Enter).
+Type: node -v
+If it reports v22 or newer, you are ready.
+If Node is missing or older, use the macOS LTS installer at:
+https://nodejs.org/en/download
+Choose the macOS Installer (.pkg) and follow the installer steps.
+Close and reopen Terminal afterward. No Homebrew or npm install is needed.
+The checker itself does not install anything.
+
+3. OPEN THE CHECKER
+Save the ZIP in Downloads and double-click it to extract the folder.
+Keep all five files together. The folder can remain in Downloads.
+In Terminal, paste this command and press Enter:
+
+bash "$HOME/Downloads/Treehouse-GrowFlow-Mac-Check-v8.1/Start-Check.command"
+
+If you extracted it somewhere else, type bash followed by one space, drag
+Start-Check.command from Finder into Terminal, then press Enter.
+Do not put your token on the command line. The checker asks for it privately.
+If macOS reports a security warning, share the warning text; do not disable
+Gatekeeper or remove quarantine settings.
+
+4. ENTER THE PRIVATE VALUES
+Copy the GrowFlow token from Bitwarden. At the checker prompt, paste with
+Command + V, then press Enter. You will not see text or dots while entering
+ANY of the requested values. That is intentional.
+- Enter only the gfr_ token, without Bearer, spaces, or quotation marks.
+- Enter a known consenting customer's full name exactly as stored in GrowFlow.
+- Enter the final five letters/numbers of their patient ID. ABC-12 and ABC12
+  mean the same thing. The dash is optional and does not count as a character.
+- Optionally enter their known CURRENT points balance, without commas.
+  The checker reports MATCH or MISMATCH without printing either balance.
+- Optionally enter one known order/receipt number exactly as stored, preserving
+  leading zeros, prefixes, and punctuation. It does not need to belong to the
+  selected customer; customer-to-order linkage is not checked here.
+To skip customer testing, press Enter at the name prompt.
+To skip receipt testing, press Enter at the receipt prompt.
+Ctrl + C cancels. You can copy the final status lines back into chat.
+
+WHAT THIS DOES
+Maximum three small, sequential GraphQL requests: schema, customer, receipt.
+Only this HTTPS endpoint receives your API requests:
+https://retail.growflow.com/c/holysmokesdispensary/graphql
+No token exchange, mutations, polling, automatic retries, history downloads,
+contact uploads, or marketing messages. No credentials or reports are saved.
+The terminal output contains fixed diagnostic text, match/presence indicators,
+and numeric rate-limit headers; it does not display raw records or errors.
+Each record query requests at most two candidates and rejects multiple matches
+or hasNextPage=true. It never fetches the next page. Response headers can lower
+the page cap or cause the checker to stop before further requests.
+The guide says all requests are metered, including rejected requests. Plan
+allowances and pricing are not specified in the guide.
+
+HOW TO INTERPRET RESULTS
+Schema returned: metadata worked; record access still needs testing.
+POINTS numeric / PHONE nonempty: those fields were populated in this sample.
+MATCH: the points balance agrees with what you entered privately.
+MISMATCH: review the customer record and balance before enabling public lookup.
+No match: the query ran, but record values were not verified.
+Multiple matches: values suppressed; identity matching still needs work.
+UNAUTHENTICATED: check token status, expiration, and the copied token value.
+FORBIDDEN / permission rejection: check Read scopes and selected stores.
+HTTP 429 / limit stop: wait before another run. Retry-After and RateLimit-Reset
+are seconds. Do not run the checker repeatedly to work around a limit.
+Missing schema fields / network failure: share the safe status lines.
+Deleted customers are excluded. The receipt check filters IsDeleted only when
+supported by the live schema, and reports when that filter is unavailable.
+No phone ownership, deliverability, or marketing opt-in is established.
+Full history, order items, customer/order linkage, and final public-lookup
+identity rules are not verified by this diagnostic.
+
+This is a local diagnostic, not a website update or a change to the TV menus.
+Do not publish this folder in the public website or commit any credentials.
+The .mjs code also runs on Windows with Node.js; this launcher is for Mac.
+
+VALIDATION
+The Node.js code passed 20 automated tests covering successful reads, input
+rejection, ambiguous records, missing data, token/scope failures, HTTP 429,
+redirect rejection, private-output suppression, documented request limits,
+status/name comparisons, and ambiguous identities across both name fields.
+Terminal tests verified hidden entry, Ctrl+C cancellation, and rejection of
+piped input. Generated queries and variables validate against the supplied
+example schema. No live GrowFlow requests were made during development.
+Tests ran on Linux; the Mac launcher and your new token still need your local
+run. The launcher needs Node.js 22 or newer and makes no system-setting changes.
