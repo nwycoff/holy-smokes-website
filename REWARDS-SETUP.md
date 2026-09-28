@@ -92,6 +92,8 @@ The owner explicitly accepted name-plus-five-characters for a points-only lookup
 
 ## Test before launch
 
+For a generic service failure, open the test project's current deployment under **View details > Functions** and start its real-time log stream before making one controlled test. Share only a line beginning `TREEHOUSE_POINTS_FAILURE`. The suffix is a fixed stage such as `INITIAL_LIMITS_RESULT`, `TURNSTILE_REQUEST`, or `GROWFLOW_RESPONSE`; it contains no inputs, credentials, upstream error text or customer records. Do not share the full request event, headers, or a log export. This diagnostic adds no upstream requests and does not change the public error response or bypass checks.
+
 Run `npm test` and `npm run build` locally with Node 22.13+ (the tests use Node's SQLite module). Tests use synthetic data, never the live API.
 
 On the Cloudflare test project verify:

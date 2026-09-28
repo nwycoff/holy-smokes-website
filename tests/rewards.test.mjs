@@ -41,7 +41,8 @@ function setup(options = {}) {
   };
   let time = 1800000000000;
   const calls = [];
-  const deps = { now: () => time, fetch: async (url, init) => {
+  const diagnostics = [];
+  const deps = { now: () => time, report: code => diagnostics.push(code), fetch: async (url, init) => {
     calls.push({ url, init });
     if (url.includes('siteverify')) return Response.json(options.challenge || {
       success: true, hostname: 'preview.example.test', action: 'points-lookup'
@@ -65,8 +66,51 @@ function setup(options = {}) {
     await Promise.all(work);
     return { response, body: await response.json() };
   }
-  return { env, calls, run, advance: ms => { time += ms; } };
+  return { env, calls, run, diagnostics, deps, advance: ms => { time += ms; } };
 }
+
+test('diagnostic separates written limiter rows from unusable D1 results', async () => {
+  const s = setup();
+  const batch = s.env.REWARDS_DB.batch.bind(s.env.REWARDS_DB);
+  s.env.REWARDS_DB.batch = async statements => {
+    await batch(statements);
+    return statements.map(() => ({ success: true, results: [] }));
+  };
+  const result = await s.run();
+  assert.equal(result.response.status, 503);
+  assert.deepEqual(s.diagnostics, ['INITIAL_LIMITS_RESULT']);
+  assert.equal(s.env.REWARDS_DB.db.prepare('SELECT COUNT(*) AS n FROM rewards_limits').get().n, 2);
+  assert.equal(s.calls.length, 0);
+  assert.deepEqual(Object.keys(result.body), ['error']);
+  assert.doesNotMatch(JSON.stringify(result.body), /INITIAL_LIMITS/);
+});
+
+test('Turnstile failures log only fixed stages, never raw errors or inputs', async () => {
+  for (const kind of ['request', 'response']) {
+    const s = setup();
+    const marker = `PRIVATE-${s.env.GROWFLOW_API_TOKEN}-Synthetic Patient-00001`;
+    s.deps.fetch = async url => {
+      assert.ok(url.includes('siteverify'));
+      if (kind === 'request') throw new Error(marker);
+      return new Response(marker, { status: 200 });
+    };
+    const result = await s.run();
+    assert.equal(result.response.status, 503);
+    assert.deepEqual(s.diagnostics, [kind === 'request' ? 'TURNSTILE_REQUEST' : 'TURNSTILE_RESPONSE']);
+    assert.doesNotMatch(JSON.stringify([s.diagnostics, result.body]), /PRIVATE|gfr_|Synthetic|00001/);
+    assert.equal(s.env.REWARDS_DB.db.prepare('SELECT COUNT(*) AS n FROM rewards_limits').get().n, 2);
+  }
+});
+
+test('a failing diagnostic logger preserves the generic failure response', async () => {
+  const s = setup();
+  s.env.REWARDS_DB.batch = async () => { throw new Error('PRIVATE database detail'); };
+  s.deps.report = () => { throw new Error('PRIVATE logging detail'); };
+  const result = await s.run();
+  assert.equal(result.response.status, 503);
+  assert.doesNotMatch(JSON.stringify(result.body), /PRIVATE|database|logging/);
+  assert.equal(s.calls.length, 0);
+});
 
 test('unique match returns only balance and never customer metadata', async () => {
   const s = setup(); const { response, body } = await s.run();

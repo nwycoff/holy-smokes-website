@@ -11,6 +11,7 @@ const ID_FIELDS = new Set([
 const UNAVAILABLE = 'Points lookup is temporarily unavailable. Please ask your budtender.';
 const NO_MATCH = 'We could not verify those details. Please check them or ask your budtender.';
 const LIMITED = 'Please wait before trying again, or ask your budtender for your balance.';
+class LimitsResultError extends Error {}
 function idFields(specification) {
   if (typeof specification !== 'string') return null;
   const fields = specification.split(',').map(field => field.trim());
@@ -96,7 +97,7 @@ export async function consumeLimits(db, secret, specs, now) {
   // D1 batch executes transactionally; concurrent requests cannot bypass counters.
   const results = await db.batch(statements);
   if (results.length !== specs.length || results.some(r => !r.success
-    || !Number.isInteger(r.results?.[0]?.hits))) throw new Error('Rate limit unavailable');
+    || !Number.isInteger(r.results?.[0]?.hits))) throw new LimitsResultError('Rate limit unavailable');
   return results.every((r, i) => r.results[0].hits <= specs[i].max);
 }
 
@@ -129,7 +130,8 @@ async function limitedJSON(request) {
 
 export async function handleRewards(context, overrides = {}) {
   const { request, env } = context;
-  const deps = { fetch: globalThis.fetch, now: Date.now, ...overrides };
+  const deps = { fetch: globalThis.fetch, now: Date.now,
+    report: code => console.warn(`TREEHOUSE_POINTS_FAILURE ${code}`), ...overrides };
   const url = new URL(request.url);
   if (url.search) return response(400, { error: NO_MATCH });
   const route = url.pathname.replace(/\/$/, '');
@@ -151,37 +153,45 @@ export async function handleRewards(context, overrides = {}) {
 
   const started = deps.now();
   let backoffKey;
+  let stage = 'INITIAL_LIMITS';
   try {
     const now = deps.now();
     const allowedIP = await consumeLimits(env.REWARDS_DB, env.REWARDS_RATE_SECRET,
       [{ subject: `ip:${ip}`, window: 900000, max: 10 },
        { subject: 'all-attempts', window: 60000, max: 60 }], now);
     if (!allowedIP) return response(429, { error: LIMITED }, { 'Retry-After': '900' });
+    stage = 'REQUEST_BODY';
     const input = normalizeInput(await limitedJSON(request));
     if (!input) return response(400, { error: NO_MATCH });
 
+    stage = 'TURNSTILE_REQUEST';
     const challenge = await upstream('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
       method: 'POST', body: new URLSearchParams({ secret: env.TURNSTILE_SECRET_KEY,
         response: input.turnstileToken, remoteip: ip })
     }, deps);
+    stage = 'TURNSTILE_RESPONSE';
     const verdict = challenge.ok ? await challenge.json() : {};
     if (!verdict.success || verdict.hostname !== url.hostname || verdict.action !== 'points-lookup')
       return response(400, { error: NO_MATCH });
 
+    stage = 'CUSTOMER_LIMITS';
     const allowed = await consumeLimits(env.REWARDS_DB, env.REWARDS_RATE_SECRET,
       [{ subject: `name:${input.name.toLowerCase()}`, window: 900000, max: 5 },
        { subject: `name:${input.name.toLowerCase()}`, window: 86400000, max: 20 },
        { subject: 'growflow-queries', window: 60000, max: 15 }], now);
     if (!allowed) return response(429, { error: LIMITED }, { 'Retry-After': '900' });
 
+    stage = 'BACKOFF_READ';
     backoffKey = await digest(env.REWARDS_RATE_SECRET, `upstream:${env.GROWFLOW_ORG}`);
     const backoff = await env.REWARDS_DB.prepare('SELECT until_at FROM rewards_backoff WHERE key = ?')
       .bind(backoffKey).first();
     if (backoff?.until_at > now) return response(503, { error: UNAVAILABLE });
+    stage = 'GROWFLOW_REQUEST';
     const result = await upstream(`https://retail.growflow.com/c/${env.GROWFLOW_ORG}/graphql`, {
       method: 'POST', headers: { Authorization: `Bearer ${env.GROWFLOW_API_TOKEN}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ query: QUERY, variables: lookupVariables(input, fieldSetting(env)) })
     }, deps);
+    stage = 'GROWFLOW_RESPONSE';
     const reset = Number(result.headers.get('ratelimit-reset'));
     const remaining = result.headers.has('ratelimit-remaining')
       ? Number(result.headers.get('ratelimit-remaining')) : NaN;
@@ -202,8 +212,11 @@ export async function handleRewards(context, overrides = {}) {
     const points = edges[0]?.node?.CurrentPoints;
     if (typeof points !== 'number' || !Number.isFinite(points)) throw new Error('Points unavailable');
     return response(200, { points });
-  } catch {
+  } catch (error) {
     // No upstream text, names, patient IDs, tokens, or request bodies in errors/logs.
+    // Only our fixed stage code is emitted to private operational logs.
+    try { deps.report(error instanceof LimitsResultError ? `${stage}_RESULT` : stage); }
+    catch { /* Logging failure must not change the public response. */ }
     if (backoffKey) {
       try { await rememberBackoff(env.REWARDS_DB, backoffKey, deps.now() + 60000); } catch { /* fail closed */ }
     }
