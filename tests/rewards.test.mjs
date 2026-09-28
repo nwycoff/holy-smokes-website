@@ -44,6 +44,7 @@ function setup(options = {}) {
   const diagnostics = [];
   const deps = { now: () => time, report: code => diagnostics.push(code), fetch: async (url, init) => {
     calls.push({ url, init });
+    assert.equal(init.redirect, 'manual');
     if (url.includes('siteverify')) return Response.json(options.challenge || {
       success: true, hostname: 'preview.example.test', action: 'points-lookup'
     });
@@ -140,6 +141,32 @@ test('request diagnostics classify runtime errors without exposing exception con
     assert.deepEqual(s.diagnostics, [`TURNSTILE_REQUEST_${category}`]);
     assert.doesNotMatch(JSON.stringify([s.diagnostics, result.body]), /PRIVATE/);
     assert.deepEqual(Object.keys(result.body), ['error']);
+  }
+});
+
+test('Turnstile and GrowFlow redirects are rejected without following or retrying', async () => {
+  for (const target of ['turnstile', 'growflow']) {
+    for (const status of [301, 302, 303, 307, 308]) {
+      const s = setup();
+      const normalFetch = s.deps.fetch;
+      let attempts = 0;
+      s.deps.fetch = async (url, init) => {
+        attempts++;
+        assert.equal(init.redirect, 'manual');
+        assert.ok(!url.includes('other.example.test'));
+        if (target === 'turnstile' || url.endsWith('/graphql')) {
+          return new Response(null, { status, headers: { Location: 'https://other.example.test/PRIVATE' } });
+        }
+        return normalFetch(url, init);
+      };
+      const result = await s.run();
+      assert.equal(result.response.status, 503);
+      assert.equal(attempts, target === 'turnstile' ? 1 : 2);
+      assert.deepEqual(s.diagnostics, [
+        `${target === 'turnstile' ? 'TURNSTILE' : 'GROWFLOW'}_REQUEST_REDIRECT_ERROR`
+      ]);
+      assert.doesNotMatch(JSON.stringify([s.diagnostics, result.body]), /PRIVATE|other\.example/);
+    }
   }
 });
 

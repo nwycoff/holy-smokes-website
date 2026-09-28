@@ -126,7 +126,11 @@ async function rememberBackoff(db, key, until) {
 }
 
 async function upstream(url, options, deps) {
-  return deps.fetch(url, { ...options, redirect: 'error', signal: AbortSignal.timeout(10000) });
+  // Manual mode works across Workers compatibility dates and never follows Location.
+  const result = await deps.fetch(url, { ...options, redirect: 'manual', signal: AbortSignal.timeout(10000) });
+  if (result.status >= 300 && result.status < 400)
+    throw new TypeError('Upstream redirect refused');
+  return result;
 }
 
 async function limitedJSON(request) {
