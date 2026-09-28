@@ -130,7 +130,8 @@ async function limitedJSON(request) {
 
 export async function handleRewards(context, overrides = {}) {
   const { request, env } = context;
-  const deps = { fetch: globalThis.fetch, now: Date.now,
+  // Workers runtime methods must retain their original receiver.
+  const deps = { fetch: (url, options) => globalThis.fetch(url, options), now: Date.now,
     report: code => console.warn(`TREEHOUSE_POINTS_FAILURE ${code}`), ...overrides };
   const url = new URL(request.url);
   if (url.search) return response(400, { error: NO_MATCH });

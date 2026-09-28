@@ -69,6 +69,21 @@ function setup(options = {}) {
   return { env, calls, run, diagnostics, deps, advance: ms => { time += ms; } };
 }
 
+test('default outbound fetch preserves the runtime global receiver', async t => {
+  const s = setup();
+  const fakeFetch = s.deps.fetch;
+  t.mock.method(globalThis, 'fetch', async function (url, init) {
+    if (this !== globalThis) throw new TypeError('Illegal invocation');
+    return fakeFetch(url, init);
+  });
+  delete s.deps.fetch;
+  const result = await s.run();
+  assert.equal(result.response.status, 200);
+  assert.deepEqual(result.body, { points: 225 });
+  assert.equal(s.calls.length, 2);
+  assert.deepEqual(s.diagnostics, []);
+});
+
 test('diagnostic separates written limiter rows from unusable D1 results', async () => {
   const s = setup();
   const batch = s.env.REWARDS_DB.batch.bind(s.env.REWARDS_DB);
