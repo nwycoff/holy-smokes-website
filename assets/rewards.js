@@ -60,10 +60,11 @@ form.addEventListener('submit', async event => {
   controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 35000);
   try {
+    // Preserve the POST's Origin for server validation; send only the origin as referrer.
     const response = await fetch('/api/rewards/points', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body, cache: 'no-store', credentials: 'same-origin', mode: 'same-origin',
-      redirect: 'error', signal: controller.signal
+      redirect: 'error', referrerPolicy: 'strict-origin', signal: controller.signal
     });
     const data = await response.json();
     if (!response.ok || typeof data.points !== 'number' || !Number.isFinite(data.points)) {

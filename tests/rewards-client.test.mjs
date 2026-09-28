@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 const source = readFileSync(new URL('../assets/rewards.js', import.meta.url), 'utf8');
+const html = readFileSync(new URL('../rewards.html', import.meta.url), 'utf8');
+const documentReferrerPolicy = html.match(/<meta name="referrer" content="([^"]+)"/)?.[1];
 const origin = 'https://points.example.test';
 
 async function loadPage({ sessionValid = true, expiresBeforeSubmit = false } = {}) {
@@ -34,6 +36,16 @@ async function loadPage({ sessionValid = true, expiresBeforeSubmit = false } = {
     }
     if (request.url === `${origin}/api/rewards/config`) {
       return Response.json({ enabled: true, siteKey: 'synthetic-public-sitekey' });
+    }
+    // Fetch Standard, "append a request Origin header": for this same-origin
+    // HTTPS POST, non-CORS mode plus no-referrer produces Origin: null.
+    // Model this browser behavior because Node's Request does not synthesize it.
+    const policy = request.referrerPolicy || documentReferrerPolicy;
+    const serializedOrigin = request.mode !== 'cors' && policy === 'no-referrer'
+      ? 'null' : origin;
+    request.headers.set('Origin', serializedOrigin);
+    if (serializedOrigin !== origin) {
+      return Response.json({ error: 'We could not verify those details.' }, { status: 403 });
     }
     assert.equal(request.url, `${origin}/api/rewards/points`);
     assert.equal(request.method, 'POST');
@@ -73,6 +85,7 @@ test('signed-in Access session reaches config and points; inputs clear after suc
   assert.equal(page.element('#patient-name').value, '');
   assert.equal(page.element('#patient-suffix').value, '');
   assert.equal(page.requests.length, 2);
+  assert.equal(page.requests[1].headers.get('Origin'), origin);
   for (const request of page.requests) {
     assert.equal(request.credentials, 'same-origin');
     assert.equal(request.mode, 'same-origin');

@@ -141,7 +141,8 @@ test('public config exposes only readiness and a public Turnstile sitekey', asyn
 });
 
 test('foreign origin, missing origin and cross-site requests are rejected', async () => {
-  for (const headers of [{ origin: 'https://evil.example' }, { origin: '' }, { 'sec-fetch-site': 'cross-site' }]) {
+  for (const headers of [{ origin: 'https://evil.example' }, { origin: '' },
+    { origin: 'null' }, { 'sec-fetch-site': 'cross-site' }]) {
     const s = setup(); assert.equal((await s.run({}, headers)).response.status, 403);
     assert.equal(s.calls.length, 0);
   }
