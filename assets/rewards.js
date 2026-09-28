@@ -62,7 +62,8 @@ form.addEventListener('submit', async event => {
   try {
     const response = await fetch('/api/rewards/points', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body, cache: 'no-store', credentials: 'omit', signal: controller.signal
+      body, cache: 'no-store', credentials: 'same-origin', mode: 'same-origin',
+      redirect: 'error', signal: controller.signal
     });
     const data = await response.json();
     if (!response.ok || typeof data.points !== 'number' || !Number.isFinite(data.points)) {
@@ -107,8 +108,10 @@ addEventListener('pagehide', clearBalance);
 addEventListener('pageshow', event => { if (event.persisted) clearBalance(); });
 
 try {
+  // Preserve the Access login for this site's API; never follow a login redirect.
   const response = await fetch('/api/rewards/config', {
-    cache: 'no-store', credentials: 'omit', signal: AbortSignal.timeout(10000)
+    cache: 'no-store', credentials: 'same-origin', mode: 'same-origin',
+    redirect: 'error', signal: AbortSignal.timeout(10000)
   });
   const config = await response.json();
   if (!response.ok || config.enabled !== true || !config.siteKey) throw new Error('Unavailable');
