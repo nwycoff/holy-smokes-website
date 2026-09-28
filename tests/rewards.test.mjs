@@ -111,9 +111,35 @@ test('Turnstile failures log only fixed stages, never raw errors or inputs', asy
     };
     const result = await s.run();
     assert.equal(result.response.status, 503);
-    assert.deepEqual(s.diagnostics, [kind === 'request' ? 'TURNSTILE_REQUEST' : 'TURNSTILE_RESPONSE']);
+    assert.deepEqual(s.diagnostics, [kind === 'request' ? 'TURNSTILE_REQUEST_OTHER' : 'TURNSTILE_RESPONSE']);
     assert.doesNotMatch(JSON.stringify([s.diagnostics, result.body]), /PRIVATE|gfr_|Synthetic|00001/);
     assert.equal(s.env.REWARDS_DB.db.prepare('SELECT COUNT(*) AS n FROM rewards_limits').get().n, 2);
+  }
+});
+
+test('request diagnostics classify runtime errors without exposing exception contents', async () => {
+  const cases = [
+    ['TimeoutError', 'PRIVATE', 'TIMEOUT'],
+    ['AbortError', 'PRIVATE', 'ABORTED'],
+    ['TypeError', 'Illegal invocation PRIVATE', 'RUNTIME_RECEIVER'],
+    ['TypeError', 'Unsupported redirect mode PRIVATE', 'REDIRECT_ERROR'],
+    ['TypeError', 'AbortSignal.timeout is not a function PRIVATE', 'TIMEOUT_API'],
+    ['TypeError', 'PRIVATE', 'TYPE_ERROR'],
+    ['PRIVATE', 'PRIVATE', 'OTHER']
+  ];
+  for (const [name, message, category] of cases) {
+    const s = setup();
+    let attempts = 0;
+    s.deps.fetch = async () => {
+      attempts++;
+      const error = new Error(message); error.name = name; throw error;
+    };
+    const result = await s.run();
+    assert.equal(result.response.status, 503);
+    assert.equal(attempts, 1);
+    assert.deepEqual(s.diagnostics, [`TURNSTILE_REQUEST_${category}`]);
+    assert.doesNotMatch(JSON.stringify([s.diagnostics, result.body]), /PRIVATE/);
+    assert.deepEqual(Object.keys(result.body), ['error']);
   }
 });
 

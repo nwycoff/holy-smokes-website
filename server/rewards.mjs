@@ -12,6 +12,24 @@ const UNAVAILABLE = 'Points lookup is temporarily unavailable. Please ask your b
 const NO_MATCH = 'We could not verify those details. Please check them or ask your budtender.';
 const LIMITED = 'Please wait before trying again, or ask your budtender for your balance.';
 class LimitsResultError extends Error {}
+function failureCode(stage, error) {
+  if (error instanceof LimitsResultError) return `${stage}_RESULT`;
+  if (!['TURNSTILE_REQUEST', 'GROWFLOW_REQUEST'].includes(stage)) return stage;
+  // Emit only fixed categories. Never include exception text, stack, or arbitrary names.
+  let category = 'OTHER';
+  try {
+    if (error?.name === 'TimeoutError') category = 'TIMEOUT';
+    else if (error?.name === 'AbortError') category = 'ABORTED';
+    else if (error?.name === 'TypeError') {
+      const message = typeof error.message === 'string' ? error.message : '';
+      if (/illegal invocation/i.test(message)) category = 'RUNTIME_RECEIVER';
+      else if (/redirect/i.test(message)) category = 'REDIRECT_ERROR';
+      else if (/AbortSignal\.timeout/.test(message)) category = 'TIMEOUT_API';
+      else category = 'TYPE_ERROR';
+    }
+  } catch { /* Unreadable exceptions remain OTHER. */ }
+  return `${stage}_${category}`;
+}
 function idFields(specification) {
   if (typeof specification !== 'string') return null;
   const fields = specification.split(',').map(field => field.trim());
@@ -216,7 +234,7 @@ export async function handleRewards(context, overrides = {}) {
   } catch (error) {
     // No upstream text, names, patient IDs, tokens, or request bodies in errors/logs.
     // Only our fixed stage code is emitted to private operational logs.
-    try { deps.report(error instanceof LimitsResultError ? `${stage}_RESULT` : stage); }
+    try { deps.report(failureCode(stage, error)); }
     catch { /* Logging failure must not change the public response. */ }
     if (backoffKey) {
       try { await rememberBackoff(env.REWARDS_DB, backoffKey, deps.now() + 60000); } catch { /* fail closed */ }
