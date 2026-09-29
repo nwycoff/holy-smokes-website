@@ -351,6 +351,19 @@ test('a request that may have reached GrowFlow blocks retries until staff can ch
   assert.equal((await (await a.status()).json()).order.status,'Unconfirmed');
   s.advance(1800001);assert.equal((await a.place(flower(1))).status,200);assert.equal(s.mutations().length,2);
 });
+test('failed sends log a fixed category; refused operations free the slot, uncertain ones do not', async () => {
+  let reply=()=>Response.json({errors:[{message:'Variable "$preorder" got invalid value; secret-detail',extensions:{code:'BAD_USER_INPUT'}}]});
+  const s=preorders({create:()=>reply()}), a=await s.linked();
+  const res=await a.place(flower(1));assert.equal(res.status,503);assert.ok(!(await res.text()).includes('secret-detail'));
+  assert.ok(s.codes.includes('PREORDER_SEND_GROWFLOW_QUERY_VALIDATION'));assert.ok(!s.codes.join(' ').includes('secret'));
+  assert.equal(s.env.APP_DB.db.prepare('SELECT count(*) n FROM app_preorders').get().n,0);
+  reply=()=>Response.json({errors:[{message:'Insufficient Permissions'}]});
+  assert.equal((await a.place(flower(1))).status,503);assert.ok(s.codes.includes('PREORDER_SEND_GROWFLOW_QUERY_PERMISSION'));
+  assert.equal(s.env.APP_DB.db.prepare('SELECT count(*) n FROM app_preorders').get().n,0);
+  reply=()=>Response.json({errors:[{message:'Something broke mid-way'}]});
+  assert.equal((await a.place(flower(1))).status,503);assert.ok(s.codes.includes('PREORDER_SEND_GROWFLOW_QUERY_OTHER'));
+  assert.equal(s.env.APP_DB.db.prepare("SELECT status FROM app_preorders").get().status,'Unconfirmed');
+});
 test('refused or rate-limited preorders release the slot for another try', async () => {
   let reply=()=>Response.json({data:{createPreorder:{success:false,order:null}}});
   const s=preorders({create:()=>reply()}), a=await s.linked();

@@ -32,6 +32,19 @@ export const CREATE_PREORDER = `mutation TreehouseCreatePreorder($menuKey: Strin
 export const PREORDER_STATUS = `query TreehousePreorderStatus($orderId: String!) {
   preorderStatus(orderId: $orderId) { success order { id orderNumber status } }
 }`;
+// Fixed diagnostic categories only; GrowFlow's raw error text is never logged.
+function graphqlCategory(errors) {
+  const text = (errors || []).map(e => `${e?.message || ''} ${e?.extensions?.code || ''}`).join(' ');
+  if (!text.trim()) return 'NO_DATA';
+  if (/insufficient permissions|forbidden/i.test(text)) return 'PERMISSION';
+  if (/unauthenticated|invalid or revoked/i.test(text)) return 'AUTH';
+  if (/GRAPHQL_VALIDATION_FAILED|GRAPHQL_PARSE_FAILED|BAD_USER_INPUT|variable "\$|unknown argument|cannot query field|expected type|got invalid value/i.test(text))
+    return 'VALIDATION';
+  if (/not found/i.test(text)) return 'NOT_FOUND';
+  return 'OTHER';
+}
+// These are refused before GrowFlow runs the operation, so nothing was written.
+const REFUSED = ['PERMISSION', 'AUTH', 'VALIDATION'];
 // Errors marked sent=true happened after the request left, so a write may have landed.
 export async function queryGrowflow(env, deps, query, variables, token = env.APP_GROWFLOW_TOKEN) {
   const key = await hash(env.APP_LIMIT_SECRET, `growflow:${env.GROWFLOW_ORG}`);
@@ -43,8 +56,9 @@ export async function queryGrowflow(env, deps, query, variables, token = env.APP
     return await sendGrowflow(env, deps, key, query, variables, token);
   } catch (error) {
     const failure = error instanceof AppError ? error : new AppError('GROWFLOW_HTTP');
-    // A 429 was refused before processing; anything else may have reached GrowFlow.
-    failure.sent = failure.code !== 'GROWFLOW_RATE_LIMITED';
+    if (!(error instanceof AppError)) failure.category = error?.name === 'TimeoutError' ? 'TIMEOUT' : 'NETWORK';
+    // A 429 or a refused operation was not processed; anything else may have reached GrowFlow.
+    failure.sent = failure.code !== 'GROWFLOW_RATE_LIMITED' && !REFUSED.includes(failure.category);
     throw failure;
   }
 }
@@ -67,7 +81,11 @@ async function sendGrowflow(env, deps, key, query, variables, token) {
   if (res.status === 429) throw new AppError('GROWFLOW_RATE_LIMITED');
   if (!res.ok) throw new AppError('GROWFLOW_HTTP');
   const payload = await res.json();
-  if (payload.errors?.length || !payload.data) throw new AppError('GROWFLOW_QUERY');
+  if (payload.errors?.length || !payload.data) {
+    const failure = new AppError('GROWFLOW_QUERY');
+    failure.category = graphqlCategory(payload.errors);
+    throw failure;
+  }
   return payload.data;
 }
 export function singleCustomer(data) {

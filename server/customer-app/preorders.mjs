@@ -119,6 +119,7 @@ export async function placePreorder(env, deps, s, input, limit) {
       nameForOrder: `${customer.firstName} ${customer.lastName}`, ...(note ? { preOrderNote: note } : {})
     } }, env.APP_PREORDER_TOKEN);
   } catch (error) {
+    deps.report(`PREORDER_SEND_${error.code || 'INTERNAL'}${error.category ? `_${error.category}` : ''}`);
     if (!error.sent) {
       await env.APP_DB.prepare('DELETE FROM app_preorders WHERE id = ?').bind(id).run();
       throw error;
@@ -127,11 +128,14 @@ export async function placePreorder(env, deps, s, input, limit) {
   }
   const response = result?.createPreorder, order = response?.order;
   if (response?.success === false) {
+    deps.report('PREORDER_SEND_REJECTED');
     await env.APP_DB.prepare('DELETE FROM app_preorders WHERE id = ?').bind(id).run();
     throw new AppError('PREORDER_REJECTED', 409);
   }
-  if (response?.success !== true || typeof order?.id !== 'string' || !order.id || typeof order.status !== 'string')
+  if (response?.success !== true || typeof order?.id !== 'string' || !order.id || typeof order.status !== 'string') {
+    deps.report('PREORDER_SEND_SHAPE');
     return unconfirmed(env, id);
+  }
   const status = order.status.slice(0, 40), open = isOpen(status) ? 1 : 0;
   const orderNumber = typeof order.orderNumber === 'string' ? order.orderNumber.slice(0, 40) : null;
   await env.APP_DB.prepare(`UPDATE app_preorders SET order_id = ?, order_number = ?, status = ?, open = ?, checked_at = ?
