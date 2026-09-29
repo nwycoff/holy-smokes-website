@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#213b2c" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="referrer" content="strict-origin" />
+    <meta
+      name="description"
+      content="Your Treehouse Pharmacy menu, points, and account."
+    />
+    <title>My Treehouse | Treehouse Pharmacy</title>
+    <link rel="icon" href="/app/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/images/img2.png" />
+    <link rel="manifest" href="/app/manifest.webmanifest" />
+    <link rel="stylesheet" href="/assets/customer/app.css" />
+    <script type="module" src="/assets/customer/app.js"></script>
+  </head>
+  <body>
+    <div id="demo-banner" class="demo-banner" hidden>
+      DESIGN PREVIEW
+      <span>Sample products and points · no real account or order</span
+      ><a href="/app/">Exit demo</a>
+    </div>
+    <header class="app-header">
+      <a href="#home" class="brand" aria-label="My Treehouse home"
+        ><img
+          src="/images/img6.png"
+          width="48"
+          height="48"
+          alt="Treehouse Pharmacy logo"
+        /><span>Treehouse<small>YOUR NEIGHBORHOOD PHARMACY</small></span></a
+      >
+      <nav class="desktop-nav" aria-label="Main">
+        <a href="#home">Home</a><a href="#menu">Menu</a
+        ><a href="#rewards">My points</a>
+      </nav>
+      <a href="#account" class="account-link"
+        ><span class="account-dot" aria-hidden="true"></span
+        ><span id="header-account">My account</span></a
+      >
+    </header>
+    <main id="main" class="app-main">
+      <div id="app-message" class="notice" role="status" hidden></div>
+      <section id="view-home" class="view" aria-labelledby="home-title">
+        <div class="home-heading">
+          <div>
+            <p class="eyebrow">PONCA CITY, OKLAHOMA</p>
+            <h1 id="home-title">
+              Your little corner<br />of <em>Treehouse.</em>
+            </h1>
+            <p class="lead">
+              Good finds. A little thank-you. All in one place.
+            </p>
+          </div>
+          <span class="welcome-stamp" aria-hidden="true"
+            >ROOTED HERE.<br /><b>Your local</b><br />TREEHOUSE.</span
+          >
+        </div>
+        <div class="home-grid">
+          <section class="points-card" aria-labelledby="home-points-heading">
+            <div class="points-card-top">
+              <p class="eyebrow" id="home-points-heading">TREEHOUSE REWARDS</p>
+              <span aria-hidden="true">✦</span>
+            </div>
+            <h2 id="home-balance">A little more<br />to look forward to.</h2>
+            <p id="home-points-copy">Sign in to keep your points close.</p>
+            <a href="#rewards" class="light-button" id="home-points-button"
+              >See my points <span aria-hidden="true">↗</span></a
+            >
+            <p class="card-note">Earned in store. Ready for your next visit.</p>
+          </section>
+          <section class="menu-promo">
+            <div>
+              <p class="eyebrow">FIND YOUR NEXT FAVORITE</p>
+              <h2>The menu,<br /><em>wherever you are.</em></h2>
+              <p>
+                Browse by category, explore your favorite brands, or start with
+                your budget.
+              </p>
+            </div>
+            <a href="#menu" class="primary-button"
+              >Explore the menu <span aria-hidden="true">→</span></a
+            >
+          </section>
+        </div>
+        <section class="home-shelf">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">START WITH YOUR BUDGET</p>
+              <h2>A few good finds.</h2>
+            </div>
+            <a href="#menu">View all <span aria-hidden="true">→</span></a>
+          </div>
+          <div id="home-products" class="product-grid"></div>
+        </section>
+        <div class="visit-card">
+          <div>
+            <p class="eyebrow">COME SAY HELLO</p>
+            <strong>1801 N Union St, Ponca City</strong>
+            <p>Your budtender can help you find your next favorite.</p>
+          </div>
+          <a href="tel:+15807166720" class="secondary-button"
+            >Call the shop ↗</a
+          >
+        </div>
+      </section>
+      <section id="view-menu" class="view" hidden aria-labelledby="menu-title">
+        <p class="eyebrow">THE TREEHOUSE SELECTION</p>
+        <div class="section-heading">
+          <h1 id="menu-title">Find your <em>favorite.</em></h1>
+          <span id="menu-freshness" class="freshness">Checking the menu…</span>
+        </div>
+        <p class="lead">
+          Browse what’s available on the sales floor. Confirm availability with
+          your budtender.
+        </p>
+        <div class="menu-tools">
+          <label class="search-field"
+            ><span class="sr-only">Search products, brands, or categories</span
+            ><span aria-hidden="true">⌕</span
+            ><input
+              id="menu-search"
+              type="search"
+              placeholder="Search strains, brands, or products"
+              maxlength="100"
+              autocomplete="off" /></label
+          ><label class="sort-field"
+            ><span class="sr-only">Sort products</span
+            ><select id="menu-sort">
+              <option value="price">Price: low to high</option>
+              <option value="name">Name: A to Z</option>
+              <option value="price-desc">Price: high to low</option>
+            </select></label
+          >
+        </div>
+        <div
+          id="category-filters"
+          class="filter-row"
+          role="group"
+          aria-label="Product category"
+        ></div>
+        <div class="results-heading">
+          <p id="menu-count" aria-live="polite"></p>
+          <label class="budget-toggle"
+            ><input id="budget-filter" type="checkbox" /> $20 and under</label
+          >
+        </div>
+        <p id="menu-error" class="notice" role="status" hidden></p>
+        <div id="menu-products" class="product-grid"></div>
+        <p id="menu-tax" class="fine-print"></p>
+      </section>
+      <section
+        id="view-rewards"
+        class="view account-view"
+        hidden
+        aria-labelledby="rewards-title"
+      >
+        <p class="eyebrow">A LITTLE THANK-YOU</p>
+        <h1 id="rewards-title">Your <em>points.</em></h1>
+        <p class="lead">A little closer to your next reward.</p>
+        <div id="rewards-content"></div>
+        <div class="rewards-explainer">
+          <span aria-hidden="true">✦</span>
+          <div>
+            <h3>Make your next visit a little sweeter.</h3>
+            <p>
+              Ask your budtender about the rewards you can use. Your points
+              balance updates from your store record.
+            </p>
+          </div>
+        </div>
+      </section>
+      <section
+        id="view-account"
+        class="view account-view"
+        hidden
+        aria-labelledby="account-title"
+      >
+        <p class="eyebrow">MAKE YOURSELF AT HOME</p>
+        <h1 id="account-title">My <em>Treehouse.</em></h1>
+        <div id="account-content"></div>
+        <section class="install-card">
+          <h3>A shortcut to your Treehouse.</h3>
+          <p id="install-copy">
+            Add My Treehouse to your home screen for easy access to your menu
+            and points.
+          </p>
+          <button id="install-button" class="secondary-button" hidden>
+            Add to home screen
+          </button>
+          <details>
+            <summary>How to add it on iPhone</summary>
+            <p>
+              Open this page in Safari, tap Share, then choose Add to Home
+              Screen. Open the new Treehouse icon to use the app.
+            </p>
+          </details>
+        </section>
+        <details class="privacy-detail">
+          <summary>About your account and privacy</summary>
+          <p>
+            Signing in connects to a separate account provider for your password
+            and recovery. A code from your budtender links your account to your
+            store record. We keep that link and secure sessions; we don’t save
+            your patient ID or purchase history in this app.
+          </p>
+          <p>
+            Signing up does not subscribe you to marketing. Notifications and
+            personalized offers are not enabled in this first version.
+          </p>
+          <p>
+            To remove your sign-in account, call the shop. Removing your rewards
+            connection below does not delete your in-store customer record.
+          </p>
+        </details>
+      </section>
+      <noscript
+        ><p class="notice">
+          Enable JavaScript to use My Treehouse, or call
+          <a href="tel:+15807166720">(580) 716-6720</a>.
+        </p></noscript
+      >
+    </main>
+    <footer class="app-footer">
+      <span>Treehouse Pharmacy · Ponca City, OK</span
+      ><a href="/">Visit our website ↗</a>
+    </footer>
+    <nav class="mobile-nav" aria-label="Main">
+      <a href="#home"><span aria-hidden="true">⌂</span>Home</a
+      ><a href="#menu"><span aria-hidden="true">☷</span>Menu</a
+      ><a href="#rewards"><span aria-hidden="true">✦</span>My points</a
+      ><a href="#account"><span aria-hidden="true">○</span>Account</a>
+    </nav>
+    <template id="product-template"
+      ><article class="product-card">
+        <div class="product-meta">
+          <span class="product-category"></span
+          ><span class="product-type"></span>
+        </div>
+        <p class="product-brand"></p>
+        <h3 class="product-name"></h3>
+        <p class="product-thc"></p>
+        <div class="product-variants"></div></article
+    ></template>
+  </body>
+</html>
