@@ -18,5 +18,6 @@ GROWFLOW_ORG = "holysmokesdispensary"
 APP_PREORDER_ENABLED = "true"
 APP_PUSH_ENABLED = "true"
 APP_PUSH_SUBJECT = "https://treehouse-app-test.pages.dev/app/"
-# APP_VAPID_PUBLIC_KEY is set as a var at deploy time (same value as the Pages project).
+# Public half of the notification key pair; the same value is set on the Pages project.
+APP_VAPID_PUBLIC_KEY = "BCaIcMble8bm3eUqMhTkHu0XM6GD4z_sSpq3GEprpfhdiogokZfXv1yplsfJ-2UN1LbJtMJKkZ9sv9YEwc0a92w"
 # Secrets (wrangler secret put): APP_VAPID_PRIVATE_JWK, APP_PREORDER_TOKEN, APP_LIMIT_SECRET.
