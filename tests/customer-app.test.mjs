@@ -327,6 +327,12 @@ test('order attempts that reach GrowFlow are limited per account', async () => {
   for (let i=0;i<5;i++) { assert.equal((await a.place(flower(1))).status,200); s.advance(30001); await a.status(); }
   assert.equal((await a.place(flower(1))).status,429);assert.equal(s.mutations().length,5);
 });
+test('a fulfilled (packed) order stays open until checkout', async () => {
+  const s=preorders({status:'Fulfilled'}), a=await s.linked();
+  assert.equal((await a.place(flower(1))).status,200);s.advance(30001);
+  const {order}=await (await a.status()).json();assert.equal(order.status,'Fulfilled');assert.equal(order.open,true);
+  assert.equal((await a.place(flower(1))).status,409);
+});
 test('one open order at a time; a completed order frees the slot', async () => {
   const s=preorders(), a=await s.linked();
   assert.equal((await a.place(flower(1))).status,200);

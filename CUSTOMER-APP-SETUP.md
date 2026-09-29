@@ -116,7 +116,7 @@ Linked customers can add menu items to an order and send it to GrowFlow as a **p
 How it works:
 
 - The browser sends only product IDs, sizes, the prices it showed and quantities. The server looks each one up in the shared menu cache and refuses the order if an item is gone or a price changed. The total sent to GrowFlow is the server's own sum of `variants.price` × quantity. It is refused while the menu is marked delayed.
-- Up to 10 items per order. One open order per account, enforced by a unique database index. `Completed`, `Fulfilled` and `Canceled` close an order; any other status keeps it open.
+- Up to 10 items per order. One open order per account, enforced by a unique database index. Only `Completed` (checked out) and `Canceled` close an order. In GrowFlow, `Fulfilled` means packed and waiting for checkout, so the app shows it as "Ready for pickup" and keeps it open.
 - GrowFlow requires the customer's first name, last name, birth date and customer type on every preorder. The server reads `Name`, `Birthday` and `CustomerType` from the **linked** customer record with `APP_GROWFLOW_TOKEN` at order time, sends them with the record's `id`, and does not store them. The first name is everything before the last word of `Name`. A record with a one-word name, a missing birth date or a type other than Medical/Recreational cannot order; the customer is asked to call.
 - `APP_PREORDER_TOKEN` is used only for `createPreorder` and `preorderStatus`. The mutation is never retried. If GrowFlow may have received a request but the app could not confirm it (timeout, server error, malformed reply), the account's order slot stays blocked as `Unconfirmed` for 30 minutes and the customer is told to call, so a retry cannot quietly become a second order. A 429 or `success: false` frees the slot immediately.
 - `app_preorders` stores only the GrowFlow order ID and number, status, total, item count and times. Line items, names, birth dates and notes are not stored in the app database.
@@ -124,6 +124,7 @@ How it works:
 
 Setup and test gates:
 
+0. In GrowFlow, **Settings → Store settings → Menu Settings**: turn on **Pre-orders**. Decide whether to turn on **Auto-accept new pre-orders**; if it is on, app orders skip the New column and go straight to Unfulfilled. App orders appear under **Sales → Pre-Orders**, arrive with products as placeholders ("Needs Package ID"), and staff attach packages to fulfill them, as with Dutchie or Weedmaps orders. Automatic pull-sheet printing works on the Windows/iOS GrowFlow apps with a receipt printer (Settings → Print → Pre-Order Fulfillment Pull Sheet). The help center only describes customer texts coming from the menu service (such as Dutchie), so don't expect GrowFlow to text customers about app orders; the app shows the status instead.
 1. Run `app-migrations/0002_customer_app_preorders.sql` in `APP_DB` after 0001.
 2. Create the separate GrowFlow token with **Create preorders** only, and save it as the `APP_PREORDER_TOKEN` secret. No other token changes are needed; the customer lookup uses `APP_GROWFLOW_TOKEN`, which already has Customers read.
 3. Test first in GrowFlow's `integrations` sandbox if available (request access from apipartners@growflow.com). Otherwise do one supervised test on your own linked record and cancel it in GrowFlow.

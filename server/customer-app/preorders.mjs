@@ -5,7 +5,9 @@ import { CREATE_PREORDER, PREORDER_CUSTOMER_QUERY, PREORDER_STATUS, eligibleCust
 // Pickup only, paid in store. The server rebuilds every line and the total from the
 // shared menu; the browser only chooses products, sizes and quantities.
 export const MAX_ITEMS = 10;
-const CLOSED = ['Completed', 'Canceled', 'Fulfilled'];
+// GrowFlow flow: New → Unfulfilled → Fulfilled (packed, awaiting checkout) → Completed.
+// Only checkout or cancellation finishes an order.
+const CLOSED = ['Completed', 'Canceled'];
 const UNCONFIRMED_HOLD = 1800000;
 const STATUS_REFRESH = 30000;
 const isOpen = status => !CLOSED.includes(status);

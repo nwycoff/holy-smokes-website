@@ -9,11 +9,12 @@ let cart = [], order = null, orderLoading = false, orderNote = '';
 const canOrder = () => demo || Boolean(config.preorderEnabled && user.linked);
 const cartCount = () => cart.reduce((n, line) => n + line.qty, 0);
 const cartTotal = () => cart.reduce((sum, line) => sum + line.priceCents * line.qty, 0);
-const ORDER_STATUS = { Submitting: 'Sending your order…', New: 'Received. We’re getting it ready.',
-  Pending: 'Received. We’re getting it ready.', Cart: 'Received. We’re getting it ready.',
-  InTransit: 'Almost ready.', Held: 'On hold. Please call the shop.', Unfulfilled: 'Please call the shop about this order.',
+const ORDER_STATUS = { Submitting: 'Sending your order…', New: 'Received. The shop will start on it shortly.',
+  Pending: 'Received. The shop will start on it shortly.', Cart: 'Received. The shop will start on it shortly.',
+  Unfulfilled: 'Accepted. We’re getting it ready.', InTransit: 'Almost ready.', Fulfilled: 'Ready for pickup!',
+  Held: 'On hold. Please call the shop.',
   Unconfirmed: 'We couldn’t confirm this order. Please call the shop before ordering again.',
-  Completed: 'Picked up. Thank you!', Fulfilled: 'Picked up. Thank you!', Canceled: 'Canceled.' };
+  Completed: 'Picked up. Thank you!', Canceled: 'Canceled.' };
 function el(tag, text = '', className = '') {
   const node = document.createElement(tag); node.textContent = text;
   if (className) node.className = className;
