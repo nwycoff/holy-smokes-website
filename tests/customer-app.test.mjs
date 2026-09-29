@@ -360,8 +360,11 @@ test('failed sends log a fixed category; refused operations free the slot, uncer
   reply=()=>Response.json({errors:[{message:'Insufficient Permissions'}]});
   assert.equal((await a.place(flower(1))).status,503);assert.ok(s.codes.includes('PREORDER_SEND_GROWFLOW_QUERY_PERMISSION'));
   assert.equal(s.env.APP_DB.db.prepare('SELECT count(*) n FROM app_preorders').get().n,0);
-  reply=()=>Response.json({errors:[{message:'Something broke mid-way'}]});
+  assert.ok(!s.codes.some(c=>c.startsWith('GROWFLOW_ERROR_DETAIL')));
+  s.env.APP_DIAGNOSTIC_ERRORS='true';
+  reply=()=>Response.json({errors:[{message:'Something broke mid-way for 1990-05-06\nand more',extensions:{code:'X'}}]});
   assert.equal((await a.place(flower(1))).status,503);assert.ok(s.codes.includes('PREORDER_SEND_GROWFLOW_QUERY_OTHER'));
+  assert.ok(s.codes.includes('GROWFLOW_ERROR_DETAIL X: Something broke mid-way for ####-##-## and more'));
   assert.equal(s.env.APP_DB.db.prepare("SELECT status FROM app_preorders").get().status,'Unconfirmed');
 });
 test('refused or rate-limited preorders release the slot for another try', async () => {
