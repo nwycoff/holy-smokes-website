@@ -79,12 +79,13 @@ export function normalizeMenu(input, location, now) {
     for (const p of group.products) {
       if (!p || typeof p.id !== 'string' || !clean(p.name)) throw new AppError('MENU_SHAPE');
       if (seen.has(p.id)) continue;
-      // Exact configured GrowFlow front-room value AND sellable positive stock.
-      // Missing location/packages never fall back to aggregate inventory.
-      const front = (Array.isArray(p.packages) ? p.packages : []).filter(pkg =>
-        pkg?.isSellable === true && normalized(pkg.storageLocation) === normalized(location)
+      // Include the configured front room and explicitly unassigned legacy packages.
+      // Missing/malformed fields never fall back to aggregate inventory.
+      const eligiblePackages = (Array.isArray(p.packages) ? p.packages : []).filter(pkg =>
+        pkg?.isSellable === true && (pkg.storageLocation === null
+          || (typeof pkg.storageLocation === 'string' && normalized(pkg.storageLocation) === normalized(location)))
         && typeof pkg.inventoryQty === 'number' && Number.isFinite(pkg.inventoryQty) && pkg.inventoryQty > 0);
-      if (!front.length) continue;
+      if (!eligiblePackages.length) continue;
       const variants = (Array.isArray(p.variants) ? p.variants : []).filter(v => v
         && Number.isSafeInteger(v.price) && v.price >= 0).map(v => ({ priceCents: v.price,
         size: Number.isFinite(v.weight) && v.weight > 0 && clean(v.uom) ? `${v.weight} ${clean(v.uom)}` : 'Each' }));
@@ -94,7 +95,7 @@ export function normalizeMenu(input, location, now) {
       const flower = /flower|smalls|top shelf/i.test(`${p.category} ${category}`);
       products.push({ id: p.id, name: flower ? clean(p.strain) || clean(p.name) : clean(p.name),
         brand: clean(p.brand), category, type: ['indica', 'sativa', 'hybrid'].includes(normalized(p.cannabisType))
-          ? normalized(p.cannabisType) : '', variants, thc: thcRange(front) });
+          ? normalized(p.cannabisType) : '', variants, thc: thcRange(eligiblePackages) });
     }
   }
   products.sort((a, b) => Math.min(...a.variants.map(v => v.priceCents)) - Math.min(...b.variants.map(v => v.priceCents))
@@ -104,7 +105,7 @@ export function normalizeMenu(input, location, now) {
 
 export async function getMenu(env, deps) {
   const key = await hash(env.APP_LIMIT_SECRET,
-    `menu:${env.GROWFLOW_ORG}:${env.APP_MENU_KEY}:${env.APP_FRONT_LOCATION}:${env.APP_GROWFLOW_TOKEN}`);
+    `menu:v2-front-and-unassigned:${env.GROWFLOW_ORG}:${env.APP_MENU_KEY}:${env.APP_FRONT_LOCATION}:${env.APP_GROWFLOW_TOKEN}`);
   const cached = await env.APP_DB.prepare('SELECT value, updated_at FROM app_cache WHERE key = ?').bind(key).first();
   const age = cached ? deps.now() - cached.updated_at : Infinity;
   const fallback = () => {

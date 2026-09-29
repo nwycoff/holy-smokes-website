@@ -10,7 +10,7 @@ Customers currently re-enter patient details for each points lookup, and the exi
 - Auth0 hosted login through the maintained `oauth4webapi` library; PKCE, nonce/state, issuer/audience and signature checks; verified email required.
 - Server-side sessions, CSRF-protected changes, session revocation and a one-use, ten-minute enrollment workflow after staff checks identity.
 - Exact linked-customer points lookup. No arbitrary customer IDs or patient searches accepted by the customer endpoint.
-- Shared menu refresh, positive sellable front-room packages only, explicit tax flag and package-derived THC.
+- Shared menu refresh, positive sellable packages in the front room or explicitly unassigned legacy stock, explicit tax flag and package-derived THC.
 - Separate D1 migration, owner enrollment CLI, setup guide and browser regression runner.
 
 The current `/rewards` implementation and main website navigation are unchanged. There are no GrowFlow writes, preorder submissions, point redemptions, marketing subscriptions, push messages or purchase-history reads.

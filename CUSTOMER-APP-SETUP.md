@@ -10,8 +10,8 @@ This branch adds `/app/` and a clearly labelled `/app/demo/`. It does not change
 - Seven-day, revocable, opaque HttpOnly secure sessions. Provider tokens are discarded after login. Account data is cleared from the page on backgrounding/sign-out.
 - Owner-issued, one-use connection codes after an in-person identity check. Codes expire after ten minutes; database stores their HMAC, not the usable code. A customer record can belong to only one app account.
 - Points lookup uses only the customer ID attached to that server-side session. Browser callers cannot supply another customer's ID.
-- Menu requires **both** the configured GrowFlow front storage location and `isSellable: true`, with positive package stock. Missing/unknown package locations are excluded. METRC room names are not used.
-- Brand followed by strain for flower, falling back to product name. Prices are provider variant prices in cents, with the menu's explicit tax flag. THC comes only from eligible front-room packages; conflicting tests appear as a range. Individual terpene enrichment is not included in this first mobile release; the TV application is unchanged.
+- Menu requires `isSellable: true` and positive package stock, with either the configured GrowFlow front storage location or an explicit `null` location for legacy unassigned stock. Back and other named rooms, missing fields and malformed locations are excluded. METRC room names are not used.
+- Brand followed by strain for flower, falling back to product name. Prices are provider variant prices in cents, with the menu's explicit tax flag. THC comes only from eligible front-room or unassigned packages; conflicting tests appear as a range. Individual terpene enrichment is not included in this first mobile release; the TV application is unchanged.
 
 ## Review without any secrets
 
@@ -100,8 +100,8 @@ The initial owner tool is deliberately not a public staff portal. Before wider s
 The query is based on the supplied schema, not a completed live test of these exact new requests. Confirm on the test token:
 
 - The menu scope returns all intended groups and the documented package/variant fields.
-- A front/sellable package appears; a back/non-sellable package does not. Check a product present in both rooms.
-- The configured front value is exact. Unknown sellability/location and zero stock stay hidden.
+- Front/sellable and legacy unassigned/sellable packages appear; back-room packages do not, even if marked sellable. Check a product present in both rooms.
+- The configured front value is exact. Missing sellability/location fields, other named rooms and zero stock stay hidden; an explicit null location is allowed only with sellable positive stock.
 - Price, package size, tax flag and THC match the approved customer menu/POS. This version uses `variants.price`, not an invented medical-price or weight-tier calculation.
 - If different strains share a product, fix that source record instead of inventing labels.
 

@@ -40,7 +40,7 @@ function syntheticMenu() {
       packages:[pkg('Front',true,2,25),pkg('Back',false,50,99)]},
     {id:'public-b',name:'Back only',category:'Flower',variants:[{price:100}],packages:[pkg('Back')]},
     {id:'public-c',name:'Not sellable',category:'Flower',variants:[{price:100}],packages:[pkg('Front',false)]},
-    {id:'public-d',name:'Unknown room',category:'Flower',variants:[{price:100}],packages:[pkg(null)]},
+    {id:'public-d',name:'Legacy unassigned',category:'Flower',variants:[{price:100}],packages:[pkg(null)]},
     {id:'public-e',name:'Zero stock',category:'Flower',variants:[{price:100}],packages:[pkg('Front',true,0)]}
   ]}]};
 }
@@ -206,11 +206,32 @@ test('removing app connection requires recent login and removes every app sessio
   const c=await s.login();const csrfC=await s.seed(c.cookie);s.advance(900001);
   assert.equal((await s.run('remove-link',{method:'POST',cookie:c.cookie,body:{},headers:{'x-treehouse-csrf':csrfC}})).status,403);
 });
-test('menu only includes positive sellable front stock; prices and tests never come from back stock', () => {
-  const menu=normalizeMenu(syntheticMenu(),'front',Date.now());assert.equal(menu.products.length,1);
-  const p=menu.products[0];assert.equal(p.name,'Sample Strain');assert.equal(p.brand,'Sample Brand');assert.deepEqual(p.thc,[25,25]);
+test('menu includes positive sellable front and explicitly unassigned stock', () => {
+  const menu=normalizeMenu(syntheticMenu(),'front',Date.now());assert.equal(menu.products.length,2);
+  assert.ok(menu.products.some(p=>p.id==='public-d'));
+  const p=menu.products.find(p=>p.id==='public-a');assert.equal(p.name,'Sample Strain');assert.equal(p.brand,'Sample Brand');assert.deepEqual(p.thc,[25,25]);
   assert.equal(p.variants[0].priceCents,2000);assert.equal(p.category,'Flower');
   assert.ok(!JSON.stringify(menu).includes('inventoryQty'));assert.ok(!JSON.stringify(menu).includes('storageLocation'));
+});
+test('package eligibility rejects back, other rooms, missing fields and unusable stock', () => {
+  for (const changes of [
+    {storageLocation:'Back'}, {storageLocation:'Other'}, {storageLocation:undefined},
+    {storageLocation:''}, {storageLocation:{}}, {isSellable:false}, {isSellable:undefined},
+    {inventoryQty:0}, {inventoryQty:-1}, {inventoryQty:NaN}, {inventoryQty:'2'}
+  ]) {
+    const input=syntheticMenu(), product=input.menuGroups[0].products[3];
+    input.menuGroups[0].products=[product];
+    Object.assign(product.packages[0],changes);
+    assert.equal(normalizeMenu(input,'Front',Date.now()).products.length,0);
+  }
+});
+test('THC uses eligible front and legacy packages and excludes back or non-sellable tests', () => {
+  const input=syntheticMenu(), product=input.menuGroups[0].products[0];
+  input.menuGroups[0].products=[product];
+  const pkg=(storageLocation,isSellable,inventoryQty,thc)=>({storageLocation,isSellable,inventoryQty,
+    testResults:{uom:'%',totalPotentialPsychoactiveThc:thc}});
+  product.packages.push(pkg(null,true,3,28),pkg('Back',true,5,90),pkg(null,false,5,80),pkg(null,true,0,70));
+  assert.deepEqual(normalizeMenu(input,'Front',Date.now()).products[0].thc,[25,28]);
 });
 test('menu cache and lock share updates across visitors, show delayed data briefly, then hide it', async () => {
   const s=setup();const first=await s.run('menu');assert.equal(first.status,200);await s.run('menu');
