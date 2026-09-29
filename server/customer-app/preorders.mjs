@@ -103,15 +103,17 @@ async function preorderCustomer(env, deps, customerId, license) {
   if (!customer || customer.objectId !== customerId || names.length < 2 || !type || !dob)
     throw new AppError('PREORDER_PROFILE', 409);
   if (type === 'Medical' && !license) throw new AppError('LICENSE_REQUIRED', 400);
-  // GrowFlow also requires the license expiry (YYYY-MM-DD) with a license number. Taken from
+  // GrowFlow also requires the license expiry with a license number, as a DateTime (midnight UTC
+  // of the expiry date; a bare YYYY-MM-DD fails GraphQL validation). Taken from
   // the record's state license expiration, falling back to its license end date.
   let medicalLicenseExpires;
   if (license) {
     const expires = [customer.CustomerStateLicenseExpiration, customer.LicenseEffectiveEndDate]
       .map(dateValue).find(date => Number.isFinite(date.getTime()));
     if (!expires) throw new AppError('LICENSE_EXPIRY_MISSING', 409);
-    medicalLicenseExpires = expires.toISOString().slice(0, 10);
-    if (medicalLicenseExpires < new Date(deps.now()).toISOString().slice(0, 10)) throw new AppError('LICENSE_EXPIRED', 409);
+    const day = expires.toISOString().slice(0, 10);
+    if (day < new Date(deps.now()).toISOString().slice(0, 10)) throw new AppError('LICENSE_EXPIRED', 409);
+    medicalLicenseExpires = `${day}T00:00:00.000Z`;
   }
   return { id: customer.objectId, type, firstName: names.slice(0, -1).join(' '), lastName: names.at(-1), dob,
     ...(license ? { medicalLicenseNumber: license, medicalLicenseExpires } : {}) };

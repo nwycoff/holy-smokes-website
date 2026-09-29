@@ -308,7 +308,7 @@ test('preorder is rebuilt from the menu and linked record, sent with the preorde
   assert.deepEqual(order,{orderNumber:'1042',status:'New',open:true,totalCents:4000,itemCount:2,createdAt:order.createdAt});
   const [m]=s.mutations();assert.equal(m.variables.menuKey,'test-menu-key');
   assert.deepEqual(m.variables.preorder,{preOrderType:'Pickup',preOrderTotal:4000,
-    customer:{id:'CustomerOne',type:'Medical',firstName:'Synthetic Test',lastName:'Patient',dob:'1990-05-06T00:00:00.000Z',medicalLicenseNumber:LICENSE,medicalLicenseExpires:'2099-03-31'},
+    customer:{id:'CustomerOne',type:'Medical',firstName:'Synthetic Test',lastName:'Patient',dob:'1990-05-06T00:00:00.000Z',medicalLicenseNumber:LICENSE,medicalLicenseExpires:'2099-03-31T00:00:00.000Z'},
     orderItems:[{productId:'public-a',qty:2,weight:3.5}],nameForOrder:'Synthetic Test Patient',preOrderNote:'Call when ready'});
   const stored=JSON.stringify(s.env.APP_DB.db.prepare('SELECT * FROM app_preorders').all());
   assert.ok(!/Synthetic|1990|public-a|Call when|PAAA|1234/.test(stored));
@@ -330,6 +330,7 @@ test('preorder input is validated and client prices are checked, never trusted',
 });
 test('order attempts that reach GrowFlow are limited per account', async () => {
   const s=preorders({status:'Canceled'}), a=await s.linked();
+  s.advance(3600000-(s.deps.now()%3600000)+1000); // Start of an hourly window, whatever the clock says.
   for (let i=0;i<5;i++) { assert.equal((await a.place(flower(1))).status,200); s.advance(30001); await a.status(); }
   assert.equal((await a.place(flower(1))).status,429);assert.equal(s.mutations().length,5);
 });
@@ -383,6 +384,13 @@ test('HTTP errors from GrowFlow log their status and hold the slot as unconfirme
   assert.equal((await a.place(flower(1))).status,503);
   assert.ok(s.codes.includes('GROWFLOW_ERROR_DETAIL HTTP 500 -: Upstream failed after ## seconds'));
 });
+test('HTTP 400 validation refusals free the slot immediately', async () => {
+  const s=preorders({create:()=>Response.json({errors:[{message:'Variable "$preorder" got invalid value',extensions:{code:'BAD_USER_INPUT'}}]},{status:400})});
+  const a=await s.linked();
+  assert.equal((await a.place(flower(1))).status,503);
+  assert.ok(s.codes.includes('PREORDER_SEND_GROWFLOW_HTTP_VALIDATION'));
+  assert.equal(s.env.APP_DB.db.prepare('SELECT count(*) n FROM app_preorders').get().n,0);
+});
 test('refused or rate-limited preorders release the slot for another try', async () => {
   let reply=()=>Response.json({data:{createPreorder:{success:false,order:null}}});
   const s=preorders({create:()=>reply()}), a=await s.linked();
@@ -418,7 +426,7 @@ test('medical preorders need the customer’s own license number, checked by Gro
   assert.ok(!JSON.stringify(s.env.APP_DB.db.prepare('SELECT * FROM app_preorders').all()).includes('PAAA'));
 });
 test('license expiry comes from the record; missing or expired licenses cannot order', async () => {
-  for (const [customer,status,expires] of [[{CustomerStateLicenseExpiration:null,LicenseEffectiveEndDate:{__type:'Date',iso:'2098-01-15T00:00:00.000Z'}},200,'2098-01-15'],
+  for (const [customer,status,expires] of [[{CustomerStateLicenseExpiration:null,LicenseEffectiveEndDate:{__type:'Date',iso:'2098-01-15T05:00:00.000Z'}},200,'2098-01-15T00:00:00.000Z'],
     [{CustomerStateLicenseExpiration:null},409],[{CustomerStateLicenseExpiration:'2001-01-01T00:00:00.000Z'},409]]) {
     const s=preorders({customer}), a=await s.linked(), res=await a.place(flower(1));
     assert.equal(res.status,status);

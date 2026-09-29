@@ -87,13 +87,14 @@ async function sendGrowflow(env, deps, key, query, variables, token) {
   }
   if (res.status === 429) throw new AppError('GROWFLOW_RATE_LIMITED');
   if (!res.ok) {
+    let errors = null;
+    try { errors = (await res.json())?.errors; } catch { /* Non-JSON bodies stay unclassified. */ }
+    // A validation or permission refusal (e.g. HTTP 400 BAD_USER_INPUT) means nothing ran.
+    const refused = errors ? graphqlCategory(errors) : '';
     const failure = new AppError('GROWFLOW_HTTP');
-    failure.category = `STATUS_${res.status}`;
-    if (env.APP_DIAGNOSTIC_ERRORS === 'true') {
-      let errors = null;
-      try { errors = (await res.json())?.errors; } catch { /* Non-JSON bodies are not logged. */ }
+    failure.category = REFUSED.includes(refused) ? refused : `STATUS_${res.status}`;
+    if (env.APP_DIAGNOSTIC_ERRORS === 'true')
       deps.report(`GROWFLOW_ERROR_DETAIL HTTP ${res.status} ${errorDetail(errors) || '(no GraphQL errors in body)'}`);
-    }
     throw failure;
   }
   const payload = await res.json();
