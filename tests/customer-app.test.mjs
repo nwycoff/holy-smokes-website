@@ -265,6 +265,9 @@ function preorders({ customer = {}, create, status = 'Completed' } = {}) {
     sent.push({query:body.query,variables:body.variables,auth:init.headers.Authorization});
     if (body.query.includes('TreehousePreorderCustomer')) {
       assert.equal(init.headers.Authorization,'Bearer gfr_synthetic_test_only');
+      const license=body.variables.where.OR;
+      if (license && !license.some(f=>new RegExp(Object.values(f)[0].matchesRegex,'i').test('PAAA-1234-ABCD')))
+        return Response.json({data:{findCustomers:{pageInfo:{hasNextPage:false},edges:[]}}});
       return Response.json({data:{findCustomers:{pageInfo:{hasNextPage:false},edges:[{node:{objectId:'CustomerOne',
         Name:'Synthetic Test Patient',Birthday:'1990-05-06T00:00:00.000Z',CustomerType:'Medical',...customer}}]}}});
     }
@@ -282,7 +285,8 @@ function preorders({ customer = {}, create, status = 'Completed' } = {}) {
   }
   return {...s,sent,mutations,linked};
 }
-const flower = (qty=2, extra={}) => ({items:[{productId:'public-a',size:'3.5 g',priceCents:2000,qty,...extra}]});
+const LICENSE='PAAA-1234-ABCD';
+const flower = (qty=2, extra={}) => ({items:[{productId:'public-a',size:'3.5 g',priceCents:2000,qty,...extra}],license:LICENSE});
 
 test('preorders stay off until enabled with a separate token and require a linked account', async () => {
   const s=preorders();
@@ -303,15 +307,16 @@ test('preorder is rebuilt from the menu and linked record, sent with the preorde
   assert.deepEqual(order,{orderNumber:'1042',status:'New',open:true,totalCents:4000,itemCount:2,createdAt:order.createdAt});
   const [m]=s.mutations();assert.equal(m.variables.menuKey,'test-menu-key');
   assert.deepEqual(m.variables.preorder,{preOrderType:'Pickup',preOrderTotal:4000,
-    customer:{id:'CustomerOne',type:'Medical',firstName:'Synthetic Test',lastName:'Patient',dob:'1990-05-06T00:00:00.000Z'},
+    customer:{id:'CustomerOne',type:'Medical',firstName:'Synthetic Test',lastName:'Patient',dob:'1990-05-06T00:00:00.000Z',medicalLicenseNumber:LICENSE},
     orderItems:[{productId:'public-a',qty:2,weight:3.5}],nameForOrder:'Synthetic Test Patient',preOrderNote:'Call when ready'});
   const stored=JSON.stringify(s.env.APP_DB.db.prepare('SELECT * FROM app_preorders').all());
-  assert.ok(!/Synthetic|1990|public-a|Call when/.test(stored));
+  assert.ok(!/Synthetic|1990|public-a|Call when|PAAA|1234/.test(stored));
+  assert.ok(!s.codes.join(' ').includes('1234'));
   assert.equal((await (await a.status()).json()).order.orderNumber,'1042');
 });
 test('preorder input is validated and client prices are checked, never trusted', async () => {
   const s=preorders(), a=await s.linked();
-  for (const body of [{},{items:[]},flower(11),flower(0),flower(1.5),flower(2,{extra:true}),{...flower(),total:1},
+  for (const body of [{},{items:[]},{...flower(),license:5},flower(11),flower(0),flower(1.5),flower(2,{extra:true}),{...flower(),total:1},
     {items:[...flower(1).items,...flower(1).items]},{items:[{productId:'../x',size:'3.5 g',priceCents:2000,qty:1}]},
     {...flower(),note:'x'.repeat(201)}]) assert.equal((await a.place(body)).status,400);
   assert.equal((await a.place({items:[...flower(6).items,{productId:'public-d',size:'Each',priceCents:100,qty:5}]})).status,400);
@@ -385,4 +390,24 @@ test('orders are refused while the menu is delayed', async () => {
   const s=preorders(), a=await s.linked();
   assert.equal((await s.run('menu')).status,200);s.advance(60001);s.setGF({},429,{'retry-after':'1'});
   assert.equal((await a.place(flower(1))).status,503);assert.equal(s.mutations().length,0);
+});
+
+test('medical preorders need the customer’s own license number, checked by GrowFlow and never stored', async () => {
+  const s=preorders(), a=await s.linked(), {license,...noLicense}=flower(1);
+  const missing=await a.place(noLicense);assert.equal(missing.status,400);assert.match((await missing.json()).error,/medical license number/);
+  for (const bad of ['PAAA','PAAA 1234 ABCD!','--PAAA1234']) assert.equal((await a.place({...noLicense,license:bad})).status,400);
+  const wrong=await a.place({...noLicense,license:'PZZZ-9999-ZZZZ'});assert.equal(wrong.status,400);
+  assert.match((await wrong.json()).error,/doesn’t match/);assert.equal(s.mutations().length,0);
+  const lookup=s.sent.filter(r=>r.query.includes('TreehousePreorderCustomer')).at(-1).variables.where;
+  assert.deepEqual(lookup.objectId,{equalTo:'CustomerOne'});
+  assert.deepEqual(Object.keys(lookup.OR[0]),['PatientLicenseNumber']);assert.equal(lookup.OR.length,3);
+  const ok=await a.place({...noLicense,license:' paaa1234abcd '});assert.equal(ok.status,200);
+  assert.equal(s.mutations()[0].variables.preorder.customer.medicalLicenseNumber,'PAAA1234ABCD');
+  assert.equal(s.env.APP_DB.db.prepare('SELECT count(*) n FROM app_preorders').get().n,1);
+  assert.ok(!JSON.stringify(s.env.APP_DB.db.prepare('SELECT * FROM app_preorders').all()).includes('PAAA'));
+});
+test('recreational customers can order without a license number', async () => {
+  const s=preorders({customer:{CustomerType:'Recreational'}}), a=await s.linked(), {license,...noLicense}=flower(1);
+  assert.equal((await a.place(noLicense)).status,200);
+  assert.equal(s.mutations()[0].variables.preorder.customer.medicalLicenseNumber,undefined);
 });

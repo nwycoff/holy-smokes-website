@@ -46,7 +46,7 @@ export async function currentPreorder(env, deps, s) {
 }
 
 function readItems(input) {
-  if (Object.keys(input).some(k => !['items', 'note'].includes(k)) || !Array.isArray(input.items)
+  if (Object.keys(input).some(k => !['items', 'note', 'license'].includes(k)) || !Array.isArray(input.items)
     || !input.items.length || input.items.length > MAX_ITEMS) throw new AppError('INPUT', 400);
   const seen = new Set();
   const items = input.items.map(item => {
@@ -64,7 +64,21 @@ function readItems(input) {
   if (input.note !== undefined && typeof input.note !== 'string') throw new AppError('INPUT', 400);
   const note = (input.note || '').replace(/[\u0000-\u001f\u007f]+/g, ' ').trim();
   if (note.length > 200) throw new AppError('INPUT', 400);
-  return { items, note };
+  if (input.license !== undefined && typeof input.license !== 'string') throw new AppError('INPUT', 400);
+  const license = (input.license || '').replace(/\s+/g, '').toUpperCase();
+  if (license && !/^[A-Z0-9](?:-?[A-Z0-9]){4,39}$/.test(license)) throw new AppError('LICENSE_FORMAT', 400);
+  return { items, note, license };
+}
+
+// Same field allowlist as the points checker. License numbers can be matched in a
+// GrowFlow filter but not read, so the customer supplies theirs and GrowFlow confirms it.
+const LICENSE_FIELDS = new Set(['PatientLicenseNumber', 'MedicalLicenseNumber', 'CustomerStateLicense']);
+function licenseFilter(env, license) {
+  const fields = String(env.GROWFLOW_PATIENT_ID_FIELDS || '').split(',').map(field => field.trim());
+  if (!fields[0] || fields.some(field => !LICENSE_FIELDS.has(field)) || new Set(fields).size !== fields.length)
+    throw new AppError('PREORDER_CONFIG');
+  const pattern = `^${license.replaceAll('-', '').split('').join('-?')}$`;
+  return { OR: fields.map(field => ({ [field]: { matchesRegex: pattern, options: 'i' } })) };
 }
 
 function birthDate(value, now) {
@@ -76,20 +90,24 @@ function birthDate(value, now) {
 
 // GrowFlow requires the customer's name, birth date and type on every preorder. They are
 // read from the linked record at order time and never stored by the app.
-async function preorderCustomer(env, deps, customerId) {
-  const data = await queryGrowflow(env, deps, PREORDER_CUSTOMER_QUERY,
-    { where: eligibleCustomer({ objectId: { equalTo: customerId } }) });
+// GrowFlow requires a medical license number for medical customers; it is sent, never stored.
+async function preorderCustomer(env, deps, customerId, license) {
+  const data = await queryGrowflow(env, deps, PREORDER_CUSTOMER_QUERY, { where: eligibleCustomer({
+    objectId: { equalTo: customerId }, ...(license ? licenseFilter(env, license) : {}) }) });
   const customer = singleCustomer(data);
+  if (license && !customer) throw new AppError('LICENSE_MISMATCH', 400);
   const names = typeof customer?.Name === 'string' ? customer.Name.trim().split(/\s+/).filter(Boolean) : [];
   const type = { medical: 'Medical', recreational: 'Recreational' }[String(customer?.CustomerType || '').trim().toLowerCase()];
   const dob = birthDate(customer?.Birthday, deps.now());
   if (!customer || customer.objectId !== customerId || names.length < 2 || !type || !dob)
     throw new AppError('PREORDER_PROFILE', 409);
-  return { id: customer.objectId, type, firstName: names.slice(0, -1).join(' '), lastName: names.at(-1), dob };
+  if (type === 'Medical' && !license) throw new AppError('LICENSE_REQUIRED', 400);
+  return { id: customer.objectId, type, firstName: names.slice(0, -1).join(' '), lastName: names.at(-1), dob,
+    ...(license ? { medicalLicenseNumber: license } : {}) };
 }
 
 export async function placePreorder(env, deps, s, input, limit) {
-  const { items, note } = readItems(input);
+  const { items, note, license } = readItems(input);
   if ((await currentPreorder(env, deps, s))?.open) throw new AppError('OPEN_ORDER', 409);
   await limit();
   const menu = await getMenu(env, deps);
@@ -103,7 +121,7 @@ export async function placePreorder(env, deps, s, input, limit) {
   });
   const totalCents = lines.reduce((sum, line) => sum + line.cents, 0);
   const itemCount = items.reduce((n, item) => n + item.qty, 0);
-  const customer = await preorderCustomer(env, deps, s.customer_id);
+  const customer = await preorderCustomer(env, deps, s.customer_id, license);
 
   // Claim the account's single open-order slot before sending anything to GrowFlow.
   const id = randomToken(), now = deps.now();

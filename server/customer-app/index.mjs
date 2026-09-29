@@ -148,6 +148,9 @@ export async function handleApp(context, overrides = {}) {
       PRICE_CHANGED: 'A price in your order has changed. Please review your order.',
       PREORDER_PROFILE: 'We can’t place app orders for your record yet. Please call the shop or ask your budtender.',
       PREORDER_REJECTED: 'The shop couldn’t accept this order. Please call the shop.',
+      LICENSE_REQUIRED: 'Please enter your medical license number to order ahead.',
+      LICENSE_FORMAT: 'Please check your medical license number. Use letters, numbers and dashes only.',
+      LICENSE_MISMATCH: 'That license number doesn’t match your store record. Please check it or ask your budtender.',
       PREORDER_UNCONFIRMED: 'We couldn’t confirm your order. Please call the shop before ordering again.' };
     return json(known ? error.status : 503, { error: messages[code] || 'This is temporarily unavailable. Please try again later or ask your budtender.' },
       known && error.status === 429 ? { 'Retry-After': '900' } : {});

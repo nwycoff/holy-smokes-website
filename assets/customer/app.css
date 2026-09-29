@@ -1187,3 +1187,8 @@ details summary {
 .variant span {
   white-space: nowrap;
 }
+
+.account-panel .field-help {
+  font-size: 12px;
+  margin: -4px 0 0;
+}

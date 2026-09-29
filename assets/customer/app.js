@@ -5,7 +5,7 @@ let config = {}, user = { signedIn: false, linked: false }, points = null, menu 
 let category = 'All', menuError = '', generation = 0, pendingInstall = null, menuLoading = false, pointsLoading = false;
 // The cart holds only public menu choices, in memory. Order status is account data.
 const MAX_ITEMS = 10;
-let cart = [], order = null, orderLoading = false, orderNote = '';
+let cart = [], order = null, orderLoading = false, orderNote = '', orderLicense = '';
 const canOrder = () => demo || Boolean(config.preorderEnabled && user.linked);
 const cartCount = () => cart.reduce((n, line) => n + line.qty, 0);
 const cartTotal = () => cart.reduce((sum, line) => sum + line.priceCents * line.qty, 0);
@@ -106,7 +106,7 @@ async function refreshPoints() {
   finally { pointsLoading = false; if (current === generation) { renderHomePoints(); renderRewards(); } }
 }
 function clearPrivate() {
-  generation++; points = null; order = null; user = { signedIn: false, linked: false };
+  generation++; points = null; order = null; orderLicense = ''; user = { signedIn: false, linked: false };
   const input = $('connection-code'); if (input) input.value = '';
   renderHomePoints(); renderAccount(); renderRewards(); renderOrder(); renderCartBar();
 }
@@ -203,7 +203,9 @@ function renderOrder() {
     const box = empty('Your order is empty.'); box.append(link('Browse the menu →', '#menu', 'primary-button'));
     target.append(box); return;
   }
-  const panel = el('section', '', 'account-panel order-panel'), list = el('ul', '', 'order-lines');
+  // A real form, so the phone's own autofill can offer to remember the license number.
+  const panel = el('form', '', 'account-panel order-panel'), list = el('ul', '', 'order-lines');
+  panel.method = 'post'; panel.action = '#order'; panel.noValidate = true;
   for (const line of cart) {
     const item = el('li', '', 'order-line'), info = el('div');
     info.append(el('strong', line.name), el('span', [line.brand, line.size].filter(Boolean).join(' · ')));
@@ -215,25 +217,34 @@ function renderOrder() {
     item.append(info, qty, el('b', money.format(line.priceCents * line.qty / 100))); list.append(item);
   }
   const total = el('p', '', 'order-total'); total.append(el('span', 'Estimated total'), el('strong', money.format(cartTotal() / 100)));
+  const licenseLabel = el('label', 'Medical license number'), license = el('input');
+  licenseLabel.htmlFor = 'order-license'; license.id = 'order-license'; license.name = 'medical-license-number';
+  license.autocomplete = 'on'; license.autocapitalize = 'characters'; license.spellcheck = false; license.maxLength = 48;
+  license.placeholder = 'As shown on your medical card'; license.value = orderLicense;
+  license.addEventListener('input', () => { orderLicense = license.value; });
   const label = el('label', 'Note for the shop (optional)'), note = el('textarea');
   label.htmlFor = 'order-note'; note.id = 'order-note'; note.maxLength = 200; note.rows = 2; note.value = orderNote;
   note.addEventListener('input', () => { orderNote = note.value; });
-  const submit = button('Place pickup order →', () => placeOrder(orderNote.trim()));
-  submit.classList.add('wide-button');
+  const submit = el('button', 'Place pickup order →', 'primary-button wide-button'); submit.type = 'submit';
+  panel.addEventListener('submit', async event => {
+    event.preventDefault(); submit.disabled = true;
+    try { await placeOrder(orderNote.trim(), orderLicense.trim()); } finally { submit.disabled = false; }
+  });
   panel.append(list, total, el('p', menu?.pricesIncludeTax === false ? 'Prices do not include tax.' : 'Prices include tax.', 'fine-print'),
+    licenseLabel, license, el('p', 'Checked against your store record and sent with your order. The app doesn’t save it; your phone may offer to.', 'field-help'),
     label, note, submit,
     el('p', 'Pay in store when you pick up. Bring your ID and medical card. Availability and final price are confirmed at the counter.', 'fine-print'));
   target.append(panel);
 }
-async function placeOrder(note) {
+async function placeOrder(note, license) {
   if (!cart.length || orderLoading) return;
   const current = generation; let failed = false; orderLoading = true;
   try {
     const items = cart.map(({ productId, size, priceCents, qty }) => ({ productId, size, priceCents, qty }));
     const result = demo ? { order: { orderNumber: null, status: 'New', open: true, totalCents: cartTotal(), itemCount: cartCount(), createdAt: Date.now() } }
-      : await api('preorder/place', { items, ...(note ? { note } : {}) });
+      : await api('preorder/place', { items, ...(note ? { note } : {}), ...(license ? { license } : {}) });
     if (current !== generation) return;
-    order = result.order; cart = []; orderNote = ''; message('');
+    order = result.order; cart = []; orderNote = ''; orderLicense = ''; message('');
   } catch (error) {
     if (current === generation) { failed = true; message(error.message); }
   } finally { orderLoading = false; if (current === generation) { renderOrder(); renderCartBar(); } }
