@@ -37,7 +37,10 @@
       >
       <nav class="desktop-nav" aria-label="Main">
         <a href="#home">Home</a><a href="#menu">Menu</a
-        ><a href="#rewards">My points</a>
+        ><a href="#rewards">My points</a
+        ><a href="#order" class="order-nav" hidden
+          >My order<span class="order-count" hidden></span
+        ></a>
       </nav>
       <a href="#account" class="account-link"
         ><span class="account-dot" aria-hidden="true"></span
@@ -153,6 +156,21 @@
         <p id="menu-error" class="notice" role="status" hidden></p>
         <div id="menu-products" class="product-grid"></div>
         <p id="menu-tax" class="fine-print"></p>
+        <a id="cart-bar" href="#order" class="cart-bar" hidden></a>
+      </section>
+      <section
+        id="view-order"
+        class="view account-view"
+        hidden
+        aria-labelledby="order-title"
+      >
+        <p class="eyebrow">PICKUP IN STORE</p>
+        <h1 id="order-title">Order <em>ahead.</em></h1>
+        <p class="lead">
+          Choose from the menu, and we’ll have it ready at the counter. Pay when
+          you pick up.
+        </p>
+        <div id="order-content"></div>
       </section>
       <section
         id="view-rewards"
@@ -210,6 +228,11 @@
             your patient ID or purchase history in this app.
           </p>
           <p>
+            When you order ahead, your order goes to the shop’s point-of-sale
+            system with the name, birth date and customer type already on your
+            store record. The app keeps only your order number and status.
+          </p>
+          <p>
             Signing up does not subscribe you to marketing. Notifications and
             personalized offers are not enabled in this first version.
           </p>
@@ -234,6 +257,11 @@
       <a href="#home"><span aria-hidden="true">⌂</span>Home</a
       ><a href="#menu"><span aria-hidden="true">☷</span>Menu</a
       ><a href="#rewards"><span aria-hidden="true">✦</span>My points</a
+      ><a href="#order" class="order-nav" hidden
+        ><span aria-hidden="true">◫</span>Order<span
+          class="order-count"
+          hidden
+        ></span></a
       ><a href="#account"><span aria-hidden="true">○</span>Account</a>
     </nav>
     <template id="product-template"

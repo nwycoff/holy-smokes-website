@@ -6,7 +6,8 @@ import { handleApp } from '../server/customer-app/index.mjs';
 import { hash } from '../server/customer-app/http.mjs';
 import { normalizeMenu } from '../server/customer-app/growflow.mjs';
 
-const migration = readFileSync(new URL('../app-migrations/0001_customer_app.sql', import.meta.url), 'utf8');
+const migration = ['0001_customer_app.sql', '0002_customer_app_preorders.sql']
+  .map(name => readFileSync(new URL(`../app-migrations/${name}`, import.meta.url), 'utf8')).join('\n');
 class D1 {
   constructor() { this.db = new DatabaseSync(':memory:'); this.db.exec('PRAGMA foreign_keys = ON'); this.db.exec(migration); }
   prepare(sql) {
@@ -253,4 +254,113 @@ test('upstream redirects and diagnostic failures never leak secrets or trigger r
   s.deps.report=()=>{throw new Error('secret diagnostic body');};
   const response=await s.run('points',{cookie:a.cookie});assert.equal(response.status,503);assert.equal(count,1);
   assert.ok(!(await response.text()).includes('secret'));
+});
+
+function preorders({ customer = {}, create, status = 'Completed' } = {}) {
+  const s=setup(), base=s.deps.fetch, sent=[];let orders=0;
+  Object.assign(s.env,{APP_PREORDER_ENABLED:'true',APP_PREORDER_TOKEN:'gfr_synthetic_preorder_only'});
+  s.deps.fetch=async(target,init)=>{
+    const body=init?.body && String(target).endsWith('/graphql') ? JSON.parse(init.body) : null;
+    if (!body || !/TreehousePreorder|TreehouseCreatePreorder/.test(body.query)) return base(target,init);
+    sent.push({query:body.query,variables:body.variables,auth:init.headers.Authorization});
+    if (body.query.includes('TreehousePreorderCustomer')) {
+      assert.equal(init.headers.Authorization,'Bearer gfr_synthetic_test_only');
+      return Response.json({data:{findCustomers:{pageInfo:{hasNextPage:false},edges:[{node:{objectId:'CustomerOne',
+        Name:'Synthetic Test Patient',Birthday:'1990-05-06T00:00:00.000Z',CustomerType:'Medical',...customer}}]}}});
+    }
+    assert.equal(init.headers.Authorization,'Bearer gfr_synthetic_preorder_only');
+    if (body.query.includes('preorderStatus'))
+      return Response.json({data:{preorderStatus:{success:true,order:{id:body.variables.orderId,orderNumber:'1042',status}}}});
+    orders++;
+    return create ? create() : Response.json({data:{createPreorder:{success:true,order:{id:`GFOrder${orders}`,orderNumber:`${1041+orders}`,status:'New'}}}});
+  };
+  const mutations=()=>sent.filter(r=>r.query.includes('createPreorder'));
+  async function linked() {
+    const a=await s.login(), csrf=await s.seed(a.cookie);
+    const place=(body,headers={'x-treehouse-csrf':csrf})=>s.run('preorder/place',{method:'POST',cookie:a.cookie,body,headers});
+    return {...a,csrf,place,status:()=>s.run('preorder',{cookie:a.cookie})};
+  }
+  return {...s,sent,mutations,linked};
+}
+const flower = (qty=2, extra={}) => ({items:[{productId:'public-a',size:'3.5 g',priceCents:2000,qty,...extra}]});
+
+test('preorders stay off until enabled with a separate token and require a linked account', async () => {
+  const s=preorders();
+  s.env.APP_PREORDER_TOKEN=s.env.APP_GROWFLOW_TOKEN;assert.equal((await (await s.run('config')).json()).preorderEnabled,false);
+  s.env.APP_PREORDER_TOKEN='gfr_synthetic_preorder_only';s.env.APP_PREORDER_ENABLED='false';
+  assert.equal((await (await s.run('config')).json()).preorderEnabled,false);
+  s.env.APP_PREORDER_ENABLED='true';assert.equal((await (await s.run('config')).json()).preorderEnabled,true);
+  assert.equal((await s.run('preorder')).status,401);
+  const a=await s.login(), csrf=(await (await s.run('session',{cookie:a.cookie})).json()).csrf;
+  assert.equal((await s.run('preorder/place',{method:'POST',cookie:a.cookie,body:flower(),headers:{'x-treehouse-csrf':csrf}})).status,403);
+  const b=await s.linked();assert.equal((await b.place(flower(),{})).status,403);
+  assert.equal(s.mutations().length,0);
+});
+test('preorder is rebuilt from the menu and linked record, sent with the preorder token, and not stored in detail', async () => {
+  const s=preorders(), a=await s.linked();
+  const res=await a.place({...flower(),note:'Call when\nready'});assert.equal(res.status,200);
+  const {order}=await res.json();
+  assert.deepEqual(order,{orderNumber:'1042',status:'New',open:true,totalCents:4000,itemCount:2,createdAt:order.createdAt});
+  const [m]=s.mutations();assert.equal(m.variables.menuKey,'test-menu-key');
+  assert.deepEqual(m.variables.preorder,{preOrderType:'Pickup',preOrderTotal:4000,
+    customer:{id:'CustomerOne',type:'Medical',firstName:'Synthetic Test',lastName:'Patient',dob:'1990-05-06T00:00:00.000Z'},
+    orderItems:[{productId:'public-a',qty:2,weight:3.5}],nameForOrder:'Synthetic Test Patient',preOrderNote:'Call when ready'});
+  const stored=JSON.stringify(s.env.APP_DB.db.prepare('SELECT * FROM app_preorders').all());
+  assert.ok(!/Synthetic|1990|public-a|Call when/.test(stored));
+  assert.equal((await (await a.status()).json()).order.orderNumber,'1042');
+});
+test('preorder input is validated and client prices are checked, never trusted', async () => {
+  const s=preorders(), a=await s.linked();
+  for (const body of [{},{items:[]},flower(11),flower(0),flower(1.5),flower(2,{extra:true}),{...flower(),total:1},
+    {items:[...flower(1).items,...flower(1).items]},{items:[{productId:'../x',size:'3.5 g',priceCents:2000,qty:1}]},
+    {...flower(),note:'x'.repeat(201)}]) assert.equal((await a.place(body)).status,400);
+  assert.equal((await a.place({items:[...flower(6).items,{productId:'public-d',size:'Each',priceCents:100,qty:5}]})).status,400);
+  assert.equal((await a.place(flower(1,{priceCents:1}))).status,409);
+  assert.equal((await a.place(flower(1,{size:'7 g'}))).status,409);
+  assert.equal((await a.place({items:[{productId:'public-b',size:'Each',priceCents:100,qty:1}]})).status,409);
+  assert.equal(s.mutations().length,0);
+  assert.equal(s.env.APP_DB.db.prepare('SELECT count(*) n FROM app_preorders').get().n,0);
+  assert.equal((await a.place(flower(1))).status,200);
+});
+test('order attempts that reach GrowFlow are limited per account', async () => {
+  const s=preorders({status:'Canceled'}), a=await s.linked();
+  for (let i=0;i<5;i++) { assert.equal((await a.place(flower(1))).status,200); s.advance(30001); await a.status(); }
+  assert.equal((await a.place(flower(1))).status,429);assert.equal(s.mutations().length,5);
+});
+test('one open order at a time; a completed order frees the slot', async () => {
+  const s=preorders(), a=await s.linked();
+  assert.equal((await a.place(flower(1))).status,200);
+  const again=await a.place(flower(1));assert.equal(again.status,409);assert.match((await again.json()).error,/already have an order/);
+  assert.equal(s.mutations().length,1);
+  s.advance(30001);
+  const {order}=await (await a.status()).json();assert.equal(order.status,'Completed');assert.equal(order.open,false);
+  assert.equal((await a.place(flower(1))).status,200);assert.equal(s.mutations().length,2);
+});
+test('a request that may have reached GrowFlow blocks retries until staff can check', async () => {
+  let fail=true;
+  const s=preorders({create:()=>{ if (fail) throw new Error('timeout'); return Response.json({data:{createPreorder:{success:true,order:{id:'GFOrder2',orderNumber:'1043',status:'New'}}}}); }});
+  const a=await s.linked();
+  const res=await a.place(flower(1));assert.equal(res.status,503);assert.match((await res.json()).error,/call the shop/);
+  fail=false;assert.equal((await a.place(flower(1))).status,409);assert.equal(s.mutations().length,1);
+  assert.equal((await (await a.status()).json()).order.status,'Unconfirmed');
+  s.advance(1800001);assert.equal((await a.place(flower(1))).status,200);assert.equal(s.mutations().length,2);
+});
+test('refused or rate-limited preorders release the slot for another try', async () => {
+  let reply=()=>Response.json({data:{createPreorder:{success:false,order:null}}});
+  const s=preorders({create:()=>reply()}), a=await s.linked();
+  assert.equal((await a.place(flower(1))).status,409);
+  reply=()=>new Response('{}',{status:429,headers:{'retry-after':'1'}});
+  assert.equal((await a.place(flower(1))).status,503);
+  assert.equal(s.env.APP_DB.db.prepare('SELECT count(*) n FROM app_preorders').get().n,0);
+});
+test('incomplete customer records cannot place orders', async () => {
+  for (const customer of [{Name:'Cher'},{Birthday:null},{Birthday:'not a date'},{CustomerType:''},{CustomerType:'Wholesale'},{objectId:'Other'}]) {
+    const s=preorders({customer}), a=await s.linked();
+    assert.equal((await a.place(flower(1))).status,409);assert.equal(s.mutations().length,0);
+  }
+});
+test('orders are refused while the menu is delayed', async () => {
+  const s=preorders(), a=await s.linked();
+  assert.equal((await s.run('menu')).status,200);s.advance(60001);s.setGF({},429,{'retry-after':'1'});
+  assert.equal((await a.place(flower(1))).status,503);assert.equal(s.mutations().length,0);
 });

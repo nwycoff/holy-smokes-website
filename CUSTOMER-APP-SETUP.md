@@ -79,6 +79,8 @@ Generate the two independent random app secrets locally, save them in Bitwarden,
 | `APP_MENU_ENABLED` | Text | `false` until menu validation is complete |
 | `APP_MENU_KEY` | Secret | Published menu's access key |
 | `APP_FRONT_LOCATION` | Text | Exact `packages.storageLocation` value verified from the API for the front room |
+| `APP_PREORDER_ENABLED` | Text | `false` until step 6 is complete |
+| `APP_PREORDER_TOKEN` | Secret | **Another separate token** with only the Create preorders scope; must differ from `APP_GROWFLOW_TOKEN` |
 
 GrowFlow token and menu key are different credentials. No create/write scope is needed. Store names shown in the dashboard do not prove whether `storageLocation` returns a name or identifier; inspect the selected menu response privately before setting it. A wrong/missing value results in no eligible products, never a fallback to back-room stock.
 
@@ -107,6 +109,31 @@ The query is based on the supplied schema, not a completed live test of these ex
 
 Then set `APP_MENU_ENABLED=true` on the test project. The shared backend refreshes at most once per minute. It can show an explicitly marked prior menu for up to five minutes during an outage; after that it hides the menu. No pickup reservation or stock promise is made.
 
+## 6. Pickup preorders
+
+Linked customers can add menu items to an order and send it to GrowFlow as a **pickup** preorder, paid in store. There is no delivery, pickup-time choice, online payment, points redemption or cancellation from the app.
+
+How it works:
+
+- The browser sends only product IDs, sizes, the prices it showed and quantities. The server looks each one up in the shared menu cache and refuses the order if an item is gone or a price changed. The total sent to GrowFlow is the server's own sum of `variants.price` × quantity. It is refused while the menu is marked delayed.
+- Up to 10 items per order. One open order per account, enforced by a unique database index. `Completed`, `Fulfilled` and `Canceled` close an order; any other status keeps it open.
+- GrowFlow requires the customer's first name, last name, birth date and customer type on every preorder. The server reads `Name`, `Birthday` and `CustomerType` from the **linked** customer record with `APP_GROWFLOW_TOKEN` at order time, sends them with the record's `id`, and does not store them. The first name is everything before the last word of `Name`. A record with a one-word name, a missing birth date or a type other than Medical/Recreational cannot order; the customer is asked to call.
+- `APP_PREORDER_TOKEN` is used only for `createPreorder` and `preorderStatus`. The mutation is never retried. If GrowFlow may have received a request but the app could not confirm it (timeout, server error, malformed reply), the account's order slot stays blocked as `Unconfirmed` for 30 minutes and the customer is told to call, so a retry cannot quietly become a second order. A 429 or `success: false` frees the slot immediately.
+- `app_preorders` stores only the GrowFlow order ID and number, status, total, item count and times. Line items, names, birth dates and notes are not stored in the app database.
+- Limits: 5 order attempts per account per hour and 10 per IP per hour (counted only after input passes validation), status checks at most once per 30 seconds per order, all within the app's shared 30 GrowFlow requests/minute.
+
+Setup and test gates:
+
+1. Run `app-migrations/0002_customer_app_preorders.sql` in `APP_DB` after 0001.
+2. Create the separate GrowFlow token with **Create preorders** only, and save it as the `APP_PREORDER_TOKEN` secret. No other token changes are needed; the customer lookup uses `APP_GROWFLOW_TOKEN`, which already has Customers read.
+3. Test first in GrowFlow's `integrations` sandbox if available (request access from apipartners@growflow.com). Otherwise do one supervised test on your own linked record and cancel it in GrowFlow.
+4. Confirm in GrowFlow that the test order appears under the right existing customer (not a duplicate customer), with the right products, quantities, sizes and total, and whether a preorder holds or allocates stock.
+5. **Weighted products:** each line sends `qty` (count) and, for sized variants, `weight` (e.g. 3.5). Confirm that GrowFlow reads "2 × 3.5 g" as two eighths, not 7 units or 2 g. Adjust `server/customer-app/preorders.mjs` before launch if not.
+6. Check how GrowFlow reports statuses as staff fill, complete and cancel the order, and that the app follows them.
+7. Only then set `APP_PREORDER_ENABLED=true` on the protected test project.
+
+Set `APP_PREORDER_ENABLED=false` to stop new orders at any time. Existing GrowFlow orders are unaffected.
+
 ## API budget and operational notes
 
 One shared menu read per minute plus at most 30 total GrowFlow queries/minute for this app/token, capped with transactional counters. Each customer's points requests are capped at ten/minute. Responses with 20 or fewer requests remaining or HTTP 429 set shared backoff using the reset/Retry-After headers. There are no automatic upstream retries. Use a separate token so other applications do not consume this app's headroom unnoticed.
@@ -119,7 +146,7 @@ Before a public launch: complete actual Auth0/Cloudflare/GrowFlow tests; test iP
 
 ## Later releases
 
-Offers/push, birthday automation, purchase-history segments, redemption and preorders are not implemented or switched on. A push permission prompt is not shown. Those features need separate consent, verified source fields, redemption rules and preorder testing. The current release does not access order histories or birthdays.
+Offers/push, birthday automation, purchase-history segments, redemption, delivery and pickup-time slots are not implemented or switched on. A push permission prompt is not shown. Those features need separate consent, verified source fields and redemption rules. The app does not read order histories; it reads a linked customer's birth date only at the moment they place a preorder, because GrowFlow requires it, and does not store it.
 
 ## Primary references
 

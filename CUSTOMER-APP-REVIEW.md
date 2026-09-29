@@ -13,7 +13,14 @@ Customers currently re-enter patient details for each points lookup, and the exi
 - Shared menu refresh, positive sellable packages in the front room or explicitly unassigned legacy stock, explicit tax flag and package-derived THC.
 - Separate D1 migration, owner enrollment CLI, setup guide and browser regression runner.
 
-The current `/rewards` implementation and main website navigation are unchanged. There are no GrowFlow writes, preorder submissions, point redemptions, marketing subscriptions, push messages or purchase-history reads.
+The current `/rewards` implementation and main website navigation are unchanged. There are no point redemptions, marketing subscriptions, push messages or purchase-history reads.
+
+## Pickup preorders (added on `feature/customer-app-preorders`)
+
+- Linked customers can add up to 10 menu items and send a pickup preorder to GrowFlow with `createPreorder`, paid in store. Off unless `APP_PREORDER_ENABLED=true` and a separate `APP_PREORDER_TOKEN` is set.
+- Server rebuilds lines and total from the shared menu; client prices are only compared, never used. One open order per account; order status follows `preorderStatus`.
+- Name, birth date and customer type are read from the linked GrowFlow record at order time (GrowFlow requires them) and never stored. Ambiguous submissions block retries for 30 minutes rather than risk duplicates.
+- 9 new server tests (76 total pass); design checked in the demo at 375px and desktop. Live GrowFlow behavior (customer matching, weighted quantities, stock allocation, statuses) is a test gate — see setup step 6.
 
 ## Verification performed locally
 

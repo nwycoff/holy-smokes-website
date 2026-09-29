@@ -20,14 +20,37 @@ export const MENU_QUERY = `query TreehouseMobileMenu($menuKey: String!) {
     } }
   }
 }`;
-export async function queryGrowflow(env, deps, query, variables) {
+// Preorders use a separate token limited to creating preorders and reading their status.
+export const PREORDER_CUSTOMER_QUERY = `query TreehousePreorderCustomer($where: CustomersWhereInput!) {
+  findCustomers(where: $where, first: 2) {
+    pageInfo { hasNextPage } edges { node { objectId Name Birthday CustomerType } }
+  }
+}`;
+export const CREATE_PREORDER = `mutation TreehouseCreatePreorder($menuKey: String!, $preorder: PreorderInput!) {
+  createPreorder(menuKey: $menuKey, preorder: $preorder) { success order { id orderNumber status } }
+}`;
+export const PREORDER_STATUS = `query TreehousePreorderStatus($orderId: String!) {
+  preorderStatus(orderId: $orderId) { success order { id orderNumber status } }
+}`;
+// Errors marked sent=true happened after the request left, so a write may have landed.
+export async function queryGrowflow(env, deps, query, variables, token = env.APP_GROWFLOW_TOKEN) {
   const key = await hash(env.APP_LIMIT_SECRET, `growflow:${env.GROWFLOW_ORG}`);
   const backoff = await env.APP_DB.prepare('SELECT until_at FROM rewards_backoff WHERE key = ?').bind(key).first();
   if (backoff?.until_at > deps.now()) throw new AppError('GROWFLOW_BACKOFF');
   if (!await consumeLimits(env.APP_DB, env.APP_LIMIT_SECRET,
     [{ subject: 'app-growflow', window: 60000, max: 30 }], deps.now())) throw new AppError('GROWFLOW_LIMIT', 429);
+  try {
+    return await sendGrowflow(env, deps, key, query, variables, token);
+  } catch (error) {
+    const failure = error instanceof AppError ? error : new AppError('GROWFLOW_HTTP');
+    // A 429 was refused before processing; anything else may have reached GrowFlow.
+    failure.sent = failure.code !== 'GROWFLOW_RATE_LIMITED';
+    throw failure;
+  }
+}
+async function sendGrowflow(env, deps, key, query, variables, token) {
   const res = await fetchSafe(deps, `https://retail.growflow.com/c/${env.GROWFLOW_ORG}/graphql`, {
-    method: 'POST', headers: { Authorization: `Bearer ${env.APP_GROWFLOW_TOKEN}`, 'Content-Type': 'application/json' },
+    method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ query, variables })
   });
   const remaining = res.headers.has('ratelimit-remaining') ? Number(res.headers.get('ratelimit-remaining')) : Infinity;
@@ -41,6 +64,7 @@ export async function queryGrowflow(env, deps, query, variables) {
       ON CONFLICT(key) DO UPDATE SET until_at = MAX(until_at, excluded.until_at)`)
       .bind(key, deps.now() + delay).run();
   }
+  if (res.status === 429) throw new AppError('GROWFLOW_RATE_LIMITED');
   if (!res.ok) throw new AppError('GROWFLOW_HTTP');
   const payload = await res.json();
   if (payload.errors?.length || !payload.data) throw new AppError('GROWFLOW_QUERY');
@@ -87,8 +111,10 @@ export function normalizeMenu(input, location, now) {
         && typeof pkg.inventoryQty === 'number' && Number.isFinite(pkg.inventoryQty) && pkg.inventoryQty > 0);
       if (!eligiblePackages.length) continue;
       const variants = (Array.isArray(p.variants) ? p.variants : []).filter(v => v
-        && Number.isSafeInteger(v.price) && v.price >= 0).map(v => ({ priceCents: v.price,
-        size: Number.isFinite(v.weight) && v.weight > 0 && clean(v.uom) ? `${v.weight} ${clean(v.uom)}` : 'Each' }));
+        && Number.isSafeInteger(v.price) && v.price >= 0).map(v => {
+        const weighed = Number.isFinite(v.weight) && v.weight > 0 && clean(v.uom);
+        return { priceCents: v.price, size: weighed ? `${v.weight} ${clean(v.uom)}` : 'Each', weight: weighed ? v.weight : null };
+      });
       if (!variants.length) continue;
       seen.add(p.id);
       if (!categories.includes(category)) categories.push(category);
@@ -105,7 +131,7 @@ export function normalizeMenu(input, location, now) {
 
 export async function getMenu(env, deps) {
   const key = await hash(env.APP_LIMIT_SECRET,
-    `menu:v2-front-and-unassigned:${env.GROWFLOW_ORG}:${env.APP_MENU_KEY}:${env.APP_FRONT_LOCATION}:${env.APP_GROWFLOW_TOKEN}`);
+    `menu:v3-front-and-unassigned:${env.GROWFLOW_ORG}:${env.APP_MENU_KEY}:${env.APP_FRONT_LOCATION}:${env.APP_GROWFLOW_TOKEN}`);
   const cached = await env.APP_DB.prepare('SELECT value, updated_at FROM app_cache WHERE key = ?').bind(key).first();
   const age = cached ? deps.now() - cached.updated_at : Infinity;
   const fallback = () => {

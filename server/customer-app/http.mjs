@@ -77,6 +77,11 @@ export function menuReady(env) {
   return growflowReady(env) && env.APP_MENU_ENABLED === 'true'
     && Boolean(env.APP_MENU_KEY?.trim() && env.APP_FRONT_LOCATION?.trim());
 }
+export function preorderReady(env) {
+  return menuReady(env) && env.APP_PREORDER_ENABLED === 'true'
+    && /^gfr_[^\s\u0000-\u001f\u007f]{1,4092}$/.test(env.APP_PREORDER_TOKEN || '')
+    && env.APP_PREORDER_TOKEN !== env.APP_GROWFLOW_TOKEN;
+}
 export async function fetchSafe(deps, url, init = {}) {
   const res = await deps.fetch(url, { ...init, redirect: 'manual', signal: AbortSignal.timeout(10000) });
   if (res.status >= 300 && res.status < 400) throw new AppError('UPSTREAM_REDIRECT');

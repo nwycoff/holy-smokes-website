@@ -1,8 +1,9 @@
 import { consumeLimits, lookupVariables, normalizeInput } from '../rewards.mjs';
-import { AppError, bodyJSON, enabled, authReady, growflowReady, menuReady, hash, json,
+import { AppError, bodyJSON, enabled, authReady, growflowReady, menuReady, preorderReady, hash, json,
   randomToken, sameOrigin, cookie, LOGIN_COOKIE, redirect } from './http.mjs';
 import { startLogin, finishLogin, session, logout } from './auth.mjs';
 import { CUSTOMER_QUERY, singleCustomer, eligibleCustomer, queryGrowflow, getMenu } from './growflow.mjs';
+import { currentPreorder, placePreorder } from './preorders.mjs';
 
 async function limit(env, deps, subject, max, window = 900000) {
   if (!await consumeLimits(env.APP_DB, env.APP_LIMIT_SECRET, [{ subject, max, window }], deps.now()))
@@ -21,13 +22,15 @@ export async function handleApp(context, overrides = {}) {
   deps.report = code => { try { report(code); } catch { /* Logging cannot expose or break a response. */ } };
   const url = new URL(request.url), route = url.pathname.replace(/^\/api\/app\//, '').replace(/\/$/, '');
   const allowed = { config: 'GET', menu: 'GET', session: 'GET', points: 'GET', login: 'POST',
-    callback: 'GET', enroll: 'POST', logout: 'POST', 'logout-all': 'POST', 'remove-link': 'POST', 'staff/enroll': 'POST' };
+    callback: 'GET', enroll: 'POST', logout: 'POST', 'logout-all': 'POST', 'remove-link': 'POST', 'staff/enroll': 'POST',
+    preorder: 'GET', 'preorder/place': 'POST' };
   if (!allowed[route]) return json(404, { error: 'Not found.' });
   if (allowed[route] !== request.method) return json(405, { error: 'Method not allowed.' }, { Allow: allowed[route] });
   if (route !== 'callback' && url.search) return json(400, { error: 'Invalid request.' });
   const active = enabled(env, url);
   if (route === 'config') return json(200, { enabled: Boolean(active),
-    loginEnabled: Boolean(active && authReady(env)), menuEnabled: Boolean(active && menuReady(env)) });
+    loginEnabled: Boolean(active && authReady(env)), menuEnabled: Boolean(active && menuReady(env)),
+    preorderEnabled: Boolean(active && preorderReady(env)) });
   if (!active) return json(503, { error: 'The customer app is not available yet. You can still use My Points on our website.' });
   const staff = route === 'staff/enroll';
   if (request.method === 'POST' && !staff && !sameOrigin(request)) return json(403, { error: 'Please reopen the app and try again.' });
@@ -114,6 +117,19 @@ export async function handleApp(context, overrides = {}) {
       if (!customer || customer.objectId !== s.customer_id || !Number.isFinite(customer.CurrentPoints)) throw new AppError('POINTS_UNAVAILABLE');
       return json(200, { points: customer.CurrentPoints, checkedAt: deps.now() });
     }
+    if (route === 'preorder' || route === 'preorder/place') {
+      if (!s.customer_id) throw new AppError('LINK_REQUIRED', 403);
+      if (!preorderReady(env)) throw new AppError('PREORDER_CONFIG');
+      if (route === 'preorder') {
+        await limit(env, deps, `preorder-status:${s.id}`, 10, 60000);
+        return json(200, { order: await currentPreorder(env, deps, s) });
+      }
+      // Only attempts that pass validation and would reach GrowFlow count toward these limits.
+      return json(200, { order: await placePreorder(env, deps, s, await bodyJSON(request), async () => {
+        await limit(env, deps, `preorder-ip:${ip}`, 10, 3600000);
+        await limit(env, deps, `preorder-user:${s.id}`, 5, 3600000);
+      }) });
+    }
   } catch (error) {
     // Never log provider error strings, request bodies, auth codes, IDs or balances.
     const known = error instanceof AppError, code = known ? error.code : 'INTERNAL';
@@ -124,7 +140,15 @@ export async function handleApp(context, overrides = {}) {
       ENROLLMENT_CODE: 'That code could not be used. Check it or ask your budtender for a new one.',
       ENROLLMENT_MATCH: 'No unique eligible customer matched. Check the record in GrowFlow.',
       ALREADY_LINKED: 'That customer is already linked. Use account recovery instead of issuing another code.',
-      FRESH_LOGIN: 'Please sign out and sign in again before removing your connection.', INPUT: 'Please check the information and try again.' };
+      FRESH_LOGIN: 'Please sign out and sign in again before removing your connection.', INPUT: 'Please check the information and try again.',
+      TOO_MANY_ITEMS: 'Pickup orders can have up to 10 items.',
+      OPEN_ORDER: 'You already have an order in progress. You can place another once it’s picked up or canceled.',
+      MENU_STALE: 'The menu is updating. Please try again in a minute.',
+      ITEM_UNAVAILABLE: 'Something in your order is no longer available. Please review your order.',
+      PRICE_CHANGED: 'A price in your order has changed. Please review your order.',
+      PREORDER_PROFILE: 'We can’t place app orders for your record yet. Please call the shop or ask your budtender.',
+      PREORDER_REJECTED: 'The shop couldn’t accept this order. Please call the shop.',
+      PREORDER_UNCONFIRMED: 'We couldn’t confirm your order. Please call the shop before ordering again.' };
     return json(known ? error.status : 503, { error: messages[code] || 'This is temporarily unavailable. Please try again later or ask your budtender.' },
       known && error.status === 429 ? { 'Retry-After': '900' } : {});
   }
