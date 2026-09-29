@@ -150,6 +150,8 @@ export async function handleApp(context, overrides = {}) {
       PREORDER_REJECTED: 'The shop couldn’t accept this order. Please call the shop.',
       LICENSE_REQUIRED: 'Please enter your medical license number to order ahead.',
       LICENSE_FORMAT: 'Please check your medical license number. Use letters, numbers and dashes only.',
+      LICENSE_EXPIRY_MISSING: 'Your store record is missing your license expiration date. Please ask your budtender to update it.',
+      LICENSE_EXPIRED: 'The medical license on your store record has expired. Please ask your budtender to update it.',
       LICENSE_MISMATCH: 'That license number doesn’t match your store record. Please check it or ask your budtender.',
       PREORDER_UNCONFIRMED: 'We couldn’t confirm your order. Please call the shop before ordering again.' };
     return json(known ? error.status : 503, { error: messages[code] || 'This is temporarily unavailable. Please try again later or ask your budtender.' },

@@ -81,9 +81,10 @@ function licenseFilter(env, license) {
   return { OR: fields.map(field => ({ [field]: { matchesRegex: pattern, options: 'i' } })) };
 }
 
+const dateValue = value => new Date(typeof value === 'string' ? value : typeof value?.iso === 'string' ? value.iso : '');
 function birthDate(value, now) {
   const text = typeof value === 'string' ? value : typeof value?.iso === 'string' ? value.iso : '';
-  const date = new Date(text);
+  const date = dateValue(value);
   return text && Number.isFinite(date.getTime()) && date.getUTCFullYear() >= 1900 && date.getTime() < now
     ? date.toISOString() : null;
 }
@@ -102,8 +103,18 @@ async function preorderCustomer(env, deps, customerId, license) {
   if (!customer || customer.objectId !== customerId || names.length < 2 || !type || !dob)
     throw new AppError('PREORDER_PROFILE', 409);
   if (type === 'Medical' && !license) throw new AppError('LICENSE_REQUIRED', 400);
+  // GrowFlow also requires the license expiry (YYYY-MM-DD) with a license number. Taken from
+  // the record's state license expiration, falling back to its license end date.
+  let medicalLicenseExpires;
+  if (license) {
+    const expires = [customer.CustomerStateLicenseExpiration, customer.LicenseEffectiveEndDate]
+      .map(dateValue).find(date => Number.isFinite(date.getTime()));
+    if (!expires) throw new AppError('LICENSE_EXPIRY_MISSING', 409);
+    medicalLicenseExpires = expires.toISOString().slice(0, 10);
+    if (medicalLicenseExpires < new Date(deps.now()).toISOString().slice(0, 10)) throw new AppError('LICENSE_EXPIRED', 409);
+  }
   return { id: customer.objectId, type, firstName: names.slice(0, -1).join(' '), lastName: names.at(-1), dob,
-    ...(license ? { medicalLicenseNumber: license } : {}) };
+    ...(license ? { medicalLicenseNumber: license, medicalLicenseExpires } : {}) };
 }
 
 export async function placePreorder(env, deps, s, input, limit) {

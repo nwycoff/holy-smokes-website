@@ -269,7 +269,8 @@ function preorders({ customer = {}, create, status = 'Completed' } = {}) {
       if (license && !license.some(f=>new RegExp(Object.values(f)[0].matchesRegex,'i').test('PAAA-1234-ABCD')))
         return Response.json({data:{findCustomers:{pageInfo:{hasNextPage:false},edges:[]}}});
       return Response.json({data:{findCustomers:{pageInfo:{hasNextPage:false},edges:[{node:{objectId:'CustomerOne',
-        Name:'Synthetic Test Patient',Birthday:'1990-05-06T00:00:00.000Z',CustomerType:'Medical',...customer}}]}}});
+        Name:'Synthetic Test Patient',Birthday:'1990-05-06T00:00:00.000Z',CustomerType:'Medical',
+        CustomerStateLicenseExpiration:'2099-03-31T00:00:00.000Z',LicenseEffectiveEndDate:null,...customer}}]}}});
     }
     assert.equal(init.headers.Authorization,'Bearer gfr_synthetic_preorder_only');
     if (body.query.includes('preorderStatus'))
@@ -307,7 +308,7 @@ test('preorder is rebuilt from the menu and linked record, sent with the preorde
   assert.deepEqual(order,{orderNumber:'1042',status:'New',open:true,totalCents:4000,itemCount:2,createdAt:order.createdAt});
   const [m]=s.mutations();assert.equal(m.variables.menuKey,'test-menu-key');
   assert.deepEqual(m.variables.preorder,{preOrderType:'Pickup',preOrderTotal:4000,
-    customer:{id:'CustomerOne',type:'Medical',firstName:'Synthetic Test',lastName:'Patient',dob:'1990-05-06T00:00:00.000Z',medicalLicenseNumber:LICENSE},
+    customer:{id:'CustomerOne',type:'Medical',firstName:'Synthetic Test',lastName:'Patient',dob:'1990-05-06T00:00:00.000Z',medicalLicenseNumber:LICENSE,medicalLicenseExpires:'2099-03-31'},
     orderItems:[{productId:'public-a',qty:2,weight:3.5}],nameForOrder:'Synthetic Test Patient',preOrderNote:'Call when ready'});
   const stored=JSON.stringify(s.env.APP_DB.db.prepare('SELECT * FROM app_preorders').all());
   assert.ok(!/Synthetic|1990|public-a|Call when|PAAA|1234/.test(stored));
@@ -405,6 +406,15 @@ test('medical preorders need the customer’s own license number, checked by Gro
   assert.equal(s.mutations()[0].variables.preorder.customer.medicalLicenseNumber,'PAAA1234ABCD');
   assert.equal(s.env.APP_DB.db.prepare('SELECT count(*) n FROM app_preorders').get().n,1);
   assert.ok(!JSON.stringify(s.env.APP_DB.db.prepare('SELECT * FROM app_preorders').all()).includes('PAAA'));
+});
+test('license expiry comes from the record; missing or expired licenses cannot order', async () => {
+  for (const [customer,status,expires] of [[{CustomerStateLicenseExpiration:null,LicenseEffectiveEndDate:{__type:'Date',iso:'2098-01-15T00:00:00.000Z'}},200,'2098-01-15'],
+    [{CustomerStateLicenseExpiration:null},409],[{CustomerStateLicenseExpiration:'2001-01-01T00:00:00.000Z'},409]]) {
+    const s=preorders({customer}), a=await s.linked(), res=await a.place(flower(1));
+    assert.equal(res.status,status);
+    if (expires) assert.equal(s.mutations()[0].variables.preorder.customer.medicalLicenseExpires,expires);
+    else { assert.equal(s.mutations().length,0);assert.match((await res.json()).error,/ask your budtender to update it/); }
+  }
 });
 test('recreational customers can order without a license number', async () => {
   const s=preorders({customer:{CustomerType:'Recreational'}}), a=await s.linked(), {license,...noLicense}=flower(1);

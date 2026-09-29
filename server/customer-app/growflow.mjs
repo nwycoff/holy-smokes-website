@@ -23,7 +23,8 @@ export const MENU_QUERY = `query TreehouseMobileMenu($menuKey: String!) {
 // Preorders use a separate token limited to creating preorders and reading their status.
 export const PREORDER_CUSTOMER_QUERY = `query TreehousePreorderCustomer($where: CustomersWhereInput!) {
   findCustomers(where: $where, first: 2) {
-    pageInfo { hasNextPage } edges { node { objectId Name Birthday CustomerType } }
+    pageInfo { hasNextPage } edges { node { objectId Name Birthday CustomerType
+      CustomerStateLicenseExpiration LicenseEffectiveEndDate } }
   }
 }`;
 export const CREATE_PREORDER = `mutation TreehouseCreatePreorder($menuKey: String!, $preorder: PreorderInput!) {
