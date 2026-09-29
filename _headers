@@ -17,3 +17,11 @@
 /app/sw.js
   Cache-Control: no-cache
   Service-Worker-Allowed: /app/
+
+/staff/*
+  Cache-Control: no-store, private
+  Referrer-Policy: no-referrer
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'; object-src 'none'

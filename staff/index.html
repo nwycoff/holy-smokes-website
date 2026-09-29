@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer">
+  <title>Connect a customer · Treehouse staff</title>
+  <link rel="stylesheet" href="/assets/staff/enrollment.css">
+  <script type="module" src="/assets/staff/enrollment.js"></script>
+</head>
+<body>
+  <header class="topbar"><a href="/staff/" class="brand">TREEHOUSE <span>PHARMACY</span></a><span class="badge">STAFF ONLY</span></header>
+  <main>
+    <div class="intro"><p class="eyebrow">CUSTOMER ACCOUNTS</p><h1>A simple connection.<br>A personal account.</h1><p>Help a verified customer connect their Treehouse account to their rewards.</p></div>
+    <div class="session"><span id="staff-name">Checking staff sign-in…</span><a href="/cdn-cgi/access/logout" id="sign-out">Sign out</a></div>
+    <p id="message" role="status" aria-live="polite"></p>
+    <section id="lookup-panel" class="card" hidden>
+      <p class="step">01 / FIND THE CUSTOMER</p><h2>Start with their GrowFlow record</h2>
+      <p>Check the customer’s identity in person. Use the name and patient ID from their record.</p>
+      <form id="lookup-form" autocomplete="off">
+        <label for="customer-name">Full name in GrowFlow</label>
+        <input id="customer-name" name="customer-name" autocomplete="off" maxlength="100" required placeholder="First and last name">
+        <label for="patient-ending">Last five letters or numbers of patient ID</label>
+        <input id="patient-ending" name="patient-ending" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="16" required placeholder="For example, ABC-12" aria-describedby="id-help">
+        <p class="help" id="id-help">You may include the dash. It does not count as a letter or number.</p>
+        <button type="submit">Find customer <span aria-hidden="true">→</span></button>
+      </form>
+    </section>
+    <section id="confirm-panel" class="card" hidden>
+      <p class="step">02 / CONFIRM THEIR IDENTITY</p><h2>Is this the customer in front of you?</h2>
+      <p id="matched-name" class="matched-name"></p><p>One matching GrowFlow record was found.</p>
+      <form id="issue-form">
+        <label class="check"><input type="checkbox" id="identity-checked" required><span>I checked this customer’s identity and confirmed this is their GrowFlow record.</span></label>
+        <p class="help">The code can connect their rewards to an account. Give it only to this customer. A new code replaces any earlier unused code for them.</p>
+        <button type="submit">Generate connection code</button>
+        <button type="button" class="secondary" id="change-customer">Choose a different customer</button>
+      </form>
+    </section>
+    <section id="result-panel" class="card" hidden>
+      <div id="print-slip">
+        <p class="step">TREEHOUSE PHARMACY · ACCOUNT CONNECTION</p><h2>Your rewards, on your phone.</h2>
+        <p>Open the address below and sign in to your own Treehouse account. Enter this code when asked to connect your account.</p>
+        <p id="app-url" class="app-url"></p><p id="connection-code" class="code" aria-label="Connection code"></p>
+        <p id="expiry"></p><p class="help">Use once, within 10 minutes. Keep this slip private. Once connected, you will not need another code to sign in.</p>
+      </div>
+      <div class="result-actions"><button id="print-code" type="button">Print customer slip</button><button id="next-customer" type="button" class="secondary">Clear &amp; next customer</button></div>
+    </section>
+    <aside class="note"><strong>A code, never a password.</strong><p>Customers sign in on their own device. You never need their password. Already connected? Help them use “Reset password” on the sign-in screen.</p></aside>
+    <noscript>This staff page needs JavaScript. Enable it and reload.</noscript>
+  </main>
+  <footer>Treehouse Pharmacy · Staff account tools</footer>
+</body>
+</html>
