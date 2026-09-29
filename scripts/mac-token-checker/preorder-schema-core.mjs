@@ -110,6 +110,10 @@ export function compareSchema(data) {
   const lookalikes = [...customers.keys()].filter(n => !CUSTOMER_FIELDS.includes(n)
     && /name$|birth|dob|customertype/i.test(n));
   if (lookalikes.length) note(`Other name/birth/type fields on Customers (names only): ${lookalikes.join(', ')}`);
+  // GrowFlow requires customer.medicalLicenseNumber for medical preorders.
+  const licenses = [...customers.keys()].filter(n => /licen|patient|medical/i.test(n));
+  note(licenses.length ? `Readable license/patient fields on Customers: ${licenses.join(', ')}`
+    : 'Customers exposes no readable license/patient fields (search filters only).');
   const filters = new Set((data?.customerFilters?.inputFields || []).map(f => f.name));
   const missingFilters = CUSTOMER_FILTERS.filter(f => !filters.has(f));
   if (missingFilters.length) diff(`CustomersWhereInput lacks ${missingFilters.join(', ')}.`);

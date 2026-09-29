@@ -37,6 +37,7 @@ test('the example schema matches what the app sends', () => {
   assert.equal(problems, 0, lines.join('\n'));
   assert.ok(lines.some(l => l.startsWith('OK    mutation createPreorder(menuKey: String!, preorder: PreorderInput!)')));
   assert.ok(lines.some(l => l.includes('PatientName')));
+  assert.ok(lines.some(l => l.startsWith('NOTE') && l.includes('Readable license/patient fields on Customers: PatientName')));
 });
 test('renamed fields, new required inputs and missing enum values are reported', () => {
   const s = example();
