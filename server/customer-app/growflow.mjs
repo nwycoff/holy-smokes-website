@@ -41,6 +41,8 @@ function graphqlCategory(errors) {
   if (/unauthenticated|invalid or revoked/i.test(text)) return 'AUTH';
   if (/GRAPHQL_VALIDATION_FAILED|GRAPHQL_PARSE_FAILED|BAD_USER_INPUT|variable "\$|unknown argument|cannot query field|expected type|got invalid value/i.test(text))
     return 'VALIDATION';
+  // Store/menu settings that switch preorders off; GrowFlow refuses before creating anything.
+  if (/pre-?orders? (are|is) not (allowed|enabled)/i.test(text)) return 'PREORDERS_OFF';
   if (/not found/i.test(text)) return 'NOT_FOUND';
   return 'OTHER';
 }
@@ -51,7 +53,7 @@ export function errorDetail(errors) {
     .join(' | ').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\d/g, '#').slice(0, 200);
 }
 // These are refused before GrowFlow runs the operation, so nothing was written.
-const REFUSED = ['PERMISSION', 'AUTH', 'VALIDATION'];
+const REFUSED = ['PERMISSION', 'AUTH', 'VALIDATION', 'PREORDERS_OFF'];
 // Errors marked sent=true happened after the request left, so a write may have landed.
 export async function queryGrowflow(env, deps, query, variables, token = env.APP_GROWFLOW_TOKEN) {
   const key = await hash(env.APP_LIMIT_SECRET, `growflow:${env.GROWFLOW_ORG}`);

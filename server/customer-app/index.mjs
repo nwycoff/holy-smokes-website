@@ -148,6 +148,7 @@ export async function handleApp(context, overrides = {}) {
       PRICE_CHANGED: 'A price in your order has changed. Please review your order.',
       PREORDER_PROFILE: 'We can’t place app orders for your record yet. Please call the shop or ask your budtender.',
       PREORDER_REJECTED: 'The shop couldn’t accept this order. Please call the shop.',
+      PREORDERS_OFF: 'Ordering ahead isn’t available right now. Please try again later or call the shop.',
       LICENSE_REQUIRED: 'Please enter your medical license number to order ahead.',
       LICENSE_FORMAT: 'Please check your medical license number. Use letters, numbers and dashes only.',
       LICENSE_EXPIRY_MISSING: 'Your store record is missing your license expiration date. Please ask your budtender to update it.',

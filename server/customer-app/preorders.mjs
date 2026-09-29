@@ -153,6 +153,7 @@ export async function placePreorder(env, deps, s, input, limit) {
     deps.report(`PREORDER_SEND_${error.code || 'INTERNAL'}${error.category ? `_${error.category}` : ''}`);
     if (!error.sent) {
       await env.APP_DB.prepare('DELETE FROM app_preorders WHERE id = ?').bind(id).run();
+      if (error.category === 'PREORDERS_OFF') throw new AppError('PREORDERS_OFF', 503);
       throw error;
     }
     return unconfirmed(env, id);

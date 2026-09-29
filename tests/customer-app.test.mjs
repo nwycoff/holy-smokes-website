@@ -384,6 +384,13 @@ test('HTTP errors from GrowFlow log their status and hold the slot as unconfirme
   assert.equal((await a.place(flower(1))).status,503);
   assert.ok(s.codes.includes('GROWFLOW_ERROR_DETAIL HTTP 500 -: Upstream failed after ## seconds'));
 });
+test('a menu or store with preorders switched off frees the slot and says so', async () => {
+  const s=preorders({create:()=>Response.json({errors:[{message:'PreOrders are not allowed for this menu.',extensions:{code:'INTERNAL_SERVER_ERROR'}}]})});
+  const a=await s.linked(), res=await a.place(flower(1));
+  assert.equal(res.status,503);assert.match((await res.json()).error,/Ordering ahead isn’t available right now/);
+  assert.ok(s.codes.includes('PREORDER_SEND_GROWFLOW_QUERY_PREORDERS_OFF'));
+  assert.equal(s.env.APP_DB.db.prepare('SELECT count(*) n FROM app_preorders').get().n,0);
+});
 test('HTTP 400 validation refusals free the slot immediately', async () => {
   const s=preorders({create:()=>Response.json({errors:[{message:'Variable "$preorder" got invalid value',extensions:{code:'BAD_USER_INPUT'}}]},{status:400})});
   const a=await s.linked();
