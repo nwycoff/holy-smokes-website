@@ -373,6 +373,16 @@ test('failed sends log a fixed category; refused operations free the slot, uncer
   assert.ok(s.codes.includes('GROWFLOW_ERROR_DETAIL X: Something broke mid-way for ####-##-## and more'));
   assert.equal(s.env.APP_DB.db.prepare("SELECT status FROM app_preorders").get().status,'Unconfirmed');
 });
+test('HTTP errors from GrowFlow log their status and hold the slot as unconfirmed', async () => {
+  const s=preorders({create:()=>Response.json({errors:[{message:'Upstream failed after 12 seconds'}]},{status:500})}), a=await s.linked();
+  assert.equal((await a.place(flower(1))).status,503);
+  assert.ok(s.codes.includes('PREORDER_SEND_GROWFLOW_HTTP_STATUS_500'));
+  assert.ok(!s.codes.some(c=>c.startsWith('GROWFLOW_ERROR_DETAIL')));
+  assert.equal(s.env.APP_DB.db.prepare("SELECT status FROM app_preorders").get().status,'Unconfirmed');
+  s.env.APP_DIAGNOSTIC_ERRORS='true';s.env.APP_DB.db.exec('DELETE FROM app_preorders');
+  assert.equal((await a.place(flower(1))).status,503);
+  assert.ok(s.codes.includes('GROWFLOW_ERROR_DETAIL HTTP 500 -: Upstream failed after ## seconds'));
+});
 test('refused or rate-limited preorders release the slot for another try', async () => {
   let reply=()=>Response.json({data:{createPreorder:{success:false,order:null}}});
   const s=preorders({create:()=>reply()}), a=await s.linked();

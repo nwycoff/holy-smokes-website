@@ -86,7 +86,16 @@ async function sendGrowflow(env, deps, key, query, variables, token) {
       .bind(key, deps.now() + delay).run();
   }
   if (res.status === 429) throw new AppError('GROWFLOW_RATE_LIMITED');
-  if (!res.ok) throw new AppError('GROWFLOW_HTTP');
+  if (!res.ok) {
+    const failure = new AppError('GROWFLOW_HTTP');
+    failure.category = `STATUS_${res.status}`;
+    if (env.APP_DIAGNOSTIC_ERRORS === 'true') {
+      let errors = null;
+      try { errors = (await res.json())?.errors; } catch { /* Non-JSON bodies are not logged. */ }
+      deps.report(`GROWFLOW_ERROR_DETAIL HTTP ${res.status} ${errorDetail(errors) || '(no GraphQL errors in body)'}`);
+    }
+    throw failure;
+  }
   const payload = await res.json();
   if (payload.errors?.length || !payload.data) {
     const failure = new AppError('GROWFLOW_QUERY');
