@@ -27,7 +27,7 @@ export function readHidden(prompt, { input = process.stdin, output = process.std
   });
 }
 
-export function transport({ token, query, variables }) {
+export function transport({ token, query, variables, maxBytes = 524288 }) {
   return new Promise((resolve, reject) => {
     const body = Buffer.from(JSON.stringify({ query, variables }), 'utf8');
     // Native https does not follow redirects. Certificate verification is explicit.
@@ -39,7 +39,7 @@ export function transport({ token, query, variables }) {
       const chunks = [];
       res.on('data', chunk => {
         size += chunk.length;
-        if (size > 524288) { req.destroy(new Error('RESPONSE_TOO_LARGE')); return; }
+        if (size > maxBytes) { req.destroy(new Error('RESPONSE_TOO_LARGE')); return; }
         chunks.push(chunk);
       });
       res.on('error', () => reject(new Error('RESPONSE_FAILURE')));
