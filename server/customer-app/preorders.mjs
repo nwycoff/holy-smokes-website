@@ -29,7 +29,14 @@ export async function currentPreorder(env, deps, s) {
     await env.APP_DB.prepare('UPDATE app_preorders SET open = 0, checked_at = ? WHERE id = ?').bind(now, row.id).run();
     return summary({ ...row, open: 0 });
   }
-  if (now - row.checked_at < STATUS_REFRESH) return summary(row);
+  return summary(await refreshStatus(env, deps, row));
+}
+
+// Shared by the app and the order-ready notifier. Returns the row with its latest known
+// status; on any failure the last known status stands and the order is unaffected.
+export async function refreshStatus(env, deps, row) {
+  const now = deps.now();
+  if (now - row.checked_at < STATUS_REFRESH) return row;
   try {
     const data = await queryGrowflow(env, deps, PREORDER_STATUS, { orderId: row.order_id }, env.APP_PREORDER_TOKEN);
     const order = data?.preorderStatus?.order;
@@ -37,11 +44,10 @@ export async function currentPreorder(env, deps, s) {
     const status = order.status.slice(0, 40), open = isOpen(status) ? 1 : 0;
     await env.APP_DB.prepare('UPDATE app_preorders SET status = ?, open = ?, checked_at = ? WHERE id = ?')
       .bind(status, open, now, row.id).run();
-    return summary({ ...row, status, open });
+    return { ...row, status, open, checked_at: now };
   } catch (error) {
-    // Show the last known status; the order itself is unaffected.
     deps.report(error instanceof AppError ? error.code : 'PREORDER_STATUS');
-    return summary(row);
+    return row;
   }
 }
 

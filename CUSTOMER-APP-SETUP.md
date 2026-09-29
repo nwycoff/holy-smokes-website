@@ -137,6 +137,23 @@ Setup and test gates:
 
 Set `APP_PREORDER_ENABLED=false` to stop new orders at any time. Existing GrowFlow orders are unaffected.
 
+## 7. "Your order is ready" notifications
+
+Customers with an open order can tap **Notify me when it's ready**. Their phone asks permission, and the app saves that device's Web Push subscription (`app_push_subscriptions`: the push service address and the device's public encryption keys, no names or order details). A scheduled Worker, `workers/order-notifier`, runs every minute: for orders from the last 12 hours whose owner has a subscribed device, it checks `preorderStatus` (at most once per minute per order, 10 orders per run, within the shared 30/minute GrowFlow cap) and, the first time an order is **Fulfilled**, sends each device one encrypted notification ("Your Treehouse order is ready…"). Completed or canceled orders are never notified. Subscriptions the push service reports as gone are deleted; "Sign out on all devices" and removing the rewards connection delete them too; "Sign out" and "Turn off order notifications on this device" remove the current device.
+
+iPhone: notifications only work after **Share → Add to Home Screen**, opening the app from that icon (iOS 16.4+). The app shows that hint in Safari. Android/Chrome works in the browser or installed.
+
+The code sends Web Push itself (RFC 8291 encryption, RFC 8292 VAPID signing) with no extra package. Only allowlisted push services (Google, Apple, Mozilla, Microsoft) can be stored or called.
+
+Setup for the test project:
+
+1. Run `app-migrations/0003_customer_app_push.sql` **once** in `APP_DB` (its `ALTER TABLE` cannot be repeated).
+2. Generate a VAPID key pair. The public key goes on the Pages project as `APP_VAPID_PUBLIC_KEY` together with `APP_PUSH_ENABLED=true`, and as a var on the notifier. The private key (JWK JSON) goes **only** on the notifier Worker as the secret `APP_VAPID_PRIVATE_JWK`. If it is ever lost or exposed, generate a new pair; existing devices must tap the button again.
+3. Deploy the notifier from `workers/order-notifier` (`npx wrangler deploy`). It is bound to the test `APP_DB` and has no public URL. Give it the secrets `APP_PREORDER_TOKEN` and `APP_LIMIT_SECRET` with **the same values as the Pages project** (the limiter secret must match so both share one GrowFlow budget).
+4. Test: place an order, tap **Notify me**, allow notifications, close the app, then mark the order Fulfilled in GrowFlow. The notification should arrive within about two minutes, and tapping it opens the order screen.
+
+Turn off: set `APP_PUSH_ENABLED=false` on the Pages project (hides the button) and on the notifier, or delete the notifier's cron trigger.
+
 ## API budget and operational notes
 
 One shared menu read per minute plus at most 30 total GrowFlow queries/minute for this app/token, capped with transactional counters. Each customer's points requests are capped at ten/minute. Responses with 20 or fewer requests remaining or HTTP 429 set shared backoff using the reset/Retry-After headers. There are no automatic upstream retries. Use a separate token so other applications do not consume this app's headroom unnoticed.

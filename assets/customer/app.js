@@ -6,6 +6,44 @@ let category = 'All', menuError = '', generation = 0, pendingInstall = null, men
 // The cart holds only public menu choices, in memory. Order status is account data.
 const MAX_ITEMS = 10;
 let cart = [], order = null, orderLoading = false, orderNote = '', orderLicense = '';
+// Order-ready notifications (Web Push). iPhone only allows them once the app is on the Home Screen.
+let pushSubscribed = false;
+const canPush = () => !demo && Boolean(config.pushKey) && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+const iosBrowserTab = () => /iPhone|iPad|iPod/.test(navigator.userAgent) && !matchMedia('(display-mode: standalone)').matches && !navigator.standalone;
+const pushKeyBytes = () => Uint8Array.from(atob(config.pushKey.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+async function currentPushSubscription() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return null;
+  const registration = await navigator.serviceWorker.getRegistration('/app/');
+  return registration ? registration.pushManager.getSubscription() : null;
+}
+async function enableNotifications() {
+  if (await Notification.requestPermission() !== 'granted') {
+    message('Notifications are off for this app. You can turn them on in your phone’s settings.'); return;
+  }
+  const registration = await navigator.serviceWorker.ready;
+  const subscription = await registration.pushManager.getSubscription()
+    || await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: pushKeyBytes() });
+  await api('push/subscribe', subscription.toJSON());
+  pushSubscribed = true; message('We’ll notify this device when your order is ready.'); renderOrder(); renderAccount();
+}
+// Removes this device's notifications, locally and on the server. Never blocks sign-out.
+async function disableNotifications() {
+  try {
+    const subscription = await currentPushSubscription();
+    if (subscription) {
+      if (user.signedIn) await api('push/unsubscribe', { endpoint: subscription.endpoint }).catch(() => {});
+      await subscription.unsubscribe();
+    }
+  } catch { /* The server also drops subscriptions the push service reports as gone. */ }
+  pushSubscribed = false;
+}
+function notifyControl() {
+  if (!canPush() && !iosBrowserTab()) return null;
+  if (iosBrowserTab() && !canPush()) return el('p', 'Want a notification when it’s ready? Add My Treehouse to your Home Screen (Share → Add to Home Screen) and order from there.', 'fine-print');
+  if (pushSubscribed) return el('p', 'We’ll notify this device when your order is ready.', 'fine-print');
+  if (Notification.permission === 'denied') return el('p', 'Notifications are blocked for this app. Turn them on in your phone’s settings to hear when your order is ready.', 'fine-print');
+  return button('Notify me when it’s ready 🔔', enableNotifications, 'secondary-button');
+}
 const canOrder = () => demo || Boolean(config.preorderEnabled && user.linked);
 const cartCount = () => cart.reduce((n, line) => n + line.qty, 0);
 const cartTotal = () => cart.reduce((sum, line) => sum + line.priceCents * line.qty, 0);
@@ -111,7 +149,7 @@ function clearPrivate() {
   renderHomePoints(); renderAccount(); renderRewards(); renderOrder(); renderCartBar();
 }
 async function signOut(all = false) {
-  if (!demo) await api(all ? 'logout-all' : 'logout', {});
+  if (!demo) { await disableNotifications(); await api(all ? 'logout-all' : 'logout', {}); }
   cart = []; clearPrivate(); message('You’re signed out.'); location.hash = 'account';
 }
 function renderAccount() {
@@ -122,6 +160,9 @@ function renderAccount() {
   panel.append(link(user.linked ? 'View my points →' : 'Connect my rewards →', '#rewards', 'primary-button'));
   const actions = el('div', '', 'action-row');
   actions.append(button('Sign out', () => signOut(), 'text-button'), button('Sign out on all devices', () => signOut(true), 'text-button'));
+  if (pushSubscribed) actions.append(button('Turn off order notifications on this device', async () => {
+    await disableNotifications(); message('Order notifications are off on this device.'); renderAccount(); renderOrder();
+  }, 'text-button'));
   panel.append(actions, el('p', 'Sign-in is remembered on this device for up to seven days. Only stay signed in on a device you trust.', 'fine-print'));
   const details = el('details'), summary = el('summary', 'Remove my rewards connection');
   details.append(summary, el('p', 'This removes your app connection and signs you out everywhere. Your in-store customer record and points remain. You’ll need a new code to reconnect.'));
@@ -129,7 +170,7 @@ function renderAccount() {
   confirm.append(check, document.createTextNode(' I want to remove my app connection.'));
   details.append(confirm, button('Remove connection', async () => {
     if (!check.checked) { message('Check the confirmation box first.'); return; }
-    if (!demo) await api('remove-link', {});
+    if (!demo) { await disableNotifications(); await api('remove-link', {}); }
     cart = []; clearPrivate(); message('Your app connection has been removed.');
   }, 'secondary-button'));
   panel.append(details); target.append(panel);
@@ -184,6 +225,8 @@ function orderStatusPanel() {
     el('p', `${order.itemCount} ${order.itemCount === 1 ? 'item' : 'items'} · ${money.format(order.totalCents / 100)} · placed ${new Date(order.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`));
   if (order.open) panel.append(el('p', 'Pay in store when you pick up. Bring your ID and medical card.'),
     button('Refresh status ↻', () => refreshOrder(true), 'light-button'));
+  const notify = order.open && order.status !== 'Fulfilled' ? notifyControl() : null;
+  if (notify) { const row = el('div', '', 'notify-row'); row.append(notify); panel.append(row); }
   return panel;
 }
 function renderOrder() {
@@ -313,8 +356,10 @@ async function initialize() {
   } else {
     try {
       const loaded = await api('config'); if (current !== generation) return; config = loaded;
-      if (config.enabled) { const loadedUser = await api('session'); if (current !== generation) return; user = loadedUser; }
-      else message('My Treehouse is being prepared. The quick points checker is still available on our website.');
+      if (config.enabled) {
+        const loadedUser = await api('session'); if (current !== generation) return; user = loadedUser;
+        pushSubscribed = Boolean(user.signedIn && canPush() && await currentPushSubscription().catch(() => null));
+      } else message('My Treehouse is being prepared. The quick points checker is still available on our website.');
     } catch { message('You’re offline or the app is temporarily unavailable. Reconnect to check your menu and points.'); }
   }
   if (current !== generation) return;

@@ -5,8 +5,9 @@ import { readFileSync } from 'node:fs';
 import { handleApp } from '../server/customer-app/index.mjs';
 import { hash } from '../server/customer-app/http.mjs';
 import { normalizeMenu } from '../server/customer-app/growflow.mjs';
+import { encryptPayload, vapidAuthorization, readSubscription, notifyReadyOrders, b64url, fromB64url, READY_MESSAGE } from '../server/customer-app/push.mjs';
 
-const migration = ['0001_customer_app.sql', '0002_customer_app_preorders.sql']
+const migration = ['0001_customer_app.sql', '0002_customer_app_preorders.sql', '0003_customer_app_push.sql']
   .map(name => readFileSync(new URL(`../app-migrations/${name}`, import.meta.url), 'utf8')).join('\n');
 class D1 {
   constructor() { this.db = new DatabaseSync(':memory:'); this.db.exec('PRAGMA foreign_keys = ON'); this.db.exec(migration); }
@@ -445,4 +446,108 @@ test('recreational customers can order without a license number', async () => {
   const s=preorders({customer:{CustomerType:'Recreational'}}), a=await s.linked(), {license,...noLicense}=flower(1);
   assert.equal((await a.place(noLicense)).status,200);
   assert.equal(s.mutations()[0].variables.preorder.customer.medicalLicenseNumber,undefined);
+});
+
+// A phone's side of Web Push: its key pair and auth secret, and RFC 8291 decryption.
+async function device(endpoint='https://fcm.googleapis.com/fcm/send/synthetic-device') {
+  const keys=await crypto.subtle.generateKey({name:'ECDH',namedCurve:'P-256'},true,['deriveBits']);
+  const auth=crypto.getRandomValues(new Uint8Array(16));
+  const p256dh=new Uint8Array(await crypto.subtle.exportKey('raw',keys.publicKey));
+  return {keys,subscription:{endpoint,expirationTime:null,keys:{p256dh:b64url(p256dh),auth:b64url(auth)}}};
+}
+async function decrypt(phone, body) {
+  const h=async(k,d)=>new Uint8Array(await crypto.subtle.sign('HMAC',await crypto.subtle.importKey('raw',k,{name:'HMAC',hash:'SHA-256'},false,['sign']),d));
+  const cat=(...p)=>{const o=new Uint8Array(p.reduce((n,x)=>n+x.length,0));let i=0;for(const x of p){o.set(x,i);i+=x.length;}return o;};
+  const te=new TextEncoder(), salt=body.slice(0,16), idlen=body[20], asPublic=body.slice(21,21+idlen), sealed=body.slice(21+idlen);
+  assert.equal(new DataView(body.buffer,body.byteOffset).getUint32(16),4096);
+  const asKey=await crypto.subtle.importKey('raw',asPublic,{name:'ECDH',namedCurve:'P-256'},false,[]);
+  const shared=new Uint8Array(await crypto.subtle.deriveBits({name:'ECDH',public:asKey},phone.keys.privateKey,256));
+  const uaPublic=fromB64url(phone.subscription.keys.p256dh), auth=fromB64url(phone.subscription.keys.auth);
+  const ikm=await h(await h(auth,shared),cat(te.encode('WebPush: info\0'),uaPublic,asPublic,new Uint8Array([1])));
+  const prk=await h(salt,ikm);
+  const cek=(await h(prk,cat(te.encode('Content-Encoding: aes128gcm\0'),new Uint8Array([1])))).slice(0,16);
+  const nonce=(await h(prk,cat(te.encode('Content-Encoding: nonce\0'),new Uint8Array([1])))).slice(0,12);
+  const plain=new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv:nonce},await crypto.subtle.importKey('raw',cek,'AES-GCM',false,['decrypt']),sealed));
+  assert.equal(plain.at(-1),2);return new TextDecoder().decode(plain.slice(0,-1));
+}
+async function vapid() {
+  const pair=await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);
+  return {pair,publicKey:b64url(await crypto.subtle.exportKey('raw',pair.publicKey)),
+    privateJwk:JSON.stringify(await crypto.subtle.exportKey('jwk',pair.privateKey))};
+}
+async function withPush(options) {
+  const s=preorders(options), v=await vapid(), pushes=[], base=s.deps.fetch;
+  let pushStatus=201;
+  Object.assign(s.env,{APP_PUSH_ENABLED:'true',APP_VAPID_PUBLIC_KEY:v.publicKey,APP_VAPID_PRIVATE_JWK:v.privateJwk,APP_PUSH_SUBJECT:'https://preview.example.test/app/'});
+  s.deps.fetch=async(target,init)=>{
+    if (new URL(String(target)).hostname==='fcm.googleapis.com') { pushes.push({url:String(target),init}); return new Response('',{status:pushStatus}); }
+    return base(target,init);
+  };
+  return {...s,v,pushes,setPushStatus:x=>{pushStatus=x;}};
+}
+
+test('push payloads decrypt on the device and VAPID signatures verify', async () => {
+  const phone=await device(), v=await vapid(), env={APP_VAPID_PUBLIC_KEY:v.publicKey,APP_VAPID_PRIVATE_JWK:v.privateJwk,APP_PUSH_SUBJECT:'mailto:owner@example.test'};
+  const body=await encryptPayload(readSubscription(phone.subscription),JSON.stringify(READY_MESSAGE));
+  assert.deepEqual(JSON.parse(await decrypt(phone,body)),READY_MESSAGE);
+  const header=await vapidAuthorization(env,phone.subscription.endpoint,Date.UTC(2026,8,29));
+  const [, token, key]=header.match(/^vapid t=([^,]+), k=(.+)$/);assert.equal(key,v.publicKey);
+  const [h,c,sig]=token.split('.');const claims=JSON.parse(Buffer.from(c,'base64url'));
+  assert.equal(claims.aud,'https://fcm.googleapis.com');assert.equal(claims.sub,'mailto:owner@example.test');
+  assert.ok(await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},v.pair.publicKey,Buffer.from(sig,'base64url'),new TextEncoder().encode(`${h}.${c}`)));
+});
+test('only well-formed subscriptions to known push services are accepted', async () => {
+  const {subscription}=await device();
+  assert.ok(readSubscription(subscription));
+  assert.ok(readSubscription({...subscription,endpoint:'https://web.push.apple.com/QGuQyavXutnMH'}));
+  for (const bad of [{...subscription,endpoint:'https://attacker.example/push'},{...subscription,endpoint:'http://fcm.googleapis.com/x'},
+    {...subscription,endpoint:'https://fcm.googleapis.com:8443/x'},{...subscription,keys:{...subscription.keys,auth:'short'}},
+    {...subscription,keys:{...subscription.keys,p256dh:b64url(new Uint8Array(65))}},{...subscription,extra:1}])
+    assert.equal(readSubscription(bad),null);
+});
+test('devices subscribe only when linked and enabled; sign-out everywhere and unlinking remove them', async () => {
+  const s=await withPush(), phone=await device();
+  assert.equal((await (await s.run('config')).json()).pushKey,s.v.publicKey);
+  const a=await s.login(), csrf=(await (await s.run('session',{cookie:a.cookie})).json()).csrf;
+  const sub=(body,cookie=a.cookie,token=csrf)=>s.run('push/subscribe',{method:'POST',cookie,body,headers:{'x-treehouse-csrf':token}});
+  assert.equal((await sub(phone.subscription)).status,403);
+  const b=await s.linked();
+  assert.equal((await s.run('push/subscribe',{method:'POST',cookie:b.cookie,body:phone.subscription})).status,403);
+  assert.equal((await sub({...phone.subscription,endpoint:'https://attacker.example/x'},b.cookie,b.csrf)).status,400);
+  assert.equal((await sub(phone.subscription,b.cookie,b.csrf)).status,200);
+  assert.equal(s.env.APP_DB.db.prepare('SELECT count(*) n FROM app_push_subscriptions').get().n,1);
+  assert.equal((await s.run('logout-all',{method:'POST',cookie:b.cookie,body:{},headers:{'x-treehouse-csrf':b.csrf}})).status,200);
+  assert.equal(s.env.APP_DB.db.prepare('SELECT count(*) n FROM app_push_subscriptions').get().n,0);
+  s.env.APP_PUSH_ENABLED='false';assert.equal((await (await s.run('config')).json()).pushKey,undefined);
+});
+test('the notifier sends one encrypted "ready" message per device when GrowFlow marks the order Fulfilled', async () => {
+  const s=await withPush({status:'Unfulfilled'}), a=await s.linked(), phone=await device(), other=await device('https://fcm.googleapis.com/fcm/send/old-device');
+  await s.run('push/subscribe',{method:'POST',cookie:a.cookie,body:phone.subscription,headers:{'x-treehouse-csrf':a.csrf}});
+  await s.run('push/subscribe',{method:'POST',cookie:a.cookie,body:other.subscription,headers:{'x-treehouse-csrf':a.csrf}});
+  assert.equal((await a.place(flower(1))).status,200);
+  s.advance(60001);assert.deepEqual(await notifyReadyOrders(s.env,s.deps),{checked:1,notified:0});assert.equal(s.pushes.length,0);
+  s.env.APP_DB.db.exec("UPDATE app_preorders SET status='Fulfilled'");s.setPushStatus(201);
+  // Old device's subscription has expired at the push service.
+  const base=s.deps.fetch;s.deps.fetch=async(t,i)=>String(t).includes('old-device')?(s.pushes.push({url:String(t),init:i}),new Response('',{status:410})):base(t,i);
+  assert.deepEqual(await notifyReadyOrders(s.env,s.deps),{checked:1,notified:1});
+  const sent=s.pushes.find(p=>p.url===phone.subscription.endpoint);
+  assert.equal(sent.init.headers['Content-Encoding'],'aes128gcm');assert.match(sent.init.headers.Authorization,/^vapid t=/);
+  assert.deepEqual(JSON.parse(await decrypt(phone,sent.init.body)),READY_MESSAGE);
+  assert.equal(s.env.APP_DB.db.prepare('SELECT count(*) n FROM app_push_subscriptions').get().n,1);
+  const count=s.pushes.length;s.advance(60001);
+  assert.deepEqual(await notifyReadyOrders(s.env,s.deps),{checked:0,notified:0});assert.equal(s.pushes.length,count);
+});
+test('the notifier skips completed, canceled and old orders, and does nothing without its keys', async () => {
+  for (const status of ['Completed','Canceled']) {
+    const s=await withPush({status}), a=await s.linked(), phone=await device();
+    await s.run('push/subscribe',{method:'POST',cookie:a.cookie,body:phone.subscription,headers:{'x-treehouse-csrf':a.csrf}});
+    await a.place(flower(1));s.advance(60001);
+    await notifyReadyOrders(s.env,s.deps);assert.equal(s.pushes.length,0);
+  }
+  const s=await withPush({status:'Fulfilled'}), a=await s.linked(), phone=await device();
+  await s.run('push/subscribe',{method:'POST',cookie:a.cookie,body:phone.subscription,headers:{'x-treehouse-csrf':a.csrf}});
+  await a.place(flower(1));
+  const {APP_VAPID_PRIVATE_JWK,...noKey}=s.env;
+  assert.deepEqual(await notifyReadyOrders(noKey,s.deps),{checked:0,notified:0});
+  s.advance(12*3600000+1);assert.deepEqual(await notifyReadyOrders(s.env,s.deps),{checked:0,notified:0});assert.equal(s.pushes.length,0);
 });

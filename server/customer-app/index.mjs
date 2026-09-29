@@ -4,6 +4,7 @@ import { AppError, bodyJSON, enabled, authReady, growflowReady, menuReady, preor
 import { startLogin, finishLogin, session, logout } from './auth.mjs';
 import { CUSTOMER_QUERY, singleCustomer, eligibleCustomer, queryGrowflow, getMenu } from './growflow.mjs';
 import { currentPreorder, placePreorder } from './preorders.mjs';
+import { pushReady, subscribe, unsubscribe } from './push.mjs';
 
 async function limit(env, deps, subject, max, window = 900000) {
   if (!await consumeLimits(env.APP_DB, env.APP_LIMIT_SECRET, [{ subject, max, window }], deps.now()))
@@ -23,14 +24,15 @@ export async function handleApp(context, overrides = {}) {
   const url = new URL(request.url), route = url.pathname.replace(/^\/api\/app\//, '').replace(/\/$/, '');
   const allowed = { config: 'GET', menu: 'GET', session: 'GET', points: 'GET', login: 'POST',
     callback: 'GET', enroll: 'POST', logout: 'POST', 'logout-all': 'POST', 'remove-link': 'POST', 'staff/enroll': 'POST',
-    preorder: 'GET', 'preorder/place': 'POST' };
+    preorder: 'GET', 'preorder/place': 'POST', 'push/subscribe': 'POST', 'push/unsubscribe': 'POST' };
   if (!allowed[route]) return json(404, { error: 'Not found.' });
   if (allowed[route] !== request.method) return json(405, { error: 'Method not allowed.' }, { Allow: allowed[route] });
   if (route !== 'callback' && url.search) return json(400, { error: 'Invalid request.' });
   const active = enabled(env, url);
   if (route === 'config') return json(200, { enabled: Boolean(active),
     loginEnabled: Boolean(active && authReady(env)), menuEnabled: Boolean(active && menuReady(env)),
-    preorderEnabled: Boolean(active && preorderReady(env)) });
+    preorderEnabled: Boolean(active && preorderReady(env)),
+    ...(active && preorderReady(env) && pushReady(env) ? { pushKey: env.APP_VAPID_PUBLIC_KEY } : {}) });
   if (!active) return json(503, { error: 'The customer app is not available yet. You can still use My Points on our website.' });
   const staff = route === 'staff/enroll';
   if (request.method === 'POST' && !staff && !sameOrigin(request)) return json(403, { error: 'Please reopen the app and try again.' });
@@ -80,6 +82,7 @@ export async function handleApp(context, overrides = {}) {
       : { signedIn: false, linked: false });
     if (!s) throw new AppError('SIGN_IN', 401);
     if (request.method === 'POST' && request.headers.get('x-treehouse-csrf') !== s.csrf) throw new AppError('CSRF', 403);
+    if (route === 'logout-all') await env.APP_DB.prepare('DELETE FROM app_push_subscriptions WHERE user_id = ?').bind(s.id).run();
     if (route === 'logout' || route === 'logout-all') return json(200, { signedIn: false },
       { 'Set-Cookie': await logout(env, s, route === 'logout-all') });
     if (route === 'remove-link') {
@@ -116,6 +119,14 @@ export async function handleApp(context, overrides = {}) {
       const customer = singleCustomer(data);
       if (!customer || customer.objectId !== s.customer_id || !Number.isFinite(customer.CurrentPoints)) throw new AppError('POINTS_UNAVAILABLE');
       return json(200, { points: customer.CurrentPoints, checkedAt: deps.now() });
+    }
+    if (route === 'push/subscribe' || route === 'push/unsubscribe') {
+      if (route === 'push/unsubscribe') { await unsubscribe(env, s, await bodyJSON(request)); return json(200, { subscribed: false }); }
+      if (!s.customer_id) throw new AppError('LINK_REQUIRED', 403);
+      if (!preorderReady(env) || !pushReady(env)) throw new AppError('PUSH_CONFIG');
+      await limit(env, deps, `push:${s.id}`, 10);
+      await subscribe(env, deps, s, await bodyJSON(request));
+      return json(200, { subscribed: true });
     }
     if (route === 'preorder' || route === 'preorder/place') {
       if (!s.customer_id) throw new AppError('LINK_REQUIRED', 403);

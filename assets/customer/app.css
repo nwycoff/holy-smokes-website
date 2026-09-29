@@ -1192,3 +1192,17 @@ details summary {
   font-size: 12px;
   margin: -4px 0 0;
 }
+
+.notify-row {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid #ffffff2e;
+}
+.notify-row .secondary-button {
+  border-color: #ffffff55;
+  color: var(--paper);
+}
+.notify-row .fine-print {
+  color: #f6f3ebcc;
+  margin: 0;
+}
