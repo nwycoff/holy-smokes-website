@@ -149,7 +149,7 @@ The code sends Web Push itself (RFC 8291 encryption, RFC 8292 VAPID signing) wit
 
 Setup for the test project:
 
-1. Run `app-migrations/0003_customer_app_push.sql` **once** in `APP_DB` (its `ALTER TABLE` cannot be repeated). Then run `app-migrations/0004_customer_app_push_deliveries.sql`.
+1. Run `app-migrations/0003_customer_app_push.sql` **once** in `APP_DB` (its `ALTER TABLE` cannot be repeated). Then run `app-migrations/0005_customer_app_push_deliveries.sql`.
 2. Generate a VAPID key pair. The public key goes on the Pages project as `APP_VAPID_PUBLIC_KEY` together with `APP_PUSH_ENABLED=true`, and as a var on the notifier. The private key (JWK JSON) goes **only** on the notifier Worker as the secret `APP_VAPID_PRIVATE_JWK`. If it is ever lost or exposed, generate a new pair; existing devices must tap the button again.
 3. Deploy the notifier from `workers/order-notifier` (`npx wrangler deploy`). It is bound to the test `APP_DB` and has no public URL. Give it the secrets `APP_PREORDER_TOKEN` and `APP_LIMIT_SECRET` with **the same values as the Pages project** (the limiter secret must match so both share one GrowFlow budget).
 4. Test: place an order, tap **Notify me**, allow notifications, close the app, then mark the order Fulfilled in GrowFlow. The notification should arrive within about two minutes, and tapping it opens the order screen.

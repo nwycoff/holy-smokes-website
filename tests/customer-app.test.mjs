@@ -7,7 +7,7 @@ import { hash } from '../server/customer-app/http.mjs';
 import { normalizeMenu } from '../server/customer-app/growflow.mjs';
 import { encryptPayload, vapidAuthorization, readSubscription, notifyReadyOrders, b64url, fromB64url, READY_MESSAGE } from '../server/customer-app/push.mjs';
 
-const migration = ['0001_customer_app.sql', '0002_customer_app_preorders.sql', '0003_customer_app_push.sql', '0004_customer_app_push_deliveries.sql']
+const migration = ['0001_customer_app.sql', '0002_customer_app_preorders.sql', '0003_customer_app_push.sql', '0005_customer_app_push_deliveries.sql']
   .map(name => readFileSync(new URL(`../app-migrations/${name}`, import.meta.url), 'utf8')).join('\n');
 class D1 {
   constructor() { this.db = new DatabaseSync(':memory:'); this.db.exec('PRAGMA foreign_keys = ON'); this.db.exec(migration); }

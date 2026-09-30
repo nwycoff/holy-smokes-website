@@ -1,4 +1,4 @@
--- Run in APP_DB after 0003. Not in the live points database.
+-- Run in APP_DB after 0003 (0004 is the staff enrollment migration). Not in the live points database.
 -- One row per (order, device): whether its "ready" notification is being sent, was
 -- accepted by the push service, failed (and when it may be retried), or the device is gone.
 CREATE TABLE IF NOT EXISTS app_push_deliveries (
