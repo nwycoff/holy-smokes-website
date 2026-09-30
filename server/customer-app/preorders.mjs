@@ -1,5 +1,6 @@
 import { AppError, randomToken } from './http.mjs';
 import { rewardTiersReady } from './http.mjs';
+import { licenseMemoryReady, openLicense, saveLicense, forgetLicense } from './license.mjs';
 import { CREATE_PREORDER, PREORDER_CUSTOMER_QUERY, PREORDER_STATUS, eligibleCustomer, getMenu, getRewards,
   queryGrowflow, singleCustomer } from './growflow.mjs';
 
@@ -54,7 +55,8 @@ export async function refreshStatus(env, deps, row) {
 }
 
 function readItems(input) {
-  if (Object.keys(input).some(k => !['items', 'note', 'license', 'reward'].includes(k)) || !Array.isArray(input.items)
+  if (Object.keys(input).some(k => !['items', 'note', 'license', 'reward', 'rememberLicense', 'useSavedLicense'].includes(k))
+    || !Array.isArray(input.items)
     || !input.items.length || input.items.length > MAX_ITEMS) throw new AppError('INPUT', 400);
   const seen = new Set();
   const items = input.items.map(item => {
@@ -77,7 +79,10 @@ function readItems(input) {
   if (license && !/^[A-Z0-9](?:-?[A-Z0-9]){4,39}$/.test(license)) throw new AppError('LICENSE_FORMAT', 400);
   if (input.reward !== undefined && (typeof input.reward !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(input.reward)))
     throw new AppError('INPUT', 400);
-  return { items, note, license, reward: input.reward };
+  for (const flag of ['rememberLicense', 'useSavedLicense'])
+    if (input[flag] !== undefined && typeof input[flag] !== 'boolean') throw new AppError('INPUT', 400);
+  if (license && input.useSavedLicense) throw new AppError('INPUT', 400);
+  return { items, note, license, reward: input.reward, remember: input.rememberLicense === true, useSaved: input.useSavedLicense === true };
 }
 
 // Same field allowlist as the points checker. License numbers can be matched in a
@@ -131,7 +136,7 @@ async function preorderCustomer(env, deps, customerId, license) {
 }
 
 export async function placePreorder(env, deps, s, input, limit) {
-  const { items, note, license, reward } = readItems(input);
+  const { items, note, license: typed, reward, remember, useSaved } = readItems(input);
   if ((await currentPreorder(env, deps, s))?.open) throw new AppError('OPEN_ORDER', 409);
   await limit();
   const menu = await getMenu(env, deps);
@@ -145,7 +150,26 @@ export async function placePreorder(env, deps, s, input, limit) {
   });
   const totalCents = lines.reduce((sum, line) => sum + line.cents, 0);
   const itemCount = items.reduce((n, item) => n + item.qty, 0);
-  const { customer, points } = await preorderCustomer(env, deps, s.customer_id, license);
+  // A saved license is decrypted only here, and GrowFlow re-checks it on every order.
+  let license = typed;
+  if (useSaved) {
+    license = licenseMemoryReady(env) ? await openLicense(env, s.id, s.license_enc) : null;
+    if (!license) { await forgetLicense(env, s.id); throw new AppError('LICENSE_SAVED_MISSING', 400); }
+  }
+  let verified;
+  try { verified = await preorderCustomer(env, deps, s.customer_id, license); }
+  catch (error) {
+    if (useSaved && error.code === 'LICENSE_MISMATCH') { await forgetLicense(env, s.id); throw new AppError('LICENSE_SAVED_MISMATCH', 400); }
+    throw error;
+  }
+  const { customer, points } = verified;
+  // Save only a number GrowFlow just confirmed, and only when the customer asked. Typing one
+  // without ticking "remember" replaces any saved copy with nothing.
+  let licenseHint = useSaved ? s.license_hint : null;
+  if (typed && licenseMemoryReady(env)) {
+    if (remember) licenseHint = await saveLicense(env, s.id, typed);
+    else if (s.license_enc) await forgetLicense(env, s.id);
+  }
   // A chosen loyalty reward is written into the order note for staff to apply at checkout.
   // GrowFlow preorders have no discount field; the total sent stays the full price.
   let rewardLine = '', rewardName = null;
@@ -196,8 +220,9 @@ export async function placePreorder(env, deps, s, input, limit) {
   const orderNumber = typeof order.orderNumber === 'string' ? order.orderNumber.slice(0, 40) : null;
   await env.APP_DB.prepare(`UPDATE app_preorders SET order_id = ?, order_number = ?, status = ?, open = ?, checked_at = ?,
     reward_name = ? WHERE id = ?`).bind(order.id, orderNumber, status, open, deps.now(), rewardName, id).run();
-  return summary({ order_number: orderNumber, status, open, total_cents: totalCents, item_count: itemCount, created_at: now,
+  const placed = summary({ order_number: orderNumber, status, open, total_cents: totalCents, item_count: itemCount, created_at: now,
     reward_name: rewardName });
+  return licenseHint ? { ...placed, licenseHint } : placed;
 }
 
 async function unconfirmed(env, id) {

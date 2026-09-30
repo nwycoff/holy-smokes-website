@@ -1,13 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { handleApp } from '../server/customer-app/index.mjs';
 import { hash } from '../server/customer-app/http.mjs';
 import { normalizeMenu } from '../server/customer-app/growflow.mjs';
 import { encryptPayload, vapidAuthorization, readSubscription, notifyReadyOrders, b64url, fromB64url, READY_MESSAGE } from '../server/customer-app/push.mjs';
 
-const migration = ['0001_customer_app.sql', '0002_customer_app_preorders.sql', '0003_customer_app_push.sql', '0005_customer_app_push_deliveries.sql', '0006_customer_app_preorder_reward.sql']
+// Every migration in order, so tests run against the same schema as a real APP_DB.
+const migration = readdirSync(new URL('../app-migrations/', import.meta.url)).filter(f => f.endsWith('.sql')).sort()
   .map(name => readFileSync(new URL(`../app-migrations/${name}`, import.meta.url), 'utf8')).join('\n');
 class D1 {
   constructor() { this.db = new DatabaseSync(':memory:'); this.db.exec('PRAGMA foreign_keys = ON'); this.db.exec(migration); }
@@ -658,4 +659,66 @@ test('rewards cannot be requested while tiers are switched off', async () => {
   const s=preorders(), a=await s.linked();
   assert.equal((await a.place({...flower(2),reward:'Tier225'})).status,409);assert.equal(s.mutations().length,0);
   assert.equal((await a.place(flower(2))).status,200);assert.equal(s.mutations()[0].variables.preorder.preOrderNote,undefined);
+});
+
+async function withLicenseMemory(options) {
+  const s=preorders(options);
+  Object.assign(s.env,{APP_LICENSE_MEMORY_ENABLED:'true',APP_LICENSE_KEY:b64url(crypto.getRandomValues(new Uint8Array(32)))});
+  const a=await s.linked(), saved=()=>s.env.APP_DB.db.prepare('SELECT license_enc, license_hint FROM app_users WHERE customer_id=?').get('CustomerOne');
+  const reopen=async()=>{ s.advance(30001); await a.status(); }; // Let the open order finish (Completed).
+  return {...s,a,saved,reopen,session:async()=>(await s.run('session',{cookie:a.cookie})).json()};
+}
+test('an opted-in license is saved encrypted after GrowFlow confirms it, and reused without retyping', async () => {
+  const s=await withLicenseMemory();
+  assert.equal((await (await s.run('config')).json()).licenseMemoryEnabled,true);
+  const first=await s.a.place({...flower(1),rememberLicense:true});assert.equal(first.status,200);
+  assert.equal((await first.json()).order.licenseHint,'ABCD');
+  const row=s.saved();assert.match(row.license_enc,/^v1\./);assert.equal(row.license_hint,'ABCD');
+  assert.ok(!row.license_enc.includes('PAAA')&&!row.license_enc.includes('1234'));
+  assert.deepEqual(Object.keys(await s.session()).sort(),['csrf','licenseHint','linked','signedIn']);
+  assert.equal((await s.session()).licenseHint,'ABCD');
+  await s.reopen();const {license,...noLicense}=flower(1);
+  assert.equal((await s.a.place({...noLicense,useSavedLicense:true})).status,200);
+  assert.equal(s.mutations()[1].variables.preorder.customer.medicalLicenseNumber,LICENSE);
+  const lookup=s.sent.filter(r=>r.query.includes('TreehousePreorderCustomer')).at(-1).variables.where;
+  assert.ok(lookup.OR,'the saved license is re-checked against GrowFlow');
+  const everything=JSON.stringify([s.codes,await (await s.run('config')).text(),await s.session()]);
+  assert.ok(!everything.includes('PAAA')&&!everything.includes('1234'));
+});
+test('nothing is saved without opting in, and typing without "remember" clears a saved copy', async () => {
+  const s=await withLicenseMemory();
+  assert.equal((await s.a.place(flower(1))).status,200);assert.equal(s.saved().license_enc,null);
+  await s.reopen();await s.a.place({...flower(1),rememberLicense:true});assert.ok(s.saved().license_enc);
+  await s.reopen();await s.a.place(flower(1));assert.equal(s.saved().license_enc,null);assert.equal(s.saved().license_hint,null);
+});
+test('a saved license that no longer matches, or cannot be decrypted, is removed and asked for again', async () => {
+  const s=await withLicenseMemory();const {license,...noLicense}=flower(1);
+  await s.a.place({...flower(1),rememberLicense:true});await s.reopen();
+  // Swap in a validly encrypted but wrong number (e.g. the patient renewed their license).
+  const {sealLicense}=await import('../server/customer-app/license.mjs');
+  const user=s.env.APP_DB.db.prepare('SELECT id FROM app_users WHERE customer_id=?').get('CustomerOne').id;
+  s.env.APP_DB.db.prepare('UPDATE app_users SET license_enc=? WHERE id=?').run(await sealLicense(s.env,user,'PZZZ-9999-ZZZZ'),user);
+  const res=await s.a.place({...noLicense,useSavedLicense:true});assert.equal(res.status,400);
+  assert.match((await res.json()).error,/no longer matches/);assert.equal(s.saved().license_enc,null);assert.equal(s.mutations().length,1);
+  // Ciphertext bound to another account (or a rotated key) cannot be opened.
+  await s.a.place({...flower(1),rememberLicense:true});await s.reopen();
+  s.env.APP_DB.db.prepare('UPDATE app_users SET license_enc=? WHERE id=?').run(await sealLicense(s.env,'someone-else',LICENSE),user);
+  assert.equal((await s.a.place({...noLicense,useSavedLicense:true})).status,400);assert.equal(s.saved().license_enc,null);
+});
+test('customers can forget a saved license; unlinking deletes it; the feature stays off without its key', async () => {
+  const s=await withLicenseMemory();
+  await s.a.place({...flower(1),rememberLicense:true});
+  assert.equal((await s.run('license/forget',{method:'POST',cookie:s.a.cookie,body:{}})).status,403);
+  assert.equal((await s.run('license/forget',{method:'POST',cookie:s.a.cookie,body:{},headers:{'x-treehouse-csrf':s.a.csrf}})).status,200);
+  assert.equal(s.saved().license_enc,null);
+  await s.reopen();await s.a.place({...flower(1),rememberLicense:true});
+  await s.run('remove-link',{method:'POST',cookie:s.a.cookie,body:{},headers:{'x-treehouse-csrf':s.a.csrf}});
+  assert.equal(s.env.APP_DB.db.prepare('SELECT count(*) n FROM app_users WHERE license_enc IS NOT NULL').get().n,0);
+  const off=preorders(), b=await off.linked(), {license,...noLicense}=flower(1);
+  assert.equal((await (await off.run('config')).json()).licenseMemoryEnabled,false);
+  assert.equal((await b.place({...flower(1),rememberLicense:true})).status,200);
+  assert.equal(off.env.APP_DB.db.prepare('SELECT license_enc FROM app_users').get().license_enc,null);
+  off.advance(30001);await b.status();
+  assert.equal((await b.place({...noLicense,useSavedLicense:true})).status,400);
+  for (const bad of [{...flower(1),useSavedLicense:true},{...flower(1),rememberLicense:'yes'}]) assert.equal((await b.place(bad)).status,400);
 });

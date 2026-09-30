@@ -90,3 +90,14 @@ export async function fetchSafe(deps, url, init = {}) {
   if (res.status >= 300 && res.status < 400) throw new AppError('UPSTREAM_REDIRECT');
   return res;
 }
+
+// Base64url without padding, as used by Web Push and stored encrypted values.
+export const b64url = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes)))
+  .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+export function fromB64url(text) {
+  if (typeof text !== 'string' || !/^[A-Za-z0-9_-]*$/.test(text)) return null;
+  try {
+    const binary = atob(text.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - text.length % 4) % 4));
+    return Uint8Array.from(binary, c => c.charCodeAt(0));
+  } catch { return null; }
+}

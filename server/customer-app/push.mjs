@@ -1,19 +1,11 @@
-import { AppError, fetchSafe } from './http.mjs';
+import { AppError, fetchSafe, b64url, fromB64url } from './http.mjs';
+export { b64url, fromB64url };
 import { refreshStatus } from './preorders.mjs';
 
 // "Your order is ready" notifications. Standard Web Push: payloads are encrypted for each
 // device (RFC 8291, aes128gcm) and requests are signed with the app's VAPID key (RFC 8292).
 // Notifications carry no order details, names or items.
 const encoder = new TextEncoder();
-export const b64url = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes)))
-  .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-export function fromB64url(text) {
-  if (typeof text !== 'string' || !/^[A-Za-z0-9_-]*$/.test(text)) return null;
-  try {
-    const binary = atob(text.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - text.length % 4) % 4));
-    return Uint8Array.from(binary, c => c.charCodeAt(0));
-  } catch { return null; }
-}
 const concat = (...parts) => {
   const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
   let offset = 0;

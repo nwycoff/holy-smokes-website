@@ -8,6 +8,10 @@ const MAX_ITEMS = 10;
 let cart = [], order = null, orderLoading = false, orderNote = '', orderLicense = '';
 // Loyalty reward tiers (public) and the one a customer picks for their order. Staff apply it at pickup.
 let rewardTiers = null, selectedReward = '', rewardPointsTried = false;
+// Optional saved license: only its last four characters ever reach the browser.
+let rememberLicense = false, changingLicense = false;
+const licenseMemory = () => demo || Boolean(config.licenseMemoryEnabled);
+const usingSavedLicense = () => Boolean(licenseMemory() && user.licenseHint && !changingLicense);
 const formatPoints = n => new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n);
 async function loadRewards() {
   if (rewardTiers || !(demo || config.rewardTiersEnabled)) return;
@@ -175,7 +179,8 @@ async function refreshPoints() {
   finally { pointsLoading = false; if (current === generation) { renderHomePoints(); renderRewards(); } }
 }
 function clearPrivate() {
-  generation++; points = null; order = null; orderLicense = ''; selectedReward = ''; user = { signedIn: false, linked: false };
+  generation++; points = null; order = null; orderLicense = ''; selectedReward = ''; rememberLicense = false; changingLicense = false;
+  user = { signedIn: false, linked: false };
   const input = $('connection-code'); if (input) input.value = '';
   renderHomePoints(); renderAccount(); renderRewards(); renderOrder(); renderCartBar();
 }
@@ -191,6 +196,10 @@ function renderAccount() {
   panel.append(link(user.linked ? 'View my points →' : 'Connect my rewards →', '#rewards', 'primary-button'));
   const actions = el('div', '', 'action-row');
   actions.append(button('Sign out', () => signOut(), 'text-button'), button('Sign out on all devices', () => signOut(true), 'text-button'));
+  if (licenseMemory() && user.licenseHint) actions.append(button(`Forget my saved license number (ending ${user.licenseHint})`, async () => {
+    if (!demo) await api('license/forget', {});
+    user.licenseHint = undefined; message('Your saved license number has been removed.'); renderAccount(); renderOrder();
+  }, 'text-button'));
   if (pushSubscribed) actions.append(button('Turn off order notifications on this device', async () => {
     await disableNotifications(); message('Order notifications are off on this device.'); renderAccount(); renderOrder();
   }, 'text-button'));
@@ -292,25 +301,43 @@ function renderOrder() {
     item.append(info, qty, el('b', money.format(line.priceCents * line.qty / 100))); list.append(item);
   }
   const total = el('p', '', 'order-total'); total.append(el('span', 'Estimated total'), el('strong', money.format(cartTotal() / 100)));
-  const licenseLabel = el('label', 'Medical license number'), license = el('input');
-  licenseLabel.htmlFor = 'order-license'; license.id = 'order-license'; license.name = 'medical-license-number';
-  license.autocomplete = 'on'; license.autocapitalize = 'characters'; license.spellcheck = false; license.maxLength = 48;
-  license.placeholder = 'As shown on your medical card'; license.value = orderLicense;
-  license.addEventListener('input', () => { orderLicense = license.value; });
+  const licenseParts = licenseFields();
   const label = el('label', 'Note for the shop (optional)'), note = el('textarea');
   label.htmlFor = 'order-note'; note.id = 'order-note'; note.maxLength = 200; note.rows = 2; note.value = orderNote;
   note.addEventListener('input', () => { orderNote = note.value; });
   const submit = el('button', 'Place pickup order →', 'primary-button wide-button'); submit.type = 'submit';
   panel.addEventListener('submit', async event => {
     event.preventDefault(); submit.disabled = true;
-    try { await placeOrder(orderNote.trim(), orderLicense.trim()); } finally { submit.disabled = false; }
+    try { await placeOrder(orderNote.trim(), usingSavedLicense() ? '' : orderLicense.trim()); } finally { submit.disabled = false; }
   });
   const rewardRow = rewardPicker(total);
   panel.append(list, total, el('p', menu?.pricesIncludeTax === false ? 'Prices do not include tax.' : 'Prices include tax.', 'fine-print'),
-    ...rewardRow, licenseLabel, license, el('p', 'Checked against your store record and sent with your order. The app doesn’t save it; your phone may offer to.', 'field-help'),
-    label, note, submit,
+    ...rewardRow, ...licenseParts, label, note, submit,
     el('p', 'Pay in store when you pick up. Bring your ID and medical card. Availability and final price are confirmed at the counter.', 'fine-print'));
   target.append(panel);
+}
+// Saved license ("on file, ending ABCD" + Change), or the field plus an opt-in "remember" box.
+function licenseFields() {
+  const label = el('label', 'Medical license number');
+  if (usingSavedLicense()) {
+    const row = el('div', '', 'saved-license');
+    row.append(el('span', `On file, ending ${user.licenseHint} ✓`),
+      button('Change', () => { changingLicense = true; renderOrder(); }, 'text-button'));
+    return [label, row, el('p', 'Checked against your store record on every order.', 'field-help')];
+  }
+  const license = el('input');
+  label.htmlFor = 'order-license'; license.id = 'order-license'; license.name = 'medical-license-number';
+  license.autocomplete = 'on'; license.autocapitalize = 'characters'; license.spellcheck = false; license.maxLength = 48;
+  license.placeholder = 'As shown on your medical card'; license.value = orderLicense;
+  license.addEventListener('input', () => { orderLicense = license.value; });
+  const parts = [label, license];
+  if (licenseMemory()) {
+    const remember = el('label', '', 'remember-license'), box = el('input'); box.type = 'checkbox'; box.checked = rememberLicense;
+    box.addEventListener('change', () => { rememberLicense = box.checked; });
+    remember.append(box, document.createTextNode(' Remember my license number for next time'));
+    parts.push(remember, el('p', 'Saved encrypted only after it matches your store record, and only if you tick the box. You can remove it anytime under Account.', 'field-help'));
+  } else parts.push(el('p', 'Checked against your store record and sent with your order. The app doesn’t save it; your phone may offer to.', 'field-help'));
+  return parts;
 }
 // The "Use my points" dropdown, plus the estimated total when a dollar reward is chosen.
 function rewardPicker(totalLine) {
@@ -340,16 +367,24 @@ function rewardPicker(totalLine) {
 }
 async function placeOrder(note, license) {
   if (!cart.length || orderLoading) return;
-  const current = generation; let failed = false; orderLoading = true;
+  const current = generation, useSaved = usingSavedLicense(), remember = !useSaved && rememberLicense && licenseMemory();
+  let failed = false; orderLoading = true;
   try {
     const items = cart.map(({ productId, size, priceCents, qty }) => ({ productId, size, priceCents, qty }));
     const result = demo ? { order: { orderNumber: null, status: 'New', open: true, totalCents: cartTotal(), itemCount: cartCount(), createdAt: Date.now(),
       ...(selectedReward ? { rewardName: rewardTiers.find(t => t.id === selectedReward)?.name } : {}) } }
-      : await api('preorder/place', { items, ...(note ? { note } : {}), ...(license ? { license } : {}), ...(selectedReward ? { reward: selectedReward } : {}) });
+      : await api('preorder/place', { items, ...(note ? { note } : {}), ...(license ? { license } : {}),
+        ...(useSaved ? { useSavedLicense: true } : {}), ...(remember ? { rememberLicense: true } : {}),
+        ...(selectedReward ? { reward: selectedReward } : {}) });
     if (current !== generation) return;
     order = result.order; cart = []; orderNote = ''; orderLicense = ''; selectedReward = ''; message('');
+    // Mirror the server: a remembered number is kept (hint only), typing without "remember" clears it.
+    if (licenseMemory() && !useSaved) user.licenseHint = remember ? (demo ? license.replace(/-/g, '').slice(-4) : result.order.licenseHint) : undefined;
+    rememberLicense = false; changingLicense = false; renderAccount();
   } catch (error) {
     if (current === generation) { failed = true; message(error.message); }
+    // A saved license the server rejected has been removed there; show the empty field again.
+    if (useSaved && !demo && current === generation) { try { user.licenseHint = (await api('session')).licenseHint; } catch { /* Keep the message. */ } }
   } finally { orderLoading = false; if (current === generation) { renderOrder(); renderCartBar(); } }
   // Show why it failed: an open order, or menu changes the customer should review.
   if (failed) { await refreshMenu(); if (current === generation && !order?.open) { order = null; await refreshOrder(); } }

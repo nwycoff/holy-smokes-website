@@ -168,6 +168,20 @@ GrowFlow preorders have **no discount field**, so the app cannot apply a reward 
 
 Setup: add the **Discounts** read scope to the existing `APP_GROWFLOW_TOKEN` token in GrowFlow (no new token needed), run `app-migrations/0006_customer_app_preorder_reward.sql` **once** in `APP_DB` (0004 and 0005 first), then set `APP_REWARD_TIERS_ENABLED=true` and redeploy. GrowFlow's discount `Amount` is in cents, like menu prices (a $10 reward is `1000`), confirmed against the live store. Percentage-type rewards are listed without a dollar estimate.
 
+## 9. Remember my license number (optional, opt-in)
+
+GrowFlow's API cannot return a customer's license number (it is filter-only), so the app can remember it itself when the customer asks. **Get legal sign-off before enabling this with real customers**: it means the app stores medical marijuana patient license numbers, and the privacy text says so.
+
+- The order screen shows **Remember my license number for next time**, unticked by default. The number is saved only if the box is ticked **and** GrowFlow has just confirmed it matches the linked record.
+- It is encrypted with AES-256-GCM under `APP_LICENSE_KEY` (32 random bytes, base64url, a Cloudflare secret used for nothing else), bound to the app account, and stored in `app_users.license_enc`. Only the last four characters (`license_hint`) are ever sent to the browser, as "On file, ending ABCD ✓".
+- It is decrypted only while placing an order and re-checked against GrowFlow every time. If it no longer matches (e.g. a renewed license) or cannot be decrypted (e.g. a rotated key), it is deleted and the customer is asked again.
+- It is deleted when the customer taps **Forget my saved license number** under Account, types a number without ticking the box, or removes their rewards connection. D1's Time Travel keeps prior database states (7 days free / 30 days paid), so an encrypted copy can remain in recovery history until it ages out.
+- Tests check that the full number never appears in responses, logs, the session, or the unencrypted database.
+
+Security depends on the Cloudflare account: anyone who can deploy code or change secrets there could decrypt. Require two-factor authentication and limit who has access.
+
+Setup: run `app-migrations/0007_customer_app_saved_license.sql` **once** in `APP_DB` (before deploying this code; the session query reads its columns), set `APP_LICENSE_KEY` as a secret and `APP_LICENSE_MEMORY_ENABLED=true`, then redeploy. Rotating `APP_LICENSE_KEY` makes every saved number unreadable; customers are simply asked to enter it again. Set `APP_LICENSE_MEMORY_ENABLED=false` to hide the option and stop using saved numbers (run `UPDATE app_users SET license_enc = NULL, license_hint = NULL` to delete them).
+
 ## API budget and operational notes
 
 One shared menu read per minute plus at most 30 total GrowFlow queries/minute for this app/token, capped with transactional counters. Each customer's points requests are capped at ten/minute. Responses with 20 or fewer requests remaining or HTTP 429 set shared backoff using the reset/Retry-After headers. There are no automatic upstream retries. Use a separate token so other applications do not consume this app's headroom unnoticed.

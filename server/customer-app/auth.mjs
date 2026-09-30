@@ -64,7 +64,7 @@ export async function session(request, env, deps) {
   const token = readCookie(request, SESSION_COOKIE);
   if (!token) return null;
   const tokenHash = await hash(env.APP_LIMIT_SECRET, `session:${token}`);
-  const row = await env.APP_DB.prepare(`SELECT u.id, u.customer_id, s.created_at FROM app_sessions s
+  const row = await env.APP_DB.prepare(`SELECT u.id, u.customer_id, u.license_enc, u.license_hint, s.created_at FROM app_sessions s
     JOIN app_users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ?`)
     .bind(tokenHash, deps.now()).first();
   return row ? { ...row, tokenHash, csrf: await hash(env.APP_LIMIT_SECRET, `csrf:${token}`) } : null;

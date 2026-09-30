@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { SignJWT, exportJWK, generateKeyPair } from 'jose';
 import { handleStaff } from '../server/staff/index.mjs';
 import { handleApp } from '../server/customer-app/index.mjs';
@@ -10,7 +10,8 @@ import { hash } from '../server/customer-app/http.mjs';
 class D1 {
   constructor() {
     this.db = new DatabaseSync(':memory:'); this.db.exec('PRAGMA foreign_keys=ON');
-    for (const file of ['0001_customer_app.sql', '0004_staff_enrollment.sql'])
+    // Every migration in order, so this matches a real APP_DB.
+    for (const file of readdirSync(new URL('../app-migrations/', import.meta.url)).filter(f => f.endsWith('.sql')).sort())
       this.db.exec(readFileSync(new URL(`../app-migrations/${file}`, import.meta.url), 'utf8'));
   }
   prepare(sql) {
@@ -108,7 +109,7 @@ test('unique match returns only name and opaque staff-bound ticket; no match, am
   s.setData({ findCustomers: { pageInfo: { hasNextPage: true }, edges: [{ node: { objectId: 'A', Name: 'A' } }] } });
   assert.equal((await s.match()).response.status, 400);
   s.setData({ findCustomers: { pageInfo: { hasNextPage: false }, edges: [{ node: { objectId: 'CustomerOne', Name: 'Synthetic Customer' } }] } });
-  s.env.APP_DB.db.prepare('INSERT INTO app_users VALUES (?,?,?,?)').run('user', 'identity', 'CustomerOne', Date.now());
+  s.env.APP_DB.db.prepare('INSERT INTO app_users (id, identity_hash, customer_id, created_at) VALUES (?,?,?,?)').run('user', 'identity', 'CustomerOne', Date.now());
   assert.equal((await s.match()).response.status, 409);
   assert.equal(count(s, 'app_enrollments'), 0);
 });
@@ -137,7 +138,7 @@ test('reissuing replaces old code; linked-after-match and failed audit never iss
   const next = await s.match(); await s.run('issue', { body: { ticket: next.ticket, identityChecked: true } });
   assert.equal(count(s, 'app_enrollments'), 1); assert.equal(count(s, 'app_staff_audit'), 2);
   assert.notEqual(s.env.APP_DB.db.prepare('SELECT code_hash FROM app_enrollments').get().code_hash, old);
-  const last = await s.match(); s.env.APP_DB.db.prepare('INSERT INTO app_users VALUES (?,?,?,?)').run('user', 'identity', 'CustomerOne', Date.now());
+  const last = await s.match(); s.env.APP_DB.db.prepare('INSERT INTO app_users (id, identity_hash, customer_id, created_at) VALUES (?,?,?,?)').run('user', 'identity', 'CustomerOne', Date.now());
   assert.equal((await s.run('issue', { body: { ticket: last.ticket, identityChecked: true } })).status, 409);
   const a = await setup(), m = await a.match();
   a.env.APP_DB.db.exec("CREATE TRIGGER fail_audit BEFORE INSERT ON app_staff_audit BEGIN SELECT RAISE(ABORT, 'failure'); END");
@@ -148,7 +149,7 @@ test('staff-created code works once with the existing customer account connectio
   const s = await setup(), m = await s.match();
   const code = (await (await s.run('issue', { body: { ticket: m.ticket, identityChecked: true } })).json()).code;
   const raw = 'b'.repeat(64), sessionHash = await hash(s.env.APP_LIMIT_SECRET, `session:${raw}`);
-  s.env.APP_DB.db.prepare('INSERT INTO app_users VALUES (?,?,NULL,?)').run('account-one', 'synthetic-identity', s.deps.now());
+  s.env.APP_DB.db.prepare('INSERT INTO app_users (id, identity_hash, customer_id, created_at) VALUES (?,?,NULL,?)').run('account-one', 'synthetic-identity', s.deps.now());
   s.env.APP_DB.db.prepare('INSERT INTO app_sessions VALUES (?,?,?,?)').run(sessionHash, 'account-one', s.deps.now(), s.deps.now() + 600000);
   const request = () => new Request(`${origin}/api/app/enroll`, { method: 'POST', headers: {
     origin, 'sec-fetch-site': 'same-origin', 'cf-connecting-ip': '192.0.2.3', 'content-type': 'application/json',
