@@ -11,3 +11,9 @@ export const demoMenu = {
     { id:'demo-6', brand:'Example Kitchen', name:'Peach Gummies', category:'Edibles', type:'', variants:[{size:'10 pieces',priceCents:1800}], thc:null }
   ]
 };
+export const demoRewards = { updatedAt: 0, tiers: [
+  { id:'demo-r1', name:'225 Points - $10 Off', points:225, amountCents:1000, type:'Entire Order by Amount' },
+  { id:'demo-r2', name:'500 Points - $25 Off', points:500, amountCents:2500, type:'Entire Order by Amount' },
+  { id:'demo-r3', name:'1000 Points - $70 Off', points:1000, amountCents:7000, type:'Entire Order by Amount' },
+  { id:'demo-r4', name:'2000 Points - $150 Off', points:2000, amountCents:15000, type:'Entire Order by Amount' }
+] };

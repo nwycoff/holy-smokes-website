@@ -23,7 +23,7 @@ export const MENU_QUERY = `query TreehouseMobileMenu($menuKey: String!) {
 // Preorders use a separate token limited to creating preorders and reading their status.
 export const PREORDER_CUSTOMER_QUERY = `query TreehousePreorderCustomer($where: CustomersWhereInput!) {
   findCustomers(where: $where, first: 2) {
-    pageInfo { hasNextPage } edges { node { objectId Name Birthday CustomerType
+    pageInfo { hasNextPage } edges { node { objectId Name Birthday CustomerType CurrentPoints
       CustomerStateLicenseExpiration LicenseEffectiveEndDate } }
   }
 }`;
@@ -165,6 +165,49 @@ export function normalizeMenu(input, location, now) {
   products.sort((a, b) => Math.min(...a.variants.map(v => v.priceCents)) - Math.min(...b.variants.map(v => v.priceCents))
     || a.name.localeCompare(b.name));
   return { products, categories, pricesIncludeTax: input.pricesIncludeTax, updatedAt: now, stale: false };
+}
+
+// Loyalty reward tiers are GrowFlow discounts with IsLoyaltyDiscount set. Needs the Discounts
+// read scope on APP_GROWFLOW_TOKEN. Rewards are applied by staff at checkout, not by the API.
+export const REWARDS_QUERY = `query TreehouseRewardTiers {
+  findDiscounts(first: 50, where: { IsLoyaltyDiscount: { equalTo: true }, Active: { equalTo: true },
+    IsDeleted: { notEqualTo: true } }) {
+    edges { node { objectId Name PointsNeeded Amount Type } }
+  }
+}`;
+export function normalizeRewards(data, now) {
+  const edges = data?.findDiscounts?.edges;
+  if (!Array.isArray(edges)) throw new AppError('REWARDS_SHAPE');
+  const tiers = edges.map(e => e?.node).filter(n => n && typeof n.objectId === 'string'
+    && /^[A-Za-z0-9_-]{1,64}$/.test(n.objectId) && clean(n.Name)
+    && Number.isFinite(n.PointsNeeded) && n.PointsNeeded > 0 && Number.isFinite(n.Amount) && n.Amount > 0)
+    .map(n => ({ id: n.objectId, name: clean(n.Name), points: n.PointsNeeded,
+      // Percentage rewards are listed but never turned into a dollar estimate.
+      amountCents: /percent/i.test(String(n.Type || '')) ? null : Math.round(n.Amount * 100),
+      type: clean(n.Type) }))
+    .sort((a, b) => a.points - b.points);
+  return { tiers, updatedAt: now };
+}
+export async function getRewards(env, deps) {
+  const key = await hash(env.APP_LIMIT_SECRET, `rewards:v1:${env.GROWFLOW_ORG}:${env.APP_GROWFLOW_TOKEN}`);
+  const cached = await env.APP_DB.prepare('SELECT value, updated_at FROM app_cache WHERE key = ?').bind(key).first();
+  const age = cached ? deps.now() - cached.updated_at : Infinity;
+  if (age < 600000) return JSON.parse(cached.value);
+  const lock = await env.APP_DB.prepare(`INSERT INTO app_locks(key, expires_at) VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET expires_at = excluded.expires_at
+    WHERE app_locks.expires_at <= ? RETURNING key`).bind(key, deps.now() + 60000, deps.now()).first();
+  const fallback = () => { if (age > 3600000) throw new AppError('REWARDS_UNAVAILABLE'); return JSON.parse(cached.value); };
+  if (!lock) return fallback();
+  try {
+    const rewards = normalizeRewards(await queryGrowflow(env, deps, REWARDS_QUERY, {}), deps.now());
+    await env.APP_DB.prepare(`INSERT INTO app_cache(key, value, updated_at) VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`)
+      .bind(key, JSON.stringify(rewards), deps.now()).run();
+    return rewards;
+  } catch (error) {
+    deps.report(`REWARDS_REFRESH${error?.category ? `_${error.category}` : ''}`);
+    return fallback();
+  }
 }
 
 export async function getMenu(env, deps) {

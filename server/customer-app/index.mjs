@@ -1,8 +1,8 @@
 import { consumeLimits, lookupVariables, normalizeInput } from '../rewards.mjs';
-import { AppError, bodyJSON, enabled, authReady, growflowReady, menuReady, preorderReady, hash, json,
+import { AppError, bodyJSON, enabled, authReady, growflowReady, menuReady, preorderReady, rewardTiersReady, hash, json,
   randomToken, sameOrigin, cookie, LOGIN_COOKIE, redirect } from './http.mjs';
 import { startLogin, finishLogin, session, logout } from './auth.mjs';
-import { CUSTOMER_QUERY, singleCustomer, eligibleCustomer, queryGrowflow, getMenu } from './growflow.mjs';
+import { CUSTOMER_QUERY, singleCustomer, eligibleCustomer, queryGrowflow, getMenu, getRewards } from './growflow.mjs';
 import { currentPreorder, placePreorder } from './preorders.mjs';
 import { pushReady, subscribe, unsubscribe } from './push.mjs';
 
@@ -22,7 +22,7 @@ export async function handleApp(context, overrides = {}) {
   const report = deps.report;
   deps.report = code => { try { report(code); } catch { /* Logging cannot expose or break a response. */ } };
   const url = new URL(request.url), route = url.pathname.replace(/^\/api\/app\//, '').replace(/\/$/, '');
-  const allowed = { config: 'GET', menu: 'GET', session: 'GET', points: 'GET', login: 'POST',
+  const allowed = { config: 'GET', menu: 'GET', rewards: 'GET', session: 'GET', points: 'GET', login: 'POST',
     callback: 'GET', enroll: 'POST', logout: 'POST', 'logout-all': 'POST', 'remove-link': 'POST', 'staff/enroll': 'POST',
     preorder: 'GET', 'preorder/place': 'POST', 'push/subscribe': 'POST', 'push/unsubscribe': 'POST' };
   if (!allowed[route]) return json(404, { error: 'Not found.' });
@@ -31,7 +31,7 @@ export async function handleApp(context, overrides = {}) {
   const active = enabled(env, url);
   if (route === 'config') return json(200, { enabled: Boolean(active),
     loginEnabled: Boolean(active && authReady(env)), menuEnabled: Boolean(active && menuReady(env)),
-    preorderEnabled: Boolean(active && preorderReady(env)),
+    preorderEnabled: Boolean(active && preorderReady(env)), rewardTiersEnabled: Boolean(active && rewardTiersReady(env)),
     ...(active && preorderReady(env) && pushReady(env) ? { pushKey: env.APP_VAPID_PUBLIC_KEY } : {}) });
   if (!active) return json(503, { error: 'The customer app is not available yet. You can still use My Points on our website.' });
   const staff = route === 'staff/enroll';
@@ -48,6 +48,10 @@ export async function handleApp(context, overrides = {}) {
       const response = route === 'login' ? await startLogin(request, env, deps) : await finishLogin(request, env, deps);
       context.waitUntil?.(cleanup(env, deps.now()).catch(() => deps.report('CLEANUP')));
       return response;
+    }
+    if (route === 'rewards') {
+      if (!rewardTiersReady(env)) throw new AppError('REWARDS_CONFIG');
+      return json(200, await getRewards(env, deps));
     }
     if (route === 'menu') {
       if (!menuReady(env)) throw new AppError('MENU_CONFIG');
@@ -160,6 +164,9 @@ export async function handleApp(context, overrides = {}) {
       PREORDER_PROFILE: 'We can’t place app orders for your record yet. Please call the shop or ask your budtender.',
       PREORDER_REJECTED: 'The shop couldn’t accept this order. Please call the shop.',
       PREORDERS_OFF: 'Ordering ahead isn’t available right now. Please try again later or call the shop.',
+      REWARD_UNAVAILABLE: 'That reward isn’t available right now. Please choose another or order without it.',
+      REWARD_POINTS: 'You don’t have enough points for that reward right now. Please choose another.',
+      REWARD_TOO_LARGE: 'That reward is bigger than your order. Please choose a smaller one or add more items.',
       LICENSE_REQUIRED: 'Please enter your medical license number to order ahead.',
       LICENSE_FORMAT: 'Please check your medical license number. Use letters, numbers and dashes only.',
       LICENSE_EXPIRY_MISSING: 'Your store record is missing your license expiration date. Please ask your budtender to update it.',

@@ -7,7 +7,7 @@ import { hash } from '../server/customer-app/http.mjs';
 import { normalizeMenu } from '../server/customer-app/growflow.mjs';
 import { encryptPayload, vapidAuthorization, readSubscription, notifyReadyOrders, b64url, fromB64url, READY_MESSAGE } from '../server/customer-app/push.mjs';
 
-const migration = ['0001_customer_app.sql', '0002_customer_app_preorders.sql', '0003_customer_app_push.sql', '0005_customer_app_push_deliveries.sql']
+const migration = ['0001_customer_app.sql', '0002_customer_app_preorders.sql', '0003_customer_app_push.sql', '0005_customer_app_push_deliveries.sql', '0006_customer_app_preorder_reward.sql']
   .map(name => readFileSync(new URL(`../app-migrations/${name}`, import.meta.url), 'utf8')).join('\n');
 class D1 {
   constructor() { this.db = new DatabaseSync(':memory:'); this.db.exec('PRAGMA foreign_keys = ON'); this.db.exec(migration); }
@@ -257,11 +257,20 @@ test('upstream redirects and diagnostic failures never leak secrets or trigger r
   assert.ok(!(await response.text()).includes('secret'));
 });
 
+const TIERS=[{objectId:'Tier2000',Name:'2000 Points - $150 Off',PointsNeeded:2000,Amount:150,Type:'Entire Order by Amount'},
+  {objectId:'Tier225',Name:'225 Points - $10 Off',PointsNeeded:225,Amount:10,Type:'Entire Order by Amount'},
+  {objectId:'Tier500',Name:'500 Points - $25 Off',PointsNeeded:500,Amount:25,Type:'Entire Order by Amount'},
+  {objectId:'Bad',Name:'',PointsNeeded:0,Amount:5}];
 function preorders({ customer = {}, create, status: initialStatus = 'Completed' } = {}) {
   const s=setup(), base=s.deps.fetch, sent=[];let orders=0, status=initialStatus;
   Object.assign(s.env,{APP_PREORDER_ENABLED:'true',APP_PREORDER_TOKEN:'gfr_synthetic_preorder_only'});
   s.deps.fetch=async(target,init)=>{
     const body=init?.body && String(target).endsWith('/graphql') ? JSON.parse(init.body) : null;
+    if (body?.query.includes('TreehouseRewardTiers')) {
+      sent.push({query:body.query,variables:body.variables,auth:init.headers.Authorization});
+      assert.equal(init.headers.Authorization,'Bearer gfr_synthetic_test_only');
+      return Response.json({data:{findDiscounts:{edges:TIERS.map(node=>({node}))}}});
+    }
     if (!body || !/TreehousePreorder|TreehouseCreatePreorder/.test(body.query)) return base(target,init);
     sent.push({query:body.query,variables:body.variables,auth:init.headers.Authorization});
     if (body.query.includes('TreehousePreorderCustomer')) {
@@ -270,7 +279,7 @@ function preorders({ customer = {}, create, status: initialStatus = 'Completed' 
       if (license && !license.some(f=>new RegExp(Object.values(f)[0].matchesRegex,'i').test('PAAA-1234-ABCD')))
         return Response.json({data:{findCustomers:{pageInfo:{hasNextPage:false},edges:[]}}});
       return Response.json({data:{findCustomers:{pageInfo:{hasNextPage:false},edges:[{node:{objectId:'CustomerOne',
-        Name:'Synthetic Test Patient',Birthday:'1990-05-06T00:00:00.000Z',CustomerType:'Medical',
+        Name:'Synthetic Test Patient',Birthday:'1990-05-06T00:00:00.000Z',CustomerType:'Medical',CurrentPoints:612,
         CustomerStateLicenseExpiration:'2099-03-31T00:00:00.000Z',LicenseEffectiveEndDate:null,...customer}}]}}});
     }
     assert.equal(init.headers.Authorization,'Bearer gfr_synthetic_preorder_only');
@@ -618,4 +627,35 @@ test('push requests carry a per-order topic so an undelivered copy is replaced, 
   const t=await readyOrder([phone],(url)=>new Response('',{status:201}));
   const inner=t.deps.fetch;t.deps.fetch=async(u,i)=>{ if (String(u).includes('fcm')) headers=i.headers; return inner(u,i); };
   await t.run();assert.match(headers.Topic,/^[0-9a-f]{32}$/);
+});
+
+test('reward tiers come from GrowFlow loyalty discounts, sorted, cached and off until enabled', async () => {
+  const s=preorders();
+  assert.equal((await (await s.run('config')).json()).rewardTiersEnabled,false);assert.equal((await s.run('rewards')).status,503);
+  s.env.APP_REWARD_TIERS_ENABLED='true';assert.equal((await (await s.run('config')).json()).rewardTiersEnabled,true);
+  const {tiers}=await (await s.run('rewards')).json();
+  assert.deepEqual(tiers.map(t=>[t.id,t.points,t.amountCents]),[['Tier225',225,1000],['Tier500',500,2500],['Tier2000',2000,15000]]);
+  await s.run('rewards');assert.equal(s.sent.filter(r=>r.query.includes('TreehouseRewardTiers')).length,1);
+  const where=s.sent.find(r=>r.query.includes('TreehouseRewardTiers')).query;
+  assert.match(where,/IsLoyaltyDiscount: \{ equalTo: true \}/);assert.match(where,/Active: \{ equalTo: true \}/);
+});
+test('a chosen reward is checked against points and order size, then noted for staff at full price', async () => {
+  const s=preorders();s.env.APP_REWARD_TIERS_ENABLED='true';const a=await s.linked();
+  const order=(extra,qty=2)=>a.place({...flower(qty),...extra});
+  assert.equal((await order({reward:'Tier2000'})).status,409);                 // 612 points < 2000
+  assert.equal((await order({reward:'Tier500'},1)).status,409);                // $25 off a $20 order
+  assert.equal((await order({reward:'Unknown'})).status,409);
+  assert.equal((await order({reward:'../x'})).status,400);
+  assert.equal(s.mutations().length,0);
+  const res=await order({reward:'Tier500',note:'Call me'});assert.equal(res.status,200);
+  assert.equal((await res.json()).order.rewardName,'500 Points - $25 Off');
+  const p=s.mutations()[0].variables.preorder;
+  assert.equal(p.preOrderTotal,4000);
+  assert.equal(p.preOrderNote,'REWARD REQUESTED: 500 Points - $25 Off (612 points at order time). Apply at checkout. | Call me');
+  assert.equal((await (await a.status()).json()).order.rewardName,'500 Points - $25 Off');
+});
+test('rewards cannot be requested while tiers are switched off', async () => {
+  const s=preorders(), a=await s.linked();
+  assert.equal((await a.place({...flower(2),reward:'Tier225'})).status,409);assert.equal(s.mutations().length,0);
+  assert.equal((await a.place(flower(2))).status,200);assert.equal(s.mutations()[0].variables.preorder.preOrderNote,undefined);
 });

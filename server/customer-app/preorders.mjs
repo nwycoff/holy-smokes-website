@@ -1,5 +1,6 @@
 import { AppError, randomToken } from './http.mjs';
-import { CREATE_PREORDER, PREORDER_CUSTOMER_QUERY, PREORDER_STATUS, eligibleCustomer, getMenu,
+import { rewardTiersReady } from './http.mjs';
+import { CREATE_PREORDER, PREORDER_CUSTOMER_QUERY, PREORDER_STATUS, eligibleCustomer, getMenu, getRewards,
   queryGrowflow, singleCustomer } from './growflow.mjs';
 
 // Pickup only, paid in store. The server rebuilds every line and the total from the
@@ -14,7 +15,8 @@ const isOpen = status => !CLOSED.includes(status);
 
 function summary(row) {
   return row ? { orderNumber: row.order_number, status: row.status, open: row.open === 1,
-    totalCents: row.total_cents, itemCount: row.item_count, createdAt: row.created_at } : null;
+    totalCents: row.total_cents, itemCount: row.item_count, createdAt: row.created_at,
+    ...(row.reward_name ? { rewardName: row.reward_name } : {}) } : null;
 }
 
 export async function currentPreorder(env, deps, s) {
@@ -52,7 +54,7 @@ export async function refreshStatus(env, deps, row) {
 }
 
 function readItems(input) {
-  if (Object.keys(input).some(k => !['items', 'note', 'license'].includes(k)) || !Array.isArray(input.items)
+  if (Object.keys(input).some(k => !['items', 'note', 'license', 'reward'].includes(k)) || !Array.isArray(input.items)
     || !input.items.length || input.items.length > MAX_ITEMS) throw new AppError('INPUT', 400);
   const seen = new Set();
   const items = input.items.map(item => {
@@ -73,7 +75,9 @@ function readItems(input) {
   if (input.license !== undefined && typeof input.license !== 'string') throw new AppError('INPUT', 400);
   const license = (input.license || '').replace(/\s+/g, '').toUpperCase();
   if (license && !/^[A-Z0-9](?:-?[A-Z0-9]){4,39}$/.test(license)) throw new AppError('LICENSE_FORMAT', 400);
-  return { items, note, license };
+  if (input.reward !== undefined && (typeof input.reward !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(input.reward)))
+    throw new AppError('INPUT', 400);
+  return { items, note, license, reward: input.reward };
 }
 
 // Same field allowlist as the points checker. License numbers can be matched in a
@@ -121,12 +125,13 @@ async function preorderCustomer(env, deps, customerId, license) {
     if (day < new Date(deps.now()).toISOString().slice(0, 10)) throw new AppError('LICENSE_EXPIRED', 409);
     medicalLicenseExpires = `${day}T00:00:00.000Z`;
   }
-  return { id: customer.objectId, type, firstName: names.slice(0, -1).join(' '), lastName: names.at(-1), dob,
-    ...(license ? { medicalLicenseNumber: license, medicalLicenseExpires } : {}) };
+  return { customer: { id: customer.objectId, type, firstName: names.slice(0, -1).join(' '), lastName: names.at(-1), dob,
+    ...(license ? { medicalLicenseNumber: license, medicalLicenseExpires } : {}) },
+    points: Number.isFinite(customer.CurrentPoints) ? customer.CurrentPoints : null };
 }
 
 export async function placePreorder(env, deps, s, input, limit) {
-  const { items, note, license } = readItems(input);
+  const { items, note, license, reward } = readItems(input);
   if ((await currentPreorder(env, deps, s))?.open) throw new AppError('OPEN_ORDER', 409);
   await limit();
   const menu = await getMenu(env, deps);
@@ -140,7 +145,20 @@ export async function placePreorder(env, deps, s, input, limit) {
   });
   const totalCents = lines.reduce((sum, line) => sum + line.cents, 0);
   const itemCount = items.reduce((n, item) => n + item.qty, 0);
-  const customer = await preorderCustomer(env, deps, s.customer_id, license);
+  const { customer, points } = await preorderCustomer(env, deps, s.customer_id, license);
+  // A chosen loyalty reward is written into the order note for staff to apply at checkout.
+  // GrowFlow preorders have no discount field; the total sent stays the full price.
+  let rewardLine = '', rewardName = null;
+  if (reward) {
+    if (!rewardTiersReady(env)) throw new AppError('REWARD_UNAVAILABLE', 409);
+    const tier = (await getRewards(env, deps)).tiers.find(t => t.id === reward);
+    if (!tier) throw new AppError('REWARD_UNAVAILABLE', 409);
+    if (points === null || points < tier.points) throw new AppError('REWARD_POINTS', 409);
+    if (tier.amountCents !== null && tier.amountCents > totalCents) throw new AppError('REWARD_TOO_LARGE', 409);
+    rewardName = tier.name;
+    rewardLine = `REWARD REQUESTED: ${tier.name} (${Math.floor(points)} points at order time). Apply at checkout.`;
+  }
+  const fullNote = [rewardLine, note].filter(Boolean).join(' | ');
 
   // Claim the account's single open-order slot before sending anything to GrowFlow.
   const id = randomToken(), now = deps.now();
@@ -153,7 +171,7 @@ export async function placePreorder(env, deps, s, input, limit) {
     result = await queryGrowflow(env, deps, CREATE_PREORDER, { menuKey: env.APP_MENU_KEY, preorder: {
       preOrderType: 'Pickup', preOrderTotal: totalCents, customer,
       orderItems: lines.map(({ cents, ...line }) => line),
-      nameForOrder: `${customer.firstName} ${customer.lastName}`, ...(note ? { preOrderNote: note } : {})
+      nameForOrder: `${customer.firstName} ${customer.lastName}`, ...(fullNote ? { preOrderNote: fullNote } : {})
     } }, env.APP_PREORDER_TOKEN);
   } catch (error) {
     deps.report(`PREORDER_SEND_${error.code || 'INTERNAL'}${error.category ? `_${error.category}` : ''}`);
@@ -176,9 +194,10 @@ export async function placePreorder(env, deps, s, input, limit) {
   }
   const status = order.status.slice(0, 40), open = isOpen(status) ? 1 : 0;
   const orderNumber = typeof order.orderNumber === 'string' ? order.orderNumber.slice(0, 40) : null;
-  await env.APP_DB.prepare(`UPDATE app_preorders SET order_id = ?, order_number = ?, status = ?, open = ?, checked_at = ?
-    WHERE id = ?`).bind(order.id, orderNumber, status, open, deps.now(), id).run();
-  return summary({ order_number: orderNumber, status, open, total_cents: totalCents, item_count: itemCount, created_at: now });
+  await env.APP_DB.prepare(`UPDATE app_preorders SET order_id = ?, order_number = ?, status = ?, open = ?, checked_at = ?,
+    reward_name = ? WHERE id = ?`).bind(order.id, orderNumber, status, open, deps.now(), rewardName, id).run();
+  return summary({ order_number: orderNumber, status, open, total_cents: totalCents, item_count: itemCount, created_at: now,
+    reward_name: rewardName });
 }
 
 async function unconfirmed(env, id) {

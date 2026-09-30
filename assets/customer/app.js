@@ -6,6 +6,35 @@ let category = 'All', menuError = '', generation = 0, pendingInstall = null, men
 // The cart holds only public menu choices, in memory. Order status is account data.
 const MAX_ITEMS = 10;
 let cart = [], order = null, orderLoading = false, orderNote = '', orderLicense = '';
+// Loyalty reward tiers (public) and the one a customer picks for their order. Staff apply it at pickup.
+let rewardTiers = null, selectedReward = '', rewardPointsTried = false;
+const formatPoints = n => new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n);
+async function loadRewards() {
+  if (rewardTiers || !(demo || config.rewardTiersEnabled)) return;
+  try { rewardTiers = demo ? (await import('./demo-data.js')).demoRewards.tiers : (await api('rewards')).tiers; }
+  catch { rewardTiers = null; }
+  renderRewards(); renderOrder();
+}
+// Why a tier can't be chosen right now, or '' when it can.
+function rewardBlock(tier, subtotalCents) {
+  if (!points) return 'checking your points';
+  if (points.points < tier.points) return `${formatPoints(tier.points - points.points)} more points needed`;
+  if (tier.amountCents !== null && tier.amountCents > subtotalCents) return `for orders of ${money.format(tier.amountCents / 100)} or more`;
+  return '';
+}
+function rewardTiersPanel() {
+  if (!rewardTiers?.length) return null;
+  const panel = el('section', '', 'account-panel reward-tiers'), list = el('ul', '', 'tier-list');
+  panel.append(el('h3', 'Rewards you can redeem'));
+  for (const tier of rewardTiers) {
+    const item = el('li'), ready = user.linked && points && points.points >= tier.points;
+    item.append(el('strong', `${formatPoints(tier.points)} pts`), el('span', tier.name),
+      el('em', !user.linked || !points ? '' : ready ? '✓ Ready to use' : `${formatPoints(tier.points - points.points)} to go`, ready ? 'tier-ready' : ''));
+    list.append(item);
+  }
+  panel.append(list, el('p', 'Choose a reward when you order ahead, or ask your budtender at checkout.', 'fine-print'));
+  return panel;
+}
 // Order-ready notifications (Web Push). iPhone only allows them once the app is on the Home Screen.
 let pushSubscribed = false;
 const canPush = () => !demo && Boolean(config.pushKey) && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
@@ -122,8 +151,9 @@ function renderHomePoints() {
 }
 function renderRewards() {
   const target = $('rewards-content'); target.replaceChildren();
-  if (!user.signedIn) { target.append(signInPanel()); return; }
-  if (!user.linked) { target.append(linkPanel()); return; }
+  const tiers = rewardTiersPanel();
+  if (!user.signedIn) { target.append(signInPanel()); if (tiers) target.append(tiers); return; }
+  if (!user.linked) { target.append(linkPanel()); if (tiers) target.append(tiers); return; }
   const panel = el('section', '', 'points-card account-panel');
   panel.append(el('p', demo ? 'SAMPLE BALANCE' : 'YOUR CURRENT BALANCE', 'eyebrow'));
   if (points !== null) {
@@ -132,6 +162,7 @@ function renderRewards() {
     panel.append(heading, el('p', demo ? 'For demonstration only.' : `Checked ${new Date(points.checkedAt).toLocaleTimeString([], { hour:'numeric', minute:'2-digit' })}.`));
   } else panel.append(el('h2', pointsLoading ? 'Checking your points…' : 'Your balance is unavailable.'), el('p', 'Your budtender can also check your balance.'));
   panel.append(button('Refresh balance ↻', refreshPoints, 'light-button')); target.append(panel);
+  if (tiers) target.append(tiers);
 }
 async function refreshPoints() {
   if (!user.linked || pointsLoading) return;
@@ -144,7 +175,7 @@ async function refreshPoints() {
   finally { pointsLoading = false; if (current === generation) { renderHomePoints(); renderRewards(); } }
 }
 function clearPrivate() {
-  generation++; points = null; order = null; orderLicense = ''; user = { signedIn: false, linked: false };
+  generation++; points = null; order = null; orderLicense = ''; selectedReward = ''; user = { signedIn: false, linked: false };
   const input = $('connection-code'); if (input) input.value = '';
   renderHomePoints(); renderAccount(); renderRewards(); renderOrder(); renderCartBar();
 }
@@ -223,6 +254,7 @@ function orderStatusPanel() {
   panel.append(el('p', demo ? 'SAMPLE ORDER' : order.orderNumber ? `ORDER #${order.orderNumber}` : 'YOUR ORDER', 'eyebrow'),
     el('h2', ORDER_STATUS[order.status] || 'Received. Please call the shop with any questions.'),
     el('p', `${order.itemCount} ${order.itemCount === 1 ? 'item' : 'items'} · ${money.format(order.totalCents / 100)} · placed ${new Date(order.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`));
+  if (order.rewardName) panel.append(el('p', `Reward requested: ${order.rewardName}. Your budtender applies it at pickup.`));
   if (order.open) panel.append(el('p', 'Pay in store when you pick up. Bring your ID and medical card.'),
     button('Refresh status ↻', () => refreshOrder(true), 'light-button'));
   const notify = order.open && order.status !== 'Fulfilled' ? notifyControl() : null;
@@ -273,21 +305,49 @@ function renderOrder() {
     event.preventDefault(); submit.disabled = true;
     try { await placeOrder(orderNote.trim(), orderLicense.trim()); } finally { submit.disabled = false; }
   });
+  const rewardRow = rewardPicker(total);
   panel.append(list, total, el('p', menu?.pricesIncludeTax === false ? 'Prices do not include tax.' : 'Prices include tax.', 'fine-print'),
-    licenseLabel, license, el('p', 'Checked against your store record and sent with your order. The app doesn’t save it; your phone may offer to.', 'field-help'),
+    ...rewardRow, licenseLabel, license, el('p', 'Checked against your store record and sent with your order. The app doesn’t save it; your phone may offer to.', 'field-help'),
     label, note, submit,
     el('p', 'Pay in store when you pick up. Bring your ID and medical card. Availability and final price are confirmed at the counter.', 'fine-print'));
   target.append(panel);
+}
+// The "Use my points" dropdown, plus the estimated total when a dollar reward is chosen.
+function rewardPicker(totalLine) {
+  if (!rewardTiers?.length) return [];
+  // One balance check per visit to the order screen, so a failure can't loop.
+  if (!points && !pointsLoading && !rewardPointsTried && user.linked) { rewardPointsTried = true; void refreshPoints().then(renderOrder); }
+  const subtotal = cartTotal(), eligible = t => !rewardBlock(t, subtotal);
+  if (selectedReward && !rewardTiers.some(t => t.id === selectedReward && eligible(t))) selectedReward = '';
+  const label = el('label', 'Use my points'), select = el('select');
+  label.htmlFor = 'order-reward'; select.id = 'order-reward';
+  const none = el('option', 'Don’t use points this time'); none.value = ''; select.append(none);
+  for (const tier of rewardTiers) {
+    const why = rewardBlock(tier, subtotal), option = el('option', why ? `${tier.name} (${why})` : tier.name);
+    option.value = tier.id; option.disabled = Boolean(why); select.append(option);
+  }
+  select.value = selectedReward;
+  select.addEventListener('change', () => { selectedReward = select.value; renderOrder(); });
+  const chosen = rewardTiers.find(t => t.id === selectedReward), parts = [label, select];
+  if (points) parts.push(el('p', `You have ${formatPoints(points.points)} points.`, 'field-help'));
+  if (chosen?.amountCents) {
+    const estimate = el('p', '', 'order-total reward-total');
+    estimate.append(el('span', 'Estimated total with reward'), el('strong', money.format(Math.max(0, subtotal - chosen.amountCents) / 100)));
+    parts.push(estimate);
+  }
+  if (chosen) parts.push(el('p', 'Your budtender applies the reward at pickup. Points aren’t set aside, so if you use them in store first, we’ll adjust at the counter.', 'field-help'));
+  return parts;
 }
 async function placeOrder(note, license) {
   if (!cart.length || orderLoading) return;
   const current = generation; let failed = false; orderLoading = true;
   try {
     const items = cart.map(({ productId, size, priceCents, qty }) => ({ productId, size, priceCents, qty }));
-    const result = demo ? { order: { orderNumber: null, status: 'New', open: true, totalCents: cartTotal(), itemCount: cartCount(), createdAt: Date.now() } }
-      : await api('preorder/place', { items, ...(note ? { note } : {}), ...(license ? { license } : {}) });
+    const result = demo ? { order: { orderNumber: null, status: 'New', open: true, totalCents: cartTotal(), itemCount: cartCount(), createdAt: Date.now(),
+      ...(selectedReward ? { rewardName: rewardTiers.find(t => t.id === selectedReward)?.name } : {}) } }
+      : await api('preorder/place', { items, ...(note ? { note } : {}), ...(license ? { license } : {}), ...(selectedReward ? { reward: selectedReward } : {}) });
     if (current !== generation) return;
-    order = result.order; cart = []; orderNote = ''; orderLicense = ''; message('');
+    order = result.order; cart = []; orderNote = ''; orderLicense = ''; selectedReward = ''; message('');
   } catch (error) {
     if (current === generation) { failed = true; message(error.message); }
   } finally { orderLoading = false; if (current === generation) { renderOrder(); renderCartBar(); } }
@@ -344,7 +404,7 @@ function route() {
   }
   if (view === 'rewards') { renderRewards(); if (user.linked && (!points || Date.now() - points.checkedAt > 30000)) void refreshPoints(); }
   if (view === 'menu') void refreshMenu();
-  if (view === 'order') { renderOrder(); void refreshOrder(); }
+  if (view === 'order') { rewardPointsTried = false; renderOrder(); void refreshOrder(); }
   document.title = `${({ home:'My Treehouse',menu:'Menu',rewards:'My Points',account:'My Account',order:'Order ahead' })[view]} | Treehouse Pharmacy`;
 }
 async function initialize() {
@@ -363,7 +423,7 @@ async function initialize() {
     } catch { message('You’re offline or the app is temporarily unavailable. Reconnect to check your menu and points.'); }
   }
   if (current !== generation) return;
-  renderHomePoints(); renderAccount(); renderMenu(); renderCartBar(); route();
+  renderHomePoints(); renderAccount(); renderMenu(); renderCartBar(); route(); void loadRewards();
   if (!demo) { void refreshMenu(); if (user.linked) void refreshPoints(); }
 }
 $('menu-search').addEventListener('input', renderMenu); $('menu-sort').addEventListener('change', renderMenu);
