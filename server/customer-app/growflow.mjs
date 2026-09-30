@@ -12,7 +12,7 @@ export const MENU_QUERY = `query TreehouseMobileMenu($menuKey: String!) {
   findMenus(menuKey: $menuKey) {
     pricesIncludeTax
     menuGroups { name products {
-      id name brand strain cannabisType category image description
+      id name brand strain cannabisType category image description uom
       variants { weight uom price }
       packages { inventoryQty isSellable storageLocation
         testResults { uom totalPotentialPsychoactiveThc cbd }
@@ -156,7 +156,16 @@ export function normalizeMenu(input, location, now) {
         return { priceCents: v.price, size: weighed ? `${v.weight} ${clean(v.uom)}` : 'Each', weight: weighed ? v.weight : null,
           grams: grams ? Math.round(grams * 100) / 100 : null, pricePerGramCents: grams ? Math.round(v.price / grams) : null };
       });
-      if (!variants.length) continue;
+      // Front-room stock: package quantities are units for "Each" products and grams for
+      // "Grams" products. A size is orderable only while stock covers at least one of it.
+      const stockUnits = eligiblePackages.reduce((sum, pkg) => sum + pkg.inventoryQty, 0);
+      const byWeight = normalized(p.uom) === 'grams';
+      const stocked = variants.map(v => {
+        const per = byWeight && v.grams ? v.grams : 1;
+        return { ...v, unitsEach: per, available: Math.floor(stockUnits / per + 1e-9) };
+      }).filter(v => v.available >= 1);
+      if (!stocked.length) continue;
+      variants.splice(0, variants.length, ...stocked);
       seen.add(p.id);
       if (!categories.includes(category)) categories.push(category);
       const flower = /flower|smalls|top shelf/i.test(`${p.category} ${category}`);
@@ -166,7 +175,7 @@ export function normalizeMenu(input, location, now) {
           ? normalized(p.cannabisType) : '', variants, thc, cbd,
         // CBD-rich: tested CBD at least 1% and at least equal to THC (CBD-dominant or balanced).
         cbdRich: Boolean(cbd && cbd[1] >= 1 && cbd[1] >= (thc ? thc[1] : 0)),
-        image: imageUrl(p.image), description: plainText(p.description) });
+        image: imageUrl(p.image), description: plainText(p.description), stockUnits });
     }
   }
   products.sort((a, b) => Math.min(...a.variants.map(v => v.priceCents)) - Math.min(...b.variants.map(v => v.priceCents))
@@ -218,9 +227,15 @@ export async function getRewards(env, deps) {
   }
 }
 
+// What customers see: exact inventory stays on the server. Availability is capped at 10,
+// the most one order can hold, so the app can limit quantities without revealing stock.
+export function publicMenu(menu) {
+  return { ...menu, products: menu.products.map(({ stockUnits, ...p }) => ({ ...p,
+    variants: p.variants.map(({ unitsEach, available, ...v }) => ({ ...v, available: Math.min(available, 10) })) })) };
+}
 export async function getMenu(env, deps) {
   const key = await hash(env.APP_LIMIT_SECRET,
-    `menu:v4-filters:${env.GROWFLOW_ORG}:${env.APP_MENU_KEY}:${env.APP_FRONT_LOCATION}:${env.APP_GROWFLOW_TOKEN}`);
+    `menu:v5-stock:${env.GROWFLOW_ORG}:${env.APP_MENU_KEY}:${env.APP_FRONT_LOCATION}:${env.APP_GROWFLOW_TOKEN}`);
   const cached = await env.APP_DB.prepare('SELECT value, updated_at FROM app_cache WHERE key = ?').bind(key).first();
   const age = cached ? deps.now() - cached.updated_at : Infinity;
   const fallback = () => {

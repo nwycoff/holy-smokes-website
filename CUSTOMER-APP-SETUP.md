@@ -190,6 +190,7 @@ The menu has a **Filters** panel (strain type including **CBD-rich**, flower siz
 - **CBD-rich** means tested CBD of at least 1% and at least equal to THC (CBD-dominant or balanced), from percentage lab results on eligible packages.
 - Price per gram uses variant weights in grams or ounces. Prices stay GrowFlow's regular `variants.price` (tax included for this store), not `priceMedical`.
 - Photos must be `https` URLs; the `/app/*` Content-Security-Policy allows `https:` images for this. Descriptions are shown as plain text (tags stripped, 400 characters).
+- **Stock limits:** each size's availability comes from front-room package quantities (units for GrowFlow "Each" products, grams for "Grams" products; a 3.5 g size on 10 g of stock allows 2). Sizes stock cannot fill are hidden, cards say "Only N left" at 5 or fewer, and the cart stops at what is available. The server re-checks at order time, counting all sizes of a product together, and refuses anything over stock (`OUT_OF_STOCK`). Customers never see exact inventory: availability is capped at 10 in the app. GrowFlow only deducts stock when staff attach packages, so two customers ordering the last item within the same minute can still both succeed; staff resolve that at fulfillment.
 - There are no effect-based filters ("sleepy", "energetic"): GrowFlow has no such data, and Oklahoma rules limit effect and health claims.
 
 ## API budget and operational notes

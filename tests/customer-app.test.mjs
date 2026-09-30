@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { readFileSync, readdirSync } from 'node:fs';
 import { handleApp } from '../server/customer-app/index.mjs';
 import { hash } from '../server/customer-app/http.mjs';
-import { normalizeMenu } from '../server/customer-app/growflow.mjs';
+import { normalizeMenu, publicMenu } from '../server/customer-app/growflow.mjs';
 import { encryptPayload, vapidAuthorization, readSubscription, notifyReadyOrders, b64url, fromB64url, READY_MESSAGE } from '../server/customer-app/push.mjs';
 
 // Every migration in order, so tests run against the same schema as a real APP_DB.
@@ -749,4 +749,34 @@ test('menu cards carry CBD, CBD-rich, photo, plain-text description and price pe
   assert.deepEqual(p1.variants.map(v=>[v.grams,v.pricePerGramCents]),[[3.5,571],[28.35,494]]);
   assert.equal(p2.cbdRich,false);assert.equal(p2.image,null);assert.equal(p2.variants[0].pricePerGramCents,null);
   assert.equal(p3.image,null);assert.equal(p3.cbd,null);assert.equal(p3.cbdRich,false);
+});
+
+test('availability follows front-room stock in units or grams, and hides sizes stock cannot fill', () => {
+  const pkg=(qty,loc='Front')=>({storageLocation:loc,isSellable:true,inventoryQty:qty,testResults:null});
+  const menu=normalizeMenu({pricesIncludeTax:true,menuGroups:[{name:'Flower',products:[
+    {id:'bulk',name:'Bulk',category:'Flower',uom:'Grams',variants:[{weight:3.5,uom:'g',price:2000},{weight:7,uom:'g',price:3800},{weight:14,uom:'g',price:7000}],
+      packages:[pkg(6),pkg(4),pkg(500,'Back')]},
+    {id:'jars',name:'Jars',category:'Flower',uom:'Each',variants:[{weight:3.5,uom:'g',price:2500}],packages:[pkg(37)]},
+    {id:'gone',name:'Gone',category:'Flower',uom:'Grams',variants:[{weight:3.5,uom:'g',price:2500}],packages:[pkg(2)]}
+  ]}]},'Front',Date.now());
+  const bulk=menu.products.find(p=>p.id==='bulk'), jars=menu.products.find(p=>p.id==='jars');
+  assert.equal(bulk.stockUnits,10);assert.deepEqual(bulk.variants.map(v=>[v.size,v.available]),[['3.5 g',2],['7 g',1]]);
+  assert.equal(jars.variants[0].available,37);assert.equal(menu.products.some(p=>p.id==='gone'),false);
+  const shown=publicMenu(menu), text=JSON.stringify(shown);
+  assert.ok(!text.includes('stockUnits')&&!text.includes('unitsEach'));
+  assert.equal(shown.products.find(p=>p.id==='jars').variants[0].available,10);
+});
+test('orders cannot exceed stock, counting every size of a product together', async () => {
+  const s=preorders(), a=await s.linked();
+  s.setGF({findMenus:{pricesIncludeTax:true,menuGroups:[{name:'Flower',products:[
+    {id:'public-a',name:'A',strain:'Sample Strain',category:'Flower',uom:'Grams',variants:[{weight:3.5,uom:'g',price:2000},{weight:7,uom:'g',price:3800}],
+      packages:[{storageLocation:'Front',isSellable:true,inventoryQty:12,testResults:null}]}]}]}});
+  const menu=await (await s.run('menu')).json();
+  assert.deepEqual(menu.products[0].variants.map(v=>v.available),[3,1]);assert.equal(menu.products[0].stockUnits,undefined);
+  s.setGF(null);
+  const item=(size,priceCents,qty)=>({productId:'public-a',size,priceCents,qty});
+  const over=await a.place({items:[item('3.5 g',2000,2),item('7 g',3800,1)],license:LICENSE}); // 14 g > 12 g
+  assert.equal(over.status,409);assert.match((await over.json()).error,/fewer in stock/);assert.equal(s.mutations().length,0);
+  assert.equal((await a.place({items:[item('3.5 g',2000,4)],license:LICENSE})).status,409);
+  assert.equal((await a.place({items:[item('3.5 g',2000,1),item('7 g',3800,1)],license:LICENSE})).status,200); // 10.5 g
 });

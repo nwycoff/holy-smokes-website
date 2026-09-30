@@ -4,19 +4,19 @@ export const demoMenu = {
   categories: ['Flower', 'Concentrates', 'Vapes', 'Edibles'],
   products: [
     { id:'demo-1', brand:'Sample Garden', name:'Golden Hour', category:'Flower', flower:true, type:'hybrid', thc:[24.2,24.2], cbd:null, cbdRich:false,
-      variants:[{size:'3.5 g',priceCents:1500,grams:3.5,pricePerGramCents:429}], description:'Bright, citrusy and easygoing.' },
+      variants:[{size:'3.5 g',priceCents:1500,grams:3.5,pricePerGramCents:429,available:2}], description:'Bright, citrusy and easygoing.' },
     { id:'demo-2', brand:'Sample Garden', name:'Sunday Slowdown', category:'Flower', flower:true, type:'indica', thc:[26.5,26.5], cbd:null, cbdRich:false,
-      variants:[{size:'3.5 g',priceCents:2000,grams:3.5,pricePerGramCents:571}] },
+      variants:[{size:'3.5 g',priceCents:2000,grams:3.5,pricePerGramCents:571,available:10}] },
     { id:'demo-3', brand:'Example Extracts', name:'Citrus Live Resin', category:'Concentrates', type:'sativa', thc:[72.4,72.4], cbd:null, cbdRich:false,
-      variants:[{size:'1 g',priceCents:2000,grams:1,pricePerGramCents:2000}] },
+      variants:[{size:'1 g',priceCents:2000,grams:1,pricePerGramCents:2000,available:10}] },
     { id:'demo-4', brand:'Prairie Sample Farms', name:'Morning Meadow', category:'Flower', flower:true, type:'sativa', thc:[22.1,23.3], cbd:null, cbdRich:false,
-      variants:[{size:'3.5 g',priceCents:2500,grams:3.5,pricePerGramCents:714},{size:'7 g',priceCents:4500,grams:7,pricePerGramCents:643}] },
+      variants:[{size:'3.5 g',priceCents:2500,grams:3.5,pricePerGramCents:714,available:10},{size:'7 g',priceCents:4500,grams:7,pricePerGramCents:643,available:10}] },
     { id:'demo-5', brand:'Example Extracts', name:'Evening Blend Cartridge', category:'Vapes', type:'hybrid', thc:[80.1,80.1], cbd:null, cbdRich:false,
-      variants:[{size:'1 g',priceCents:3000,grams:1,pricePerGramCents:3000}] },
+      variants:[{size:'1 g',priceCents:3000,grams:1,pricePerGramCents:3000,available:10}] },
     { id:'demo-6', brand:'Example Kitchen', name:'Peach Gummies', category:'Edibles', type:'', thc:null, cbd:null, cbdRich:false,
-      variants:[{size:'10 pieces',priceCents:1800,grams:null,pricePerGramCents:null}] },
+      variants:[{size:'10 pieces',priceCents:1800,grams:null,pricePerGramCents:null,available:10}] },
     { id:'demo-7', brand:'Prairie Sample Farms', name:'Easy Balance', category:'Flower', flower:true, type:'hybrid', thc:[6.2,6.2], cbd:[11.8,11.8], cbdRich:true,
-      variants:[{size:'3.5 g',priceCents:2200,grams:3.5,pricePerGramCents:629},{size:'14 g',priceCents:7000,grams:14,pricePerGramCents:500}],
+      variants:[{size:'3.5 g',priceCents:2200,grams:3.5,pricePerGramCents:629,available:10},{size:'14 g',priceCents:7000,grams:14,pricePerGramCents:500,available:10}],
       description:'A gentle 1:2 THC to CBD flower.' }
   ]
 };

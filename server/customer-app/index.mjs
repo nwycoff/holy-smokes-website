@@ -2,7 +2,7 @@ import { consumeLimits, lookupVariables, normalizeInput } from '../rewards.mjs';
 import { AppError, bodyJSON, enabled, authReady, growflowReady, menuReady, preorderReady, rewardTiersReady, hash, json,
   randomToken, sameOrigin, cookie, LOGIN_COOKIE, redirect } from './http.mjs';
 import { startLogin, finishLogin, session, logout } from './auth.mjs';
-import { CUSTOMER_QUERY, singleCustomer, eligibleCustomer, queryGrowflow, getMenu, getRewards } from './growflow.mjs';
+import { CUSTOMER_QUERY, singleCustomer, eligibleCustomer, queryGrowflow, getMenu, getRewards, publicMenu } from './growflow.mjs';
 import { currentPreorder, placePreorder } from './preorders.mjs';
 import { pushReady, subscribe, unsubscribe } from './push.mjs';
 import { licenseMemoryReady, forgetLicense } from './license.mjs';
@@ -57,7 +57,7 @@ export async function handleApp(context, overrides = {}) {
     }
     if (route === 'menu') {
       if (!menuReady(env)) throw new AppError('MENU_CONFIG');
-      return json(200, await getMenu(env, deps));
+      return json(200, publicMenu(await getMenu(env, deps)));
     }
     if (staff) {
       // Owner-only CLI. This credential is never requested or embedded by the customer UI.
@@ -175,6 +175,7 @@ export async function handleApp(context, overrides = {}) {
       LICENSE_SAVED_MISSING: 'Please enter your medical license number.',
       LICENSE_SAVED_MISMATCH: 'Your saved license number no longer matches your store record. This usually means you have a new or renewed license. We’ve removed the old number; please enter the one on your current card. If it still doesn’t match, ask your budtender to update your store record.',
       PUSH_DEVICE_IN_USE: 'This device is set up for notifications on another account. Please try again.',
+      OUT_OF_STOCK: 'Some items in your order have fewer in stock than you asked for. We’ve updated your order; please review it.',
       LICENSE_REQUIRED: 'Please enter your medical license number to order ahead.',
       LICENSE_FORMAT: 'Please check your medical license number. Use letters, numbers and dashes only.',
       LICENSE_EXPIRY_MISSING: 'Your store record is missing your license expiration date. Please ask your budtender to update it.',

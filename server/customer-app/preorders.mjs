@@ -141,10 +141,16 @@ export async function placePreorder(env, deps, s, input, limit) {
   await limit();
   const menu = await getMenu(env, deps);
   if (menu.stale) throw new AppError('MENU_STALE');
+  // Every size of a product draws on the same front-room stock (e.g. 2 × 3.5 g + 1 × 7 g = 14 g).
+  const drawn = new Map();
   const lines = items.map(item => {
-    const variant = menu.products.find(p => p.id === item.productId)?.variants.find(v => v.size === item.size);
+    const product = menu.products.find(p => p.id === item.productId);
+    const variant = product?.variants.find(v => v.size === item.size);
     if (!variant) throw new AppError('ITEM_UNAVAILABLE', 409);
     if (variant.priceCents !== item.priceCents) throw new AppError('PRICE_CHANGED', 409);
+    const units = (drawn.get(product.id) || 0) + item.qty * (variant.unitsEach || 1);
+    if (units > product.stockUnits + 1e-9) throw new AppError('OUT_OF_STOCK', 409);
+    drawn.set(product.id, units);
     return { productId: item.productId, qty: item.qty, ...(variant.weight ? { weight: variant.weight } : {}),
       cents: variant.priceCents * item.qty };
   });

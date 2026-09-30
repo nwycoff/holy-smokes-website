@@ -239,7 +239,9 @@ function productCard(product) {
     const row = el('div', '', 'variant'), price = el('div', '', 'variant-price');
     price.append(el('strong', money.format(variant.priceCents / 100)));
     if (product.flower && variant.pricePerGramCents) price.append(el('small', `${money.format(variant.pricePerGramCents / 100)}/g`));
-    row.append(el('span', variant.size), price);
+    const size = el('span', variant.size);
+    if (variant.available <= 5) size.append(el('em', `Only ${variant.available} left`, 'low-stock'));
+    row.append(size, price);
     if (canOrder()) {
       const add = button('Add', () => addToCart(product, variant), 'add-button');
       add.setAttribute('aria-label', `Add ${product.name} ${variant.size} to your order`);
@@ -251,8 +253,9 @@ function productCard(product) {
 function addToCart(product, variant) {
   if (cartCount() >= MAX_ITEMS) { message(`Pickup orders can have up to ${MAX_ITEMS} items.`); return; }
   const line = cart.find(l => l.productId === product.id && l.size === variant.size);
-  if (line) line.qty++;
-  else cart.push({ productId: product.id, size: variant.size, priceCents: variant.priceCents, name: product.name, brand: product.brand, qty: 1 });
+  if ((line?.qty || 0) >= (variant.available ?? Infinity)) { message('That’s all we have of that one right now.'); return; }
+  if (line) { line.qty++; line.available = variant.available; }
+  else cart.push({ productId: product.id, size: variant.size, priceCents: variant.priceCents, name: product.name, brand: product.brand, qty: 1, available: variant.available });
   message(''); renderCartBar();
 }
 // Keep the cart in step with the latest menu so the customer sees changes before ordering.
@@ -263,7 +266,9 @@ function reconcileCart() {
     const variant = menu.products.find(p => p.id === line.productId)?.variants.find(v => v.size === line.size);
     if (!variant) { changed = true; return false; }
     if (variant.priceCents !== line.priceCents) { line.priceCents = variant.priceCents; changed = true; }
-    return true;
+    line.available = variant.available;
+    if (variant.available !== undefined && line.qty > variant.available) { line.qty = variant.available; changed = true; }
+    return line.qty > 0;
   });
   if (changed) message('Your order was updated to match the latest menu. Please review it.');
 }
@@ -311,7 +316,11 @@ function renderOrder() {
     info.append(el('strong', line.name), el('span', [line.brand, line.size].filter(Boolean).join(' · ')));
     const qty = el('div', '', 'qty-stepper');
     const less = button('−', () => { line.qty--; if (!line.qty) cart = cart.filter(l => l !== line); renderOrder(); renderCartBar(); }, 'qty-button');
-    const more = button('+', () => { if (cartCount() < MAX_ITEMS) line.qty++; else message(`Pickup orders can have up to ${MAX_ITEMS} items.`); renderOrder(); renderCartBar(); }, 'qty-button');
+    const more = button('+', () => {
+      if (line.qty >= (line.available ?? Infinity)) message('That’s all we have of that one right now.');
+      else if (cartCount() < MAX_ITEMS) line.qty++; else message(`Pickup orders can have up to ${MAX_ITEMS} items.`);
+      renderOrder(); renderCartBar();
+    }, 'qty-button');
     less.setAttribute('aria-label', `One fewer ${line.name}`); more.setAttribute('aria-label', `One more ${line.name}`);
     qty.append(less, el('span', String(line.qty)), more);
     item.append(info, qty, el('b', money.format(line.priceCents * line.qty / 100))); list.append(item);
