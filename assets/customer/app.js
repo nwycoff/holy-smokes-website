@@ -105,7 +105,14 @@ function button(text, action, className = 'primary-button') {
     try { await action(); } catch (error) { message(error.message); } finally { b.disabled = false; }
   }); return b;
 }
-function message(text = '') { $('app-message').textContent = text; $('app-message').hidden = !text; }
+// Messages show as a banner just above the bottom of the screen, next to where the customer
+// is tapping, and fade after a few seconds (longer for longer messages). Tap ✕ to dismiss.
+let messageTimer;
+function message(text = '') {
+  clearTimeout(messageTimer);
+  $('app-message-text').textContent = text; $('app-message').hidden = !text;
+  if (text) messageTimer = setTimeout(() => { $('app-message').hidden = true; }, Math.max(5000, text.length * 70));
+}
 async function api(path, body) {
   const response = await fetch(`/api/app/${path}`, { method: body === undefined ? 'GET' : 'POST',
     credentials: 'same-origin', mode: 'same-origin', redirect: 'error', cache: 'no-store', referrerPolicy: 'strict-origin',
@@ -294,6 +301,7 @@ function renderCartBar() {
   for (const link of document.querySelectorAll('.order-nav')) link.hidden = !show;
   for (const badge of document.querySelectorAll('.order-count')) { badge.hidden = !count; badge.textContent = String(count); }
   const bar = $('cart-bar'); bar.hidden = !show || !count;
+  document.body.classList.toggle('cart-bar-showing', !bar.hidden && location.hash === '#menu');
   bar.replaceChildren(el('span', `${count} ${count === 1 ? 'item' : 'items'} · ${money.format(cartTotal() / 100)}`), el('strong', 'Review order →'));
 }
 function orderStatusPanel() {
@@ -547,6 +555,7 @@ function route() {
   if (view === 'rewards') { renderRewards(); if (user.linked && (!points || Date.now() - points.checkedAt > 30000)) void refreshPoints(); }
   if (view === 'menu') void refreshMenu();
   if (view === 'order') { rewardPointsTried = false; renderOrder(); void refreshOrder(); }
+  renderCartBar();
   document.title = `${({ home:'My Treehouse',menu:'Menu',rewards:'My Points',account:'My Account',order:'Order ahead' })[view]} | Treehouse Pharmacy`;
 }
 async function initialize() {
@@ -569,6 +578,7 @@ async function initialize() {
   if (!demo) { void refreshMenu(); if (user.linked) void refreshPoints(); }
 }
 $('menu-search').addEventListener('input', renderMenu); $('menu-sort').addEventListener('change', renderMenu);
+$('app-message-close').addEventListener('click', () => message(''));
 $('filter-button').addEventListener('click', () => setFilterPanel($('filter-panel').hidden));
 $('filter-done').addEventListener('click', () => setFilterPanel(false));
 $('filter-clear').addEventListener('click', clearFilters);

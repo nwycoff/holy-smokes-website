@@ -1413,3 +1413,61 @@ details summary {
   color: var(--gold);
   margin-top: 2px;
 }
+
+/* Message banner, fixed just above the bottom navigation and order bar */
+.toast {
+  position: fixed;
+  z-index: 20;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  width: min(560px, calc(100% - 32px));
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 14px 14px 18px;
+  border-radius: 12px;
+  background: var(--deep);
+  color: var(--paper);
+  font-size: 14px;
+  line-height: 1.5;
+  box-shadow: 0 12px 32px #192e2259;
+  animation: toast-in 0.18s ease-out;
+}
+.toast[hidden] {
+  display: none;
+}
+.toast span {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.toast button {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: #ffffff1f;
+  color: var(--paper);
+  font-size: 13px;
+  line-height: 1;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(-50%, 8px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+/* Sit above the "Review order" bar when it is showing on the menu. */
+body.cart-bar-showing .toast {
+  bottom: 96px;
+}
+@media (max-width: 580px) {
+  .toast {
+    bottom: calc(84px + env(safe-area-inset-bottom));
+  }
+  body.cart-bar-showing .toast {
+    bottom: calc(152px + env(safe-area-inset-bottom));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: none; }
+}

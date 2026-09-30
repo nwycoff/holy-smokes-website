@@ -48,7 +48,6 @@
       >
     </header>
     <main id="main" class="app-main">
-      <div id="app-message" class="notice" role="status" hidden></div>
       <section id="view-home" class="view" aria-labelledby="home-title">
         <div class="home-heading">
           <div>
@@ -297,6 +296,11 @@
       <span>Treehouse Pharmacy · Ponca City, OK</span
       ><a href="/">Visit our website ↗</a>
     </footer>
+    <!-- Messages appear here, just above the bottom of the screen, wherever the customer is. -->
+    <div id="app-message" class="toast" role="status" aria-live="polite" hidden>
+      <span id="app-message-text"></span
+      ><button id="app-message-close" type="button" aria-label="Dismiss message">✕</button>
+    </div>
     <nav class="mobile-nav" aria-label="Main">
       <a href="#home"><span aria-hidden="true">⌂</span>Home</a
       ><a href="#menu"><span aria-hidden="true">☷</span>Menu</a
