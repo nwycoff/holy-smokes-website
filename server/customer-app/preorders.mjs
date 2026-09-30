@@ -138,7 +138,6 @@ async function preorderCustomer(env, deps, customerId, license) {
 export async function placePreorder(env, deps, s, input, limit) {
   const { items, note, license: typed, reward, remember, useSaved } = readItems(input);
   if ((await currentPreorder(env, deps, s))?.open) throw new AppError('OPEN_ORDER', 409);
-  await limit();
   const menu = await getMenu(env, deps);
   if (menu.stale) throw new AppError('MENU_STALE');
   // Every size of a product draws on the same front-room stock (e.g. 2 × 3.5 g + 1 × 7 g = 14 g).
@@ -168,6 +167,9 @@ export async function placePreorder(env, deps, s, input, limit) {
   }
   const totalCents = lines.reduce((sum, line) => sum + line.cents, 0);
   const itemCount = items.reduce((n, item) => n + item.qty, 0);
+  // Everything above is checked locally. Only attempts that go on to GrowFlow count toward
+  // the per-account and per-IP limits, so a delayed menu or a full cart costs nothing.
+  await limit();
   // A saved license is decrypted only here, and GrowFlow re-checks it on every order.
   let license = typed;
   if (useSaved) {

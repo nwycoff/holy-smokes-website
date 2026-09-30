@@ -85,8 +85,8 @@ export function preorderReady(env) {
     && /^gfr_[^\s\u0000-\u001f\u007f]{1,4092}$/.test(env.APP_PREORDER_TOKEN || '')
     && env.APP_PREORDER_TOKEN !== env.APP_GROWFLOW_TOKEN;
 }
-export async function fetchSafe(deps, url, init = {}) {
-  const res = await deps.fetch(url, { ...init, redirect: 'manual', signal: AbortSignal.timeout(10000) });
+export async function fetchSafe(deps, url, init = {}, timeoutMs = 10000) {
+  const res = await deps.fetch(url, { ...init, redirect: 'manual', signal: AbortSignal.timeout(timeoutMs) });
   if (res.status >= 300 && res.status < 400) throw new AppError('UPSTREAM_REDIRECT');
   return res;
 }
