@@ -1,0 +1,40 @@
+# Top level: the TEST notifier for treehouse-app-test. [env.live]: the live notifier for
+# holy-smokes-website (deploy with --env live). They never share a database or secrets.
+name = "treehouse-app-test-notifier"
+main = "index.mjs"
+compatibility_date = "2026-09-29"
+workers_dev = false
+
+[triggers]
+crons = ["* * * * *"]
+
+[[d1_databases]]
+binding = "APP_DB"
+database_name = "treehouse-app-test-data"
+database_id = "0b4fd99e-935e-466f-a791-bdb31f8b0030"
+
+[vars]
+GROWFLOW_ORG = "holysmokesdispensary"
+APP_PREORDER_ENABLED = "true"
+APP_PUSH_ENABLED = "true"
+APP_PUSH_SUBJECT = "https://treehouse-app-test.pages.dev/app/"
+# Public half of the notification key pair; the same value is set on the Pages project.
+APP_VAPID_PUBLIC_KEY = "BCaIcMble8bm3eUqMhTkHu0XM6GD4z_sSpq3GEprpfhdiogokZfXv1yplsfJ-2UN1LbJtMJKkZ9sv9YEwc0a92w"
+# Secrets (wrangler secret put): APP_VAPID_PRIVATE_JWK, APP_PREORDER_TOKEN, APP_LIMIT_SECRET.
+
+# LIVE notifier (deploy with `npx wrangler deploy --env live`; secrets via
+# `npx wrangler secret put <NAME> --env live`).
+[env.live]
+name = "treehouse-app-live-notifier"
+
+[[env.live.d1_databases]]
+binding = "APP_DB"
+database_name = "treehouse-app-live-data"
+database_id = "5ac9edcb-7c27-4809-aebf-6bc14f4bbec0"
+
+[env.live.vars]
+GROWFLOW_ORG = "holysmokesdispensary"
+APP_PREORDER_ENABLED = "true"
+APP_PUSH_ENABLED = "true"
+APP_PUSH_SUBJECT = "https://www.treehousepharmacy.com/app/"
+APP_VAPID_PUBLIC_KEY = "BHazL4tq1uQC2fmLIWKq4y7GWIbxwh5PVFqwrpYIg5OguzsyWFlU1XYdqBDj1aR-UEis0xmoFWzw--MuuTyWX5Q"
