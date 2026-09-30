@@ -7,7 +7,7 @@ import { hash } from '../server/customer-app/http.mjs';
 import { normalizeMenu } from '../server/customer-app/growflow.mjs';
 import { encryptPayload, vapidAuthorization, readSubscription, notifyReadyOrders, b64url, fromB64url, READY_MESSAGE } from '../server/customer-app/push.mjs';
 
-const migration = ['0001_customer_app.sql', '0002_customer_app_preorders.sql', '0003_customer_app_push.sql']
+const migration = ['0001_customer_app.sql', '0002_customer_app_preorders.sql', '0003_customer_app_push.sql', '0004_customer_app_push_deliveries.sql']
   .map(name => readFileSync(new URL(`../app-migrations/${name}`, import.meta.url), 'utf8')).join('\n');
 class D1 {
   constructor() { this.db = new DatabaseSync(':memory:'); this.db.exec('PRAGMA foreign_keys = ON'); this.db.exec(migration); }
@@ -257,8 +257,8 @@ test('upstream redirects and diagnostic failures never leak secrets or trigger r
   assert.ok(!(await response.text()).includes('secret'));
 });
 
-function preorders({ customer = {}, create, status = 'Completed' } = {}) {
-  const s=setup(), base=s.deps.fetch, sent=[];let orders=0;
+function preorders({ customer = {}, create, status: initialStatus = 'Completed' } = {}) {
+  const s=setup(), base=s.deps.fetch, sent=[];let orders=0, status=initialStatus;
   Object.assign(s.env,{APP_PREORDER_ENABLED:'true',APP_PREORDER_TOKEN:'gfr_synthetic_preorder_only'});
   s.deps.fetch=async(target,init)=>{
     const body=init?.body && String(target).endsWith('/graphql') ? JSON.parse(init.body) : null;
@@ -285,7 +285,7 @@ function preorders({ customer = {}, create, status = 'Completed' } = {}) {
     const place=(body,headers={'x-treehouse-csrf':csrf})=>s.run('preorder/place',{method:'POST',cookie:a.cookie,body,headers});
     return {...a,csrf,place,status:()=>s.run('preorder',{cookie:a.cookie})};
   }
-  return {...s,sent,mutations,linked};
+  return {...s,sent,mutations,linked,setStatus:x=>{status=x;}};
 }
 const LICENSE='PAAA-1234-ABCD';
 const flower = (qty=2, extra={}) => ({items:[{productId:'public-a',size:'3.5 g',priceCents:2000,qty,...extra}],license:LICENSE});
@@ -550,4 +550,72 @@ test('the notifier skips completed, canceled and old orders, and does nothing wi
   const {APP_VAPID_PRIVATE_JWK,...noKey}=s.env;
   assert.deepEqual(await notifyReadyOrders(noKey,s.deps),{checked:0,notified:0});
   s.advance(12*3600000+1);assert.deepEqual(await notifyReadyOrders(s.env,s.deps),{checked:0,notified:0});assert.equal(s.pushes.length,0);
+});
+
+// Places a Fulfilled order for a linked account with the given devices subscribed.
+async function readyOrder(phones, respond) {
+  const s=await withPush({status:'Unfulfilled'}), a=await s.linked(), base=s.deps.fetch, byDevice={};
+  for (const p of phones) await s.run('push/subscribe',{method:'POST',cookie:a.cookie,body:p.subscription,headers:{'x-treehouse-csrf':a.csrf}});
+  assert.equal((await a.place(flower(1))).status,200);
+  s.setStatus('Fulfilled');s.advance(60001);
+  s.deps.fetch=async(t,i)=>{
+    const url=String(t);
+    if (new URL(url).hostname!=='fcm.googleapis.com') return base(t,i);
+    byDevice[url]=(byDevice[url]||0)+1;
+    return respond(url,byDevice[url]);
+  };
+  const delivery=endpoint=>s.env.APP_DB.db.prepare('SELECT state, attempts FROM app_push_deliveries WHERE endpoint=?').get(endpoint);
+  return {...s,a,byDevice,delivery,run:()=>notifyReadyOrders(s.env,s.deps),order:()=>s.env.APP_DB.db.prepare('SELECT notified_ready FROM app_preorders').get()};
+}
+
+test('a failed push is retried on a later run instead of being lost', async () => {
+  const phone=await device(), t=await readyOrder([phone],(url,n)=>new Response('',{status:n===1?503:201}));
+  assert.deepEqual(await t.run(),{checked:1,notified:0});
+  assert.deepEqual({...t.delivery(phone.subscription.endpoint)},{state:'failed',attempts:1});
+  assert.equal(t.order().notified_ready,0);assert.ok(t.codes.includes('PUSH_SEND'));
+  await t.run();assert.equal(t.byDevice[phone.subscription.endpoint],1); // Not before its retry time.
+  t.advance(60001);assert.deepEqual(await t.run(),{checked:1,notified:1});
+  assert.equal(t.byDevice[phone.subscription.endpoint],2);
+  assert.deepEqual({...t.delivery(phone.subscription.endpoint)},{state:'sent',attempts:2});
+  assert.equal(t.order().notified_ready,1);
+});
+test('deliveries are tracked per device: only the device that failed is retried', async () => {
+  const good=await device('https://fcm.googleapis.com/fcm/send/good'), flaky=await device('https://fcm.googleapis.com/fcm/send/flaky');
+  const t=await readyOrder([good,flaky],(url,n)=>new Response('',{status:url.endsWith('flaky')&&n===1?500:201}));
+  assert.deepEqual(await t.run(),{checked:1,notified:1});
+  t.advance(60001);assert.deepEqual(await t.run(),{checked:1,notified:1});
+  assert.equal(t.byDevice[good.subscription.endpoint],1);assert.equal(t.byDevice[flaky.subscription.endpoint],2);
+  assert.equal(t.order().notified_ready,1);
+});
+test('overlapping runs send each device exactly one notification', async () => {
+  const phones=[await device('https://fcm.googleapis.com/fcm/send/one'),await device('https://fcm.googleapis.com/fcm/send/two')];
+  const t=await readyOrder(phones,async()=>{await new Promise(r=>setTimeout(r,20));return new Response('',{status:201});});
+  const results=await Promise.all([t.run(),t.run(),t.run()]);
+  assert.equal(results.reduce((n,r)=>n+r.notified,0),2);
+  for (const p of phones) assert.equal(t.byDevice[p.subscription.endpoint],1);
+  t.advance(600000);await t.run();for (const p of phones) assert.equal(t.byDevice[p.subscription.endpoint],1);
+});
+test('a run that dies mid-send is retried after its lease expires', async () => {
+  const phone=await device();let crash=true;
+  const t=await readyOrder([phone],()=>{ if (crash) throw new Error('worker stopped'); return new Response('',{status:201}); });
+  // Simulate the Worker being cut off after claiming but before recording the outcome.
+  const endpoint=phone.subscription.endpoint;
+  t.env.APP_DB.db.prepare("INSERT INTO app_push_deliveries VALUES ((SELECT id FROM app_preorders),?, 'sending',1,?,?)").run(endpoint,t.deps.now()+120000,t.deps.now());
+  crash=false;await t.run();assert.equal(t.byDevice[endpoint],undefined);
+  t.advance(120001);assert.deepEqual(await t.run(),{checked:1,notified:1});assert.equal(t.byDevice[endpoint],1);
+});
+test('retries are bounded, and stop once the order is picked up', async () => {
+  const phone=await device(), t=await readyOrder([phone],()=>new Response('',{status:500}));
+  for (let i=0;i<8;i++) { await t.run(); t.advance(900001); }
+  assert.equal(t.byDevice[phone.subscription.endpoint],5);assert.ok(t.codes.includes('PUSH_SEND_GAVE_UP'));
+  assert.equal(t.order().notified_ready,1);
+  const other=await device(), u=await readyOrder([other],()=>new Response('',{status:500}));
+  await u.run();u.setStatus('Completed');u.advance(900001);await u.run();
+  assert.equal(u.byDevice[other.subscription.endpoint],1);
+});
+test('push requests carry a per-order topic so an undelivered copy is replaced, not doubled', async () => {
+  const phone=await device();let headers;
+  const t=await readyOrder([phone],(url)=>new Response('',{status:201}));
+  const inner=t.deps.fetch;t.deps.fetch=async(u,i)=>{ if (String(u).includes('fcm')) headers=i.headers; return inner(u,i); };
+  await t.run();assert.match(headers.Topic,/^[0-9a-f]{32}$/);
 });

@@ -94,13 +94,15 @@ export async function encryptPayload(subscription, plaintext) {
 }
 
 // Returns 'sent', 'gone' (subscription expired or revoked) or 'failed'.
-export async function sendPush(env, deps, subscription, message) {
+// `topic` lets the push service replace an undelivered copy instead of queueing a second one.
+export async function sendPush(env, deps, subscription, message, topic) {
   const endpoint = pushEndpoint(subscription.endpoint);
   if (!endpoint) return 'gone';
   try {
     const res = await fetchSafe(deps, endpoint, { method: 'POST', headers: {
       Authorization: await vapidAuthorization(env, endpoint, deps.now()),
-      'Content-Encoding': 'aes128gcm', 'Content-Type': 'application/octet-stream', TTL: '3600', Urgency: 'high'
+      'Content-Encoding': 'aes128gcm', 'Content-Type': 'application/octet-stream', TTL: '3600', Urgency: 'high',
+      ...(topic ? { Topic: topic } : {})
     }, body: await encryptPayload(subscription, JSON.stringify(message)) });
     if (res.status === 404 || res.status === 410) return 'gone';
     return res.ok ? 'sent' : 'failed';
@@ -109,9 +111,34 @@ export async function sendPush(env, deps, subscription, message) {
 
 export const READY_MESSAGE = { title: 'Your Treehouse order is ready', body: 'Come on by. Pay at pickup, and bring your ID and medical card.', url: '/app/#order' };
 const RECENT = 12 * 3600000, PER_RUN = 10;
+// Per-device delivery: a run leases a delivery before sending, so overlapping runs cannot
+// both send it. Failures retry after 1, 2, 4 and 8 minutes (5 attempts in all). A run that
+// dies mid-send leaves the lease to expire, so that device is retried rather than lost.
+export const MAX_ATTEMPTS = 5;
+const LEASE = 120000, backoff = attempts => Math.min(60000 * 2 ** (attempts - 1), 900000);
+
+async function claimDelivery(env, orderId, endpoint, now) {
+  return env.APP_DB.prepare(`INSERT INTO app_push_deliveries(preorder_id, endpoint, state, attempts, retry_at, updated_at)
+    VALUES (?, ?, 'sending', 1, ?, ?)
+    ON CONFLICT(preorder_id, endpoint) DO UPDATE SET state = 'sending', attempts = attempts + 1,
+      retry_at = excluded.retry_at, updated_at = excluded.updated_at
+    WHERE app_push_deliveries.state IN ('sending', 'failed') AND app_push_deliveries.retry_at <= ?
+      AND app_push_deliveries.attempts < ${MAX_ATTEMPTS}
+    RETURNING attempts`).bind(orderId, endpoint, now + LEASE, now, now).first();
+}
+
+// Devices still owed this order's notification: never tried, or failed/interrupted with
+// attempts left. Delivered, gone and exhausted devices are finished.
+async function pendingDevices(env, row) {
+  const { results = [] } = await env.APP_DB.prepare(`SELECT s.endpoint, s.p256dh, s.auth FROM app_push_subscriptions s
+    LEFT JOIN app_push_deliveries d ON d.preorder_id = ? AND d.endpoint = s.endpoint
+    WHERE s.user_id = ? AND (d.endpoint IS NULL OR (d.state IN ('sending', 'failed') AND d.attempts < ${MAX_ATTEMPTS}))`)
+    .bind(row.id, row.user_id).run();
+  return results;
+}
 
 // Runs on a schedule (every minute). Checks recent open orders whose owners turned on
-// notifications, and notifies each device once when GrowFlow marks the order Fulfilled.
+// notifications, and notifies each device when GrowFlow marks the order Fulfilled.
 export async function notifyReadyOrders(env, deps) {
   if (!senderReady(env)) return { checked: 0, notified: 0 };
   const { results = [] } = await env.APP_DB.prepare(`SELECT * FROM app_preorders p
@@ -120,20 +147,24 @@ export async function notifyReadyOrders(env, deps) {
     ORDER BY p.checked_at LIMIT ${PER_RUN}`).bind(deps.now() - RECENT).run();
   let notified = 0;
   for (const row of results) {
-    const latest = row.status === 'Fulfilled' ? row : await refreshStatus(env, deps, row);
-    if (latest.status !== 'Fulfilled') continue;
-    // Claim first so overlapping runs cannot notify twice.
-    const claimed = await env.APP_DB.prepare(`UPDATE app_preorders SET notified_ready = 1
-      WHERE id = ? AND notified_ready = 0 RETURNING id`).bind(row.id).first();
-    if (!claimed) continue;
-    const { results: devices = [] } = await env.APP_DB.prepare(
-      'SELECT endpoint, p256dh, auth FROM app_push_subscriptions WHERE user_id = ?').bind(row.user_id).run();
-    for (const device of devices) {
-      const outcome = await sendPush(env, deps, device, READY_MESSAGE);
-      if (outcome === 'gone') await env.APP_DB.prepare('DELETE FROM app_push_subscriptions WHERE endpoint = ?').bind(device.endpoint).run();
-      else if (outcome === 'failed') deps.report('PUSH_SEND');
-      else notified++;
+    // Re-check even Fulfilled orders (at most every 30 seconds) so a pickup stops retries.
+    const latest = await refreshStatus(env, deps, row);
+    if (latest.status !== 'Fulfilled' || !latest.open) continue;
+    for (const device of await pendingDevices(env, row)) {
+      const claim = await claimDelivery(env, row.id, device.endpoint, deps.now());
+      if (!claim) continue; // Another run holds it, or it is waiting for its retry time.
+      const outcome = await sendPush(env, deps, device, READY_MESSAGE, row.id.slice(0, 32));
+      const now = deps.now();
+      if (outcome === 'sent') notified++;
+      else if (outcome === 'gone') await env.APP_DB.prepare('DELETE FROM app_push_subscriptions WHERE endpoint = ?').bind(device.endpoint).run();
+      else deps.report(claim.attempts >= MAX_ATTEMPTS ? 'PUSH_SEND_GAVE_UP' : 'PUSH_SEND');
+      await env.APP_DB.prepare(`UPDATE app_push_deliveries SET state = ?, retry_at = ?, updated_at = ?
+        WHERE preorder_id = ? AND endpoint = ?`).bind(outcome === 'failed' ? 'failed' : outcome,
+        now + backoff(claim.attempts), now, row.id, device.endpoint).run();
     }
+    // The order is finished once no device is still owed a delivery.
+    if (!(await pendingDevices(env, row)).length)
+      await env.APP_DB.prepare('UPDATE app_preorders SET notified_ready = 1 WHERE id = ?').bind(row.id).run();
   }
   return { checked: results.length, notified };
 }
