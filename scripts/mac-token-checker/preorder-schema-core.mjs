@@ -15,6 +15,9 @@ export const SCHEMA_QUERY = `query TreehousePreorderSchema {
   preorderStatuses: __type(name: "PreorderStatuses") { enumValues { name } }
   createResponse: __type(name: "CreatePreorderResponse") { fields { name type { ${REF} } } }
   preorderResponse: __type(name: "PreorderResponse") { fields { name type { ${REF} } } }
+  orders: __type(name: "Orders") { fields { name type { ${REF} } } }
+  stores: __type(name: "Stores") { fields { name type { ${REF} } } }
+  customerFields: __type(name: "UpdateCustomersFieldsInput") { inputFields { name } }
 }`;
 export const PROBE_QUERY = `query TreehousePreorderScopeProbe($orderId: String!) {
   preorderStatus(orderId: $orderId) { success }
@@ -114,6 +117,16 @@ export function compareSchema(data) {
   const licenses = [...customers.keys()].filter(n => /licen|patient|medical/i.test(n));
   note(licenses.length ? `Readable license/patient fields on Customers: ${licenses.join(', ')}`
     : 'Customers exposes no readable license/patient fields (search filters only).');
+  // Purchase limits: what exists, and whether it can be read or only filtered/written.
+  const limitish = n => /limit|purchas|allot|allowance/i.test(n) && !/discount/i.test(n);
+  const readable = (key, label) => (data?.[key]?.fields || []).filter(f => limitish(f.name)).map(f => `${label}.${f.name}: ${typeName(f.type)}`);
+  const limitReads = [...readable('customers', 'Customers'), ...readable('orders', 'Orders'), ...readable('stores', 'Stores')];
+  note(limitReads.length ? `Readable purchase-limit fields: ${limitReads.join('; ')}` : 'No readable purchase-limit fields on Customers, Orders or Stores.');
+  const writeOnly = (data?.customerFields?.inputFields || []).map(f => f.name).filter(limitish)
+    .filter(n => !(data?.customers?.fields || []).some(f => f.name === n));
+  if (writeOnly.length) note(`Customer purchase-limit fields that can be written or filtered but not read: ${writeOnly.join(', ')}`);
+  const limitQueries = [...(data?.queryType?.fields || []), ...(data?.mutationType?.fields || [])].map(f => f.name).filter(limitish);
+  note(limitQueries.length ? `Purchase-limit queries/mutations: ${limitQueries.join(', ')}` : 'No purchase-limit queries or mutations.');
   const filters = new Set((data?.customerFilters?.inputFields || []).map(f => f.name));
   const missingFilters = CUSTOMER_FILTERS.filter(f => !filters.has(f));
   if (missingFilters.length) diff(`CustomersWhereInput lacks ${missingFilters.join(', ')}.`);

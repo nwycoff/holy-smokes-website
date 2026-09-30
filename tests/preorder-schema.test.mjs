@@ -38,6 +38,12 @@ test('the example schema matches what the app sends', () => {
   assert.ok(lines.some(l => l.startsWith('OK    mutation createPreorder(menuKey: String!, preorder: PreorderInput!)')));
   assert.ok(lines.some(l => l.includes('PatientName')));
   assert.ok(lines.some(l => l.startsWith('NOTE') && l.includes('Readable license/patient fields on Customers: PatientName')));
+  assert.ok(lines.some(l => l === 'NOTE  No readable purchase-limit fields on Customers, Orders or Stores.'));
+  const withLimits = { ...example(), orders: { fields: [f('TimedPurchaseLimitsObjs', list(T('ArrayResult')))] },
+    customerFields: { inputFields: [{ name: 'PatientPurchaseLimits' }, { name: 'ExtendedLimits' }, { name: 'Name' }] } };
+  const limitLines = compareSchema(withLimits).lines;
+  assert.ok(limitLines.some(l => l.includes('Readable purchase-limit fields: Orders.TimedPurchaseLimitsObjs: [ArrayResult]')));
+  assert.ok(limitLines.some(l => l.includes('written or filtered but not read: PatientPurchaseLimits, ExtendedLimits')));
 });
 test('renamed fields, new required inputs and missing enum values are reported', () => {
   const s = example();
