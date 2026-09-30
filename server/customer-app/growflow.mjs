@@ -50,14 +50,14 @@ function graphqlCategory(errors) {
 // These are refused before GrowFlow runs the operation, so nothing was written.
 const REFUSED = ['PERMISSION', 'AUTH', 'VALIDATION', 'PREORDERS_OFF'];
 // Errors marked sent=true happened after the request left, so a write may have landed.
-export async function queryGrowflow(env, deps, query, variables, token = env.APP_GROWFLOW_TOKEN) {
+export async function queryGrowflow(env, deps, query, variables, token = env.APP_GROWFLOW_TOKEN, timeoutMs = 10000) {
   const key = await hash(env.APP_LIMIT_SECRET, `growflow:${env.GROWFLOW_ORG}`);
   const backoff = await env.APP_DB.prepare('SELECT until_at FROM rewards_backoff WHERE key = ?').bind(key).first();
   if (backoff?.until_at > deps.now()) throw new AppError('GROWFLOW_BACKOFF');
   if (!await consumeLimits(env.APP_DB, env.APP_LIMIT_SECRET,
     [{ subject: 'app-growflow', window: 60000, max: 30 }], deps.now())) throw new AppError('GROWFLOW_LIMIT', 429);
   try {
-    return await sendGrowflow(env, deps, key, query, variables, token);
+    return await sendGrowflow(env, deps, key, query, variables, token, timeoutMs);
   } catch (error) {
     const failure = error instanceof AppError ? error : new AppError('GROWFLOW_HTTP');
     if (!(error instanceof AppError)) failure.category = error?.name === 'TimeoutError' ? 'TIMEOUT' : 'NETWORK';
@@ -66,11 +66,11 @@ export async function queryGrowflow(env, deps, query, variables, token = env.APP
     throw failure;
   }
 }
-async function sendGrowflow(env, deps, key, query, variables, token) {
+async function sendGrowflow(env, deps, key, query, variables, token, timeoutMs) {
   const res = await fetchSafe(deps, `https://retail.growflow.com/c/${env.GROWFLOW_ORG}/graphql`, {
     method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ query, variables })
-  });
+  }, timeoutMs);
   const remaining = res.headers.has('ratelimit-remaining') ? Number(res.headers.get('ratelimit-remaining')) : Infinity;
   if (res.status === 429 || (Number.isFinite(remaining) && remaining <= 20)) {
     const reset = Number(res.headers.get('ratelimit-reset'));
@@ -324,15 +324,16 @@ export async function getMenu(env, deps) {
     WHERE app_locks.expires_at <= ? RETURNING key`).bind(key, deps.now() + 60000, deps.now()).first();
   if (!lock) return fallback();
   try {
-    const result = await queryGrowflow(env, deps, MENU_QUERY, { menuKey: env.APP_MENU_KEY });
+    // The full menu (hundreds of products with photos and weights) can take GrowFlow a while.
+    const result = await queryGrowflow(env, deps, MENU_QUERY, { menuKey: env.APP_MENU_KEY }, env.APP_GROWFLOW_TOKEN, 25000);
     const types = purchaseLimits(env) ? await getCategoryTypes(env, deps) : new Map();
     const menu = normalizeMenu(result.findMenus, env.APP_FRONT_LOCATION, deps.now(), types);
     await env.APP_DB.prepare(`INSERT INTO app_cache(key, value, updated_at) VALUES (?, ?, ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`)
       .bind(key, JSON.stringify(menu), deps.now()).run();
     return menu;
-  } catch {
-    deps.report('MENU_REFRESH');
+  } catch (error) {
+    deps.report(`MENU_REFRESH_${error?.code || 'ERROR'}${error?.category ? `_${error.category}` : ''}`);
     return fallback();
   }
 }

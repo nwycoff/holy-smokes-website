@@ -841,3 +841,18 @@ test('orders over a store purchase limit are refused with a clear message; limit
   s.env.APP_PURCHASE_LIMITS='{"concentrate":20}';s.advance(30001);await a.status();
   assert.equal((await a.place(item(7))).status,409);
 });
+
+test('orders refused locally (delayed menu) do not use up the per-account attempt limit', async () => {
+  const s=preorders(), a=await s.linked();
+  s.advance(3600000-(s.deps.now()%3600000)+1000);
+  assert.equal((await s.run('menu')).status,200);s.advance(60001);s.setGF({},429,{'retry-after':'1'});
+  for (let i=0;i<7;i++) assert.equal((await a.place(flower(1))).status,503); // "menu is updating"
+  s.setGF(null);s.advance(60001);
+  assert.equal((await a.place(flower(1))).status,200);assert.equal(s.mutations().length,1);
+});
+test('a failed menu refresh logs why (e.g. a timeout)', async () => {
+  const s=setup();assert.equal((await s.run('menu')).status,200);s.advance(60001);
+  s.deps.fetch=async()=>{ const e=new Error('The operation timed out'); e.name='TimeoutError'; throw e; };
+  const stale=await (await s.run('menu')).json();assert.equal(stale.stale,true);
+  assert.ok(s.codes.includes('MENU_REFRESH_GROWFLOW_HTTP_TIMEOUT'),s.codes.join(' '));
+});
