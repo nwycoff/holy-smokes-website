@@ -1471,3 +1471,24 @@ body.cart-bar-showing .toast {
 @media (prefers-reduced-motion: reduce) {
   .toast { animation: none; }
 }
+
+.order-steps ol {
+  margin: 10px 0 0;
+  padding-left: 22px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--ink);
+}
+.order-steps li + li {
+  margin-top: 6px;
+}
+.order-steps .step-done {
+  color: var(--green);
+}
+.order-hint[hidden] {
+  display: none;
+}
+.order-hint .text-button {
+  padding: 0;
+  font-size: 13px;
+}
