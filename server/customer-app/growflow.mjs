@@ -46,12 +46,6 @@ function graphqlCategory(errors) {
   if (/not found/i.test(text)) return 'NOT_FOUND';
   return 'OTHER';
 }
-// TEST PROJECT ONLY: APP_DIAGNOSTIC_ERRORS=true also logs GrowFlow's error text with digits
-// masked and length capped. Never enable it on the live site; remove it after diagnosis.
-export function errorDetail(errors) {
-  return (errors || []).slice(0, 3).map(e => `${String(e?.extensions?.code || '-')}: ${String(e?.message || '')}`)
-    .join(' | ').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\d/g, '#').slice(0, 200);
-}
 // These are refused before GrowFlow runs the operation, so nothing was written.
 const REFUSED = ['PERMISSION', 'AUTH', 'VALIDATION', 'PREORDERS_OFF'];
 // Errors marked sent=true happened after the request left, so a write may have landed.
@@ -95,15 +89,12 @@ async function sendGrowflow(env, deps, key, query, variables, token) {
     const refused = errors ? graphqlCategory(errors) : '';
     const failure = new AppError('GROWFLOW_HTTP');
     failure.category = REFUSED.includes(refused) ? refused : `STATUS_${res.status}`;
-    if (env.APP_DIAGNOSTIC_ERRORS === 'true')
-      deps.report(`GROWFLOW_ERROR_DETAIL HTTP ${res.status} ${errorDetail(errors) || '(no GraphQL errors in body)'}`);
     throw failure;
   }
   const payload = await res.json();
   if (payload.errors?.length || !payload.data) {
     const failure = new AppError('GROWFLOW_QUERY');
     failure.category = graphqlCategory(payload.errors);
-    if (env.APP_DIAGNOSTIC_ERRORS === 'true') deps.report(`GROWFLOW_ERROR_DETAIL ${errorDetail(payload.errors)}`);
     throw failure;
   }
   return payload.data;

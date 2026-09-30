@@ -54,9 +54,15 @@ async function enableNotifications() {
     message('Notifications are off for this app. You can turn them on in your phone’s settings.'); return;
   }
   const registration = await navigator.serviceWorker.ready;
-  const subscription = await registration.pushManager.getSubscription()
-    || await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: pushKeyBytes() });
-  await api('push/subscribe', subscription.toJSON());
+  const fresh = () => registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: pushKeyBytes() });
+  let subscription = await registration.pushManager.getSubscription() || await fresh();
+  try { await api('push/subscribe', subscription.toJSON()); }
+  catch (error) {
+    // Still registered to someone else who shared this phone: replace it with a new subscription.
+    if (error.status !== 409) throw error;
+    await subscription.unsubscribe(); subscription = await fresh();
+    await api('push/subscribe', subscription.toJSON());
+  }
   pushSubscribed = true; message('We’ll notify this device when your order is ready.'); renderOrder(); renderAccount();
 }
 // Removes this device's notifications, locally and on the server. Never blocks sign-out.
@@ -107,7 +113,7 @@ async function api(path, body) {
     ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(15000) });
   if (!response.headers.get('content-type')?.includes('application/json')) throw new Error('Please reopen the app and try again.');
   const result = await response.json();
-  if (!response.ok) throw new Error(result.error || 'This is temporarily unavailable. Please try again.');
+  if (!response.ok) throw Object.assign(new Error(result.error || 'This is temporarily unavailable. Please try again.'), { status: response.status });
   return result;
 }
 function signInPanel() {

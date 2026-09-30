@@ -164,14 +164,18 @@ export async function notifyReadyOrders(env, deps) {
 export async function subscribe(env, deps, s, input) {
   const subscription = readSubscription(input);
   if (!subscription) throw new AppError('INPUT', 400);
-  // A device belongs to whoever subscribed it last. Keep at most five devices per account.
+  // A subscription only ever belongs to the account that created it; another account cannot
+  // take it over. (A shared phone gets a fresh subscription instead; see app.js.)
+  // Keep at most five devices per account.
   await env.APP_DB.batch([
     env.APP_DB.prepare(`INSERT INTO app_push_subscriptions(endpoint, user_id, p256dh, auth, created_at) VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth,
-      created_at = excluded.created_at`).bind(subscription.endpoint, s.id, subscription.p256dh, subscription.auth, deps.now()),
+      ON CONFLICT(endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth, created_at = excluded.created_at
+      WHERE app_push_subscriptions.user_id = excluded.user_id`).bind(subscription.endpoint, s.id, subscription.p256dh, subscription.auth, deps.now()),
     env.APP_DB.prepare(`DELETE FROM app_push_subscriptions WHERE user_id = ? AND endpoint NOT IN
       (SELECT endpoint FROM app_push_subscriptions WHERE user_id = ? ORDER BY created_at DESC LIMIT 5)`).bind(s.id, s.id)
   ]);
+  const owner = await env.APP_DB.prepare('SELECT user_id FROM app_push_subscriptions WHERE endpoint = ?').bind(subscription.endpoint).first();
+  if (owner?.user_id !== s.id) throw new AppError('PUSH_DEVICE_IN_USE', 409);
 }
 export async function unsubscribe(env, s, input) {
   const endpoint = pushEndpoint(input?.endpoint);

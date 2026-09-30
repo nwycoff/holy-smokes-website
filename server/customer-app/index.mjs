@@ -174,6 +174,7 @@ export async function handleApp(context, overrides = {}) {
       REWARD_TOO_LARGE: 'That reward is bigger than your order. Please choose a smaller one or add more items.',
       LICENSE_SAVED_MISSING: 'Please enter your medical license number.',
       LICENSE_SAVED_MISMATCH: 'Your saved license number no longer matches your store record. This usually means you have a new or renewed license. We’ve removed the old number; please enter the one on your current card. If it still doesn’t match, ask your budtender to update your store record.',
+      PUSH_DEVICE_IN_USE: 'This device is set up for notifications on another account. Please try again.',
       LICENSE_REQUIRED: 'Please enter your medical license number to order ahead.',
       LICENSE_FORMAT: 'Please check your medical license number. Use letters, numbers and dashes only.',
       LICENSE_EXPIRY_MISSING: 'Your store record is missing your license expiration date. Please ask your budtender to update it.',

@@ -378,22 +378,21 @@ test('failed sends log a fixed category; refused operations free the slot, uncer
   reply=()=>Response.json({errors:[{message:'Insufficient Permissions'}]});
   assert.equal((await a.place(flower(1))).status,503);assert.ok(s.codes.includes('PREORDER_SEND_GROWFLOW_QUERY_PERMISSION'));
   assert.equal(s.env.APP_DB.db.prepare('SELECT count(*) n FROM app_preorders').get().n,0);
-  assert.ok(!s.codes.some(c=>c.startsWith('GROWFLOW_ERROR_DETAIL')));
+  // The retired diagnostic switch has no effect: GrowFlow's error text is never logged.
   s.env.APP_DIAGNOSTIC_ERRORS='true';
-  reply=()=>Response.json({errors:[{message:'Something broke mid-way for 1990-05-06\nand more',extensions:{code:'X'}}]});
+  reply=()=>Response.json({errors:[{message:'Something broke for Synthetic Patient 1990-05-06',extensions:{code:'X'}}]});
   assert.equal((await a.place(flower(1))).status,503);assert.ok(s.codes.includes('PREORDER_SEND_GROWFLOW_QUERY_OTHER'));
-  assert.ok(s.codes.includes('GROWFLOW_ERROR_DETAIL X: Something broke mid-way for ####-##-## and more'));
+  assert.ok(!s.codes.join(' ').match(/Synthetic|1990|Something broke/));
   assert.equal(s.env.APP_DB.db.prepare("SELECT status FROM app_preorders").get().status,'Unconfirmed');
 });
 test('HTTP errors from GrowFlow log their status and hold the slot as unconfirmed', async () => {
   const s=preorders({create:()=>Response.json({errors:[{message:'Upstream failed after 12 seconds'}]},{status:500})}), a=await s.linked();
   assert.equal((await a.place(flower(1))).status,503);
   assert.ok(s.codes.includes('PREORDER_SEND_GROWFLOW_HTTP_STATUS_500'));
-  assert.ok(!s.codes.some(c=>c.startsWith('GROWFLOW_ERROR_DETAIL')));
   assert.equal(s.env.APP_DB.db.prepare("SELECT status FROM app_preorders").get().status,'Unconfirmed');
   s.env.APP_DIAGNOSTIC_ERRORS='true';s.env.APP_DB.db.exec('DELETE FROM app_preorders');
   assert.equal((await a.place(flower(1))).status,503);
-  assert.ok(s.codes.includes('GROWFLOW_ERROR_DETAIL HTTP 500 -: Upstream failed after ## seconds'));
+  assert.ok(!s.codes.join(' ').includes('Upstream failed'));
 });
 test('a menu or store with preorders switched off frees the slot and says so', async () => {
   const s=preorders({create:()=>Response.json({errors:[{message:'PreOrders are not allowed for this menu.',extensions:{code:'INTERNAL_SERVER_ERROR'}}]})});
@@ -721,4 +720,17 @@ test('customers can forget a saved license; unlinking deletes it; the feature st
   off.advance(30001);await b.status();
   assert.equal((await b.place({...noLicense,useSavedLicense:true})).status,400);
   for (const bad of [{...flower(1),useSavedLicense:true},{...flower(1),rememberLicense:'yes'}]) assert.equal((await b.place(bad)).status,400);
+});
+
+test('a push subscription cannot be taken over by another account', async () => {
+  const s=await withPush(), phone=await device();
+  const one=await s.linked();
+  assert.equal((await s.run('push/subscribe',{method:'POST',cookie:one.cookie,body:phone.subscription,headers:{'x-treehouse-csrf':one.csrf}})).status,200);
+  const other=await s.login('auth0|other-account'), csrf=await s.seed(other.cookie,'CustomerTwo');
+  const res=await s.run('push/subscribe',{method:'POST',cookie:other.cookie,body:phone.subscription,headers:{'x-treehouse-csrf':csrf}});
+  assert.equal(res.status,409);
+  const owner=s.env.APP_DB.db.prepare('SELECT u.customer_id FROM app_push_subscriptions p JOIN app_users u ON u.id=p.user_id').all();
+  assert.deepEqual(owner.map(r=>r.customer_id),['CustomerOne']);
+  // The owner can refresh its own subscription.
+  assert.equal((await s.run('push/subscribe',{method:'POST',cookie:one.cookie,body:phone.subscription,headers:{'x-treehouse-csrf':one.csrf}})).status,200);
 });
