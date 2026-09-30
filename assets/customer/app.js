@@ -139,10 +139,11 @@ function signInPanel() {
 }
 function linkPanel() {
   const panel = el('section', '', 'account-panel');
-  panel.append(el('h2', 'One quick introduction.'), el('p', 'Ask your budtender for a connection code after they check your customer record. Enter it here within 10 minutes.'));
+  panel.append(el('h2', 'One quick introduction.'), el('p', 'Ask your budtender for a connection code after they check your customer record. Enter the 8-digit code here within 10 minutes.'));
   const form = el('form'), label = el('label', 'Connection code'), input = el('input');
   label.htmlFor = 'connection-code'; input.id = 'connection-code'; input.autocomplete = 'off'; input.spellcheck = false;
-  input.autocapitalize = 'characters'; input.required = true; input.maxLength = 24; input.placeholder = 'XXXX-XXXX-XXXX-XXXX-XXXX';
+  input.autocapitalize = 'off'; input.inputMode = 'numeric'; input.required = true;
+  input.maxLength = 24; input.placeholder = '1234 5678'; // Allow pasting an unexpired legacy code.
   const submit = el('button', 'Connect my points →', 'primary-button'); submit.type = 'submit';
   form.append(label, input, el('p', 'A code works once. You won’t need your patient ID to sign in again.'), submit);
   form.addEventListener('submit', async event => {

@@ -46,7 +46,8 @@ try {
     body: JSON.stringify({ name, lastFive, identityChecked: true }), signal: AbortSignal.timeout(15000) });
   if (response.status >= 300 && response.status < 400) throw new Error('Access login is required or the address redirected. No redirect was followed.');
   const data = await response.json();
-  if (!response.ok || !/^[A-F0-9]{4}(?:-[A-F0-9]{4}){4}$/.test(data.code || ''))
+  // Current codes are eight digits shown as "1234 5678"; accept the older 20-character format too.
+  if (!response.ok || !/^(?:\d{4} \d{4}|[A-F0-9]{4}(?:-[A-F0-9]{4}){4})$/.test(data.code || ''))
     throw new Error(response.status === 409 ? 'That record is already linked. Use sign-in recovery.' : 'Could not issue a code. Check the inputs, access, and private app diagnostics.');
   console.log(`\nOne-time connection code: ${data.code}\nExpires in 10 minutes. Enter it under My points after signing in.\nDo not share this code in chat or save it in a customer list.`);
 } catch (error) {
