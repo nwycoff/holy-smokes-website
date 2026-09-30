@@ -23,7 +23,7 @@ Order matters: a database migration must exist before code that reads it is depl
 - [ ] Bind it to `holy-smokes-website` → Settings → Bindings → **Production** as `APP_DB`.
 - [ ] **Auth0:** add the live callback, login and logout URLs for `www.treehousepharmacy.com` (CUSTOMER-APP-SETUP.md section 1). Confirm verification and password-reset emails arrive.
 - [ ] **GrowFlow tokens** (new live tokens, saved in Bitwarden):
-  - App token (`APP_GROWFLOW_TOKEN`): **Customers**, **Menus** and **Discounts** read only.
+  - App token (`APP_GROWFLOW_TOKEN`): **Customers**, **Menus**, **Discounts** and **Product categories** read only.
   - Preorder token (`APP_PREORDER_TOKEN`): **Create preorders** only. Must be a different token.
 - [ ] **GrowFlow settings:** store Pre-orders on; the app's menu allows pre-orders.
 - [ ] **Cloudflare Access for `/staff/`** on the live hostname, following STAFF-ENROLLMENT-SETUP.md (allow-list of individual staff emails, no Bypass).
@@ -53,6 +53,7 @@ Start with every switch **off** (`false` or absent):
 | `APP_VAPID_PUBLIC_KEY` | Public half of the live key pair |
 | `APP_STAFF_ACCESS_ISSUER`, `APP_STAFF_ACCESS_AUD`, `APP_STAFF_EMAILS` | From the live staff Access application |
 | `APP_LICENSE_MEMORY_ENABLED` | `false` until legal sign-off |
+| `APP_PURCHASE_LIMITS_ENABLED` | `false` until section 4 |
 
 Then merge the pull request. Pages deploys `main` to the live site.
 
@@ -65,6 +66,7 @@ Redeploy after each change (Deployments → latest → Retry deployment) and che
 3. [ ] `APP_MENU_ENABLED=true`: menu matches the front-room selection and prices.
 4. [ ] `APP_REWARD_TIERS_ENABLED=true`: reward list matches GrowFlow (amounts in dollars, e.g. $10, not $1,000).
 5. [ ] `APP_PREORDER_ENABLED=true`: place one supervised order, check it in Sales → Pre-Orders, cancel it.
+   - [ ] `APP_PURCHASE_LIMITS_ENABLED=true` at the same time: the order screen shows "Purchase limits this order", and a cart over 84 g flower is stopped.
 6. [ ] **Live notifier:** in `workers/order-notifier/wrangler.toml`, fill in `[env.live]` (live database ID and public key), deploy with `npx wrangler deploy --env live`, and add its secrets with `npx wrangler secret put <NAME> --env live`: `APP_VAPID_PRIVATE_JWK`, `APP_PREORDER_TOKEN` and `APP_LIMIT_SECRET` (same values as the live site). Then `APP_PUSH_ENABLED=true` on the site and test a "ready" notification.
 7. [ ] Only after legal sign-off: `APP_LICENSE_KEY` + `APP_LICENSE_MEMORY_ENABLED=true`.
 

@@ -1,7 +1,7 @@
 import { AppError, randomToken } from './http.mjs';
 import { rewardTiersReady } from './http.mjs';
 import { licenseMemoryReady, openLicense, saveLicense, forgetLicense } from './license.mjs';
-import { CREATE_PREORDER, PREORDER_CUSTOMER_QUERY, PREORDER_STATUS, eligibleCustomer, getMenu, getRewards,
+import { CREATE_PREORDER, PREORDER_CUSTOMER_QUERY, PREORDER_STATUS, eligibleCustomer, getMenu, getRewards, purchaseLimits,
   queryGrowflow, singleCustomer } from './growflow.mjs';
 
 // Pickup only, paid in store. The server rebuilds every line and the total from the
@@ -154,6 +154,18 @@ export async function placePreorder(env, deps, s, input, limit) {
     return { productId: item.productId, qty: item.qty, ...(variant.weight ? { weight: variant.weight } : {}),
       cents: variant.priceCents * item.qty };
   });
+  // Store purchase limits, per order. Items of unknown weight are left to the POS.
+  const limits = purchaseLimits(env);
+  if (limits) {
+    const used = {};
+    for (const item of items) {
+      const product = menu.products.find(p => p.id === item.productId);
+      const use = product.variants.find(v => v.size === item.size).limitUse;
+      if (product.limitGroup && Number.isFinite(use)) used[product.limitGroup] = (used[product.limitGroup] || 0) + use * item.qty;
+    }
+    for (const [group, total] of Object.entries(used))
+      if (total > limits[group].max + 1e-6) throw new AppError(`PURCHASE_LIMIT_${group.toUpperCase()}`, 409);
+  }
   const totalCents = lines.reduce((sum, line) => sum + line.cents, 0);
   const itemCount = items.reduce((n, item) => n + item.qty, 0);
   // A saved license is decrypted only here, and GrowFlow re-checks it on every order.

@@ -2,7 +2,7 @@ import { consumeLimits, lookupVariables, normalizeInput } from '../rewards.mjs';
 import { AppError, bodyJSON, enabled, authReady, growflowReady, menuReady, preorderReady, rewardTiersReady, hash, json,
   randomToken, sameOrigin, cookie, LOGIN_COOKIE, redirect } from './http.mjs';
 import { startLogin, finishLogin, session, logout } from './auth.mjs';
-import { CUSTOMER_QUERY, singleCustomer, eligibleCustomer, queryGrowflow, getMenu, getRewards, publicMenu } from './growflow.mjs';
+import { CUSTOMER_QUERY, singleCustomer, eligibleCustomer, queryGrowflow, getMenu, getRewards, publicMenu, purchaseLimits } from './growflow.mjs';
 import { currentPreorder, placePreorder } from './preorders.mjs';
 import { pushReady, subscribe, unsubscribe } from './push.mjs';
 import { licenseMemoryReady, forgetLicense } from './license.mjs';
@@ -34,6 +34,7 @@ export async function handleApp(context, overrides = {}) {
     loginEnabled: Boolean(active && authReady(env)), menuEnabled: Boolean(active && menuReady(env)),
     preorderEnabled: Boolean(active && preorderReady(env)), rewardTiersEnabled: Boolean(active && rewardTiersReady(env)),
     licenseMemoryEnabled: Boolean(active && preorderReady(env) && licenseMemoryReady(env)),
+    ...(active && preorderReady(env) && purchaseLimits(env) ? { purchaseLimits: purchaseLimits(env) } : {}),
     ...(active && preorderReady(env) && pushReady(env) ? { pushKey: env.APP_VAPID_PUBLIC_KEY } : {}) });
   if (!active) return json(503, { error: 'The customer app is not available yet. You can still use My Points on our website.' });
   const staff = route === 'staff/enroll';
@@ -182,6 +183,8 @@ export async function handleApp(context, overrides = {}) {
       LICENSE_EXPIRED: 'The medical license on your store record has expired. Please ask your budtender to update it.',
       LICENSE_MISMATCH: 'That license number doesn’t match your store record. Check it against your current card. If you’ve recently gotten a new or renewed license, your budtender needs to update your store record before you can order ahead.',
       PREORDER_UNCONFIRMED: 'We couldn’t confirm your order. Please call the shop before ordering again.' };
+    const limit = code.startsWith('PURCHASE_LIMIT_') && purchaseLimits(env)?.[code.slice(15).toLowerCase()];
+    if (limit) messages[code] = `Your order is over the store’s ${limit.max} ${limit.unit === 'each' ? '' : `${limit.unit} `}${limit.label} limit per order. Please remove some ${limit.label} items.`.replace('  ', ' ');
     return json(known ? error.status : 503, { error: messages[code] || 'This is temporarily unavailable. Please try again later or ask your budtender.' },
       known && error.status === 429 ? { 'Retry-After': '900' } : {});
   }

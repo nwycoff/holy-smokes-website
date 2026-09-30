@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { readFileSync, readdirSync } from 'node:fs';
 import { handleApp } from '../server/customer-app/index.mjs';
 import { hash } from '../server/customer-app/http.mjs';
-import { normalizeMenu, publicMenu } from '../server/customer-app/growflow.mjs';
+import { normalizeMenu, publicMenu, limitGroup } from '../server/customer-app/growflow.mjs';
 import { encryptPayload, vapidAuthorization, readSubscription, notifyReadyOrders, b64url, fromB64url, READY_MESSAGE } from '../server/customer-app/push.mjs';
 
 // Every migration in order, so tests run against the same schema as a real APP_DB.
@@ -779,4 +779,40 @@ test('orders cannot exceed stock, counting every size of a product together', as
   assert.equal(over.status,409);assert.match((await over.json()).error,/fewer in stock/);assert.equal(s.mutations().length,0);
   assert.equal((await a.place({items:[item('3.5 g',2000,4)],license:LICENSE})).status,409);
   assert.equal((await a.place({items:[item('3.5 g',2000,1),item('7 g',3800,1)],license:LICENSE})).status,200); // 10.5 g
+});
+
+test('products are grouped for purchase limits by GrowFlow category type, falling back to the name', () => {
+  assert.equal(limitGroup('Flower','Anything'),'flower');assert.equal(limitGroup('','Pre-Rolls'),'flower');
+  assert.equal(limitGroup('','Vape Cartridges'),'concentrate');assert.equal(limitGroup('','Gummies'),'edible');
+  assert.equal(limitGroup('Edible','Infused Pre-Roll'),'edible'); // Type wins over the name.
+  assert.equal(limitGroup('','Drinks'),'edible');assert.equal(limitGroup('','Lotion'),'topical');
+  assert.equal(limitGroup('','Seeds'),'seed');assert.equal(limitGroup('','Clones'),'clone');assert.equal(limitGroup('','Accessories'),null);
+  const pkg={storageLocation:'Front',isSellable:true,inventoryQty:50,testResults:null};
+  const menu=normalizeMenu({pricesIncludeTax:true,menuGroups:[{name:'Edibles and Pre-Rolls',products:[
+    {id:'pr',name:'Pre-roll',category:'Pre-Rolls',categoryId:'c1',uom:'Each',unitWeight:1,unitWeightUOM:'Grams',variants:[{price:800}],packages:[pkg]},
+    {id:'gum',name:'Gummies',category:'Gummies',categoryId:'c2',uom:'Each',netWeight:56.699,netWeightUOM:'Grams',unitWeight:100,unitWeightUOM:'Milligrams',variants:[{price:1800}],packages:[pkg]},
+    {id:'bulk',name:'Bulk',category:'Flower',categoryId:'c3',uom:'Grams',variants:[{weight:3.5,uom:'g',price:2000}],packages:[pkg]},
+    {id:'odd',name:'Mystery',category:'Other',categoryId:'c4',uom:'Each',variants:[{price:500}],packages:[pkg]}
+  ]}]},'Front',Date.now(),new Map([['c4','Concentrate']]));
+  const use=id=>{const p=menu.products.find(x=>x.id===id);return [p.limitGroup,p.variants[0].limitUse];};
+  assert.deepEqual(use('pr'),['flower',1]);assert.deepEqual(use('gum'),['edible',2]);   // 56.699 g net = 2 oz
+  assert.deepEqual(use('bulk'),['flower',3.5]);assert.deepEqual(use('odd'),['concentrate',null]); // unknown weight
+});
+test('orders over a store purchase limit are refused with a clear message; limits are off by default', async () => {
+  const s=preorders(), a=await s.linked();
+  const pkg={storageLocation:'Front',isSellable:true,inventoryQty:100,testResults:null};
+  s.setGF({findMenus:{pricesIncludeTax:true,menuGroups:[{name:'Concentrates',products:[
+    {id:'public-a',name:'Rosin',category:'Concentrates',uom:'Each',unitWeight:4,unitWeightUOM:'Grams',variants:[{price:2000}],packages:[pkg]}]}]}});
+  const item=qty=>({items:[{productId:'public-a',size:'Each',priceCents:2000,qty}],license:LICENSE});
+  assert.equal((await (await s.run('config')).json()).purchaseLimits,undefined);
+  await s.run('menu');assert.equal(s.calls.filter(c=>String(c.init.body).includes('TreehouseCategoryTypes')).length,0);
+  s.env.APP_PURCHASE_LIMITS_ENABLED='true';s.advance(60001);
+  const {purchaseLimits}=await (await s.run('config')).json();
+  assert.deepEqual([purchaseLimits.flower.max,purchaseLimits.concentrate.max,purchaseLimits.edible.max,purchaseLimits.edible.unit],[84,28,72,'oz']);
+  const over=await a.place(item(8)); // 32 g > 28 g
+  assert.equal(over.status,409);assert.match((await over.json()).error,/over the store’s 28 g concentrate limit/);
+  assert.equal(s.mutations().length,0);
+  assert.equal((await a.place(item(7))).status,200); // 28 g
+  s.env.APP_PURCHASE_LIMITS='{"concentrate":20}';s.advance(30001);await a.status();
+  assert.equal((await a.place(item(7))).status,409);
 });

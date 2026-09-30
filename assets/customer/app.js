@@ -250,12 +250,29 @@ function productCard(product) {
     card.querySelector('.product-variants').append(row);
   } return card;
 }
+// Store purchase limits (per order), mirrored from the server's config.
+const limitTotals = (extra) => {
+  const totals = {};
+  for (const line of [...cart, ...(extra ? [extra] : [])])
+    if (line.limitGroup && Number.isFinite(line.limitUse)) totals[line.limitGroup] = (totals[line.limitGroup] || 0) + line.limitUse * line.qty;
+  return totals;
+};
+const limitText = (group) => { const l = config.purchaseLimits[group]; return `${l.max}${l.unit === 'each' ? '' : ` ${l.unit}`} ${l.label}`; };
+function overLimit(line) {
+  const limit = config.purchaseLimits?.[line.limitGroup];
+  if (!limit || !Number.isFinite(line.limitUse)) return '';
+  const total = (limitTotals()[line.limitGroup] || 0) + line.limitUse;
+  return total > limit.max + 1e-6 ? `That would put your order over the ${limitText(line.limitGroup)} limit.` : '';
+}
 function addToCart(product, variant) {
   if (cartCount() >= MAX_ITEMS) { message(`Pickup orders can have up to ${MAX_ITEMS} items.`); return; }
   const line = cart.find(l => l.productId === product.id && l.size === variant.size);
   if ((line?.qty || 0) >= (variant.available ?? Infinity)) { message('That’s all we have of that one right now.'); return; }
+  const over = overLimit({ limitGroup: product.limitGroup, limitUse: variant.limitUse });
+  if (over) { message(over); return; }
   if (line) { line.qty++; line.available = variant.available; }
-  else cart.push({ productId: product.id, size: variant.size, priceCents: variant.priceCents, name: product.name, brand: product.brand, qty: 1, available: variant.available });
+  else cart.push({ productId: product.id, size: variant.size, priceCents: variant.priceCents, name: product.name, brand: product.brand, qty: 1,
+    available: variant.available, limitGroup: product.limitGroup, limitUse: variant.limitUse });
   message(''); renderCartBar();
 }
 // Keep the cart in step with the latest menu so the customer sees changes before ordering.
@@ -266,7 +283,7 @@ function reconcileCart() {
     const variant = menu.products.find(p => p.id === line.productId)?.variants.find(v => v.size === line.size);
     if (!variant) { changed = true; return false; }
     if (variant.priceCents !== line.priceCents) { line.priceCents = variant.priceCents; changed = true; }
-    line.available = variant.available;
+    line.available = variant.available; line.limitUse = variant.limitUse;
     if (variant.available !== undefined && line.qty > variant.available) { line.qty = variant.available; changed = true; }
     return line.qty > 0;
   });
@@ -318,6 +335,7 @@ function renderOrder() {
     const less = button('−', () => { line.qty--; if (!line.qty) cart = cart.filter(l => l !== line); renderOrder(); renderCartBar(); }, 'qty-button');
     const more = button('+', () => {
       if (line.qty >= (line.available ?? Infinity)) message('That’s all we have of that one right now.');
+      else if (overLimit(line)) message(overLimit(line));
       else if (cartCount() < MAX_ITEMS) line.qty++; else message(`Pickup orders can have up to ${MAX_ITEMS} items.`);
       renderOrder(); renderCartBar();
     }, 'qty-button');
@@ -326,6 +344,8 @@ function renderOrder() {
     item.append(info, qty, el('b', money.format(line.priceCents * line.qty / 100))); list.append(item);
   }
   const total = el('p', '', 'order-total'); total.append(el('span', 'Estimated total'), el('strong', money.format(cartTotal() / 100)));
+  const usage = Object.entries(limitTotals()).filter(([group]) => config.purchaseLimits?.[group])
+    .map(([group, used]) => `${Math.round(used * 100) / 100} of ${limitText(group)}`);
   const licenseParts = licenseFields();
   const label = el('label', 'Note for the shop (optional)'), note = el('textarea');
   label.htmlFor = 'order-note'; note.id = 'order-note'; note.maxLength = 200; note.rows = 2; note.value = orderNote;
@@ -336,7 +356,8 @@ function renderOrder() {
     try { await placeOrder(orderNote.trim(), usingSavedLicense() ? '' : orderLicense.trim()); } finally { submit.disabled = false; }
   });
   const rewardRow = rewardPicker(total);
-  panel.append(list, total, el('p', menu?.pricesIncludeTax === false ? 'Prices do not include tax.' : 'Prices include tax.', 'fine-print'),
+  panel.append(list, total, ...(usage.length ? [el('p', `Purchase limits this order: ${usage.join(' · ')}`, 'fine-print limit-usage')] : []),
+    el('p', menu?.pricesIncludeTax === false ? 'Prices do not include tax.' : 'Prices include tax.', 'fine-print'),
     ...rewardRow, ...licenseParts, label, note, submit,
     el('p', 'Pay in store when you pick up. Bring your ID and medical card. Availability and final price are confirmed at the counter.', 'fine-print'));
   target.append(panel);
@@ -531,7 +552,7 @@ function route() {
 async function initialize() {
   const current = generation;
   if (demo) {
-    const fixture = await import('./demo-data.js'); menu = fixture.demoMenu;
+    const fixture = await import('./demo-data.js'); menu = fixture.demoMenu; config = { purchaseLimits: fixture.demoPurchaseLimits };
     user = { signedIn:true, linked:true }; points = { points:750, checkedAt:Date.now() };
     $('demo-banner').hidden = false;
   } else {

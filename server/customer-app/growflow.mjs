@@ -12,7 +12,8 @@ export const MENU_QUERY = `query TreehouseMobileMenu($menuKey: String!) {
   findMenus(menuKey: $menuKey) {
     pricesIncludeTax
     menuGroups { name products {
-      id name brand strain cannabisType category image description uom
+      id name brand strain cannabisType category categoryId image description uom
+      unitWeight unitWeightUOM netWeight netWeightUOM
       variants { weight uom price }
       packages { inventoryQty isSellable storageLocation
         testResults { uom totalPotentialPsychoactiveThc cbd }
@@ -123,6 +124,43 @@ function potencyRange(packages, field) {
   return values.length && values.every(v => v !== null) ? [Math.min(...values), Math.max(...values)] : null;
 }
 const GRAMS = { g: 1, gram: 1, grams: 1, gr: 1, oz: 28.3495, ounce: 28.3495, ounces: 28.3495 };
+const GRAMS_PER = { grams: 1, g: 1, milligrams: 0.001, mg: 0.001, oz: 28.3495 };
+
+// Purchase-limit groups, matching the store's Medical Purchase Limits in GrowFlow (which the
+// API does not expose). OMMA does not separate liquid edibles, so they count as edibles.
+// `measure` follows the store setting: unit weight, net weight, or a count.
+export const LIMIT_GROUPS = {
+  flower: { label: 'flower', unit: 'g', measure: 'unit' },
+  concentrate: { label: 'concentrate', unit: 'g', measure: 'unit' },
+  edible: { label: 'edible', unit: 'oz', measure: 'net' },
+  topical: { label: 'topical', unit: 'oz', measure: 'unit' },
+  seed: { label: 'seed', unit: 'each', measure: 'count' },
+  clone: { label: 'clone', unit: 'each', measure: 'count' }
+};
+const GROUP_PATTERNS = [
+  ['seed', /\bseeds?\b/], ['clone', /\bclones?\b|immature plant/],
+  ['topical', /topical|lotion|balm|salve|transdermal|\bpatch/],
+  ['edible', /edible|gumm|chocolate|candy|candies|beverage|drink|soda|baked|cookie|brownie|\bmints?\b|syrup|capsule/],
+  ['concentrate', /concentrate|extract|vape|vapor|cartridge|\bcarts?\b|\bpods?\b|wax|shatter|resin|rosin|badder|budder|crumble|distillate|\bdabs?\b|kief|hash|\brso\b|diamonds|sauce/],
+  ['flower', /flower|pre-?rolls?|joints?|blunts?|\bbuds?\b|shake|smalls|\btrim\b|usable/]
+];
+// GrowFlow's category Type decides when known; otherwise the category name.
+export function limitGroup(type, name) {
+  for (const text of [type, name].map(v => String(v || '').toLowerCase()).filter(Boolean))
+    for (const [group, pattern] of GROUP_PATTERNS) if (pattern.test(text)) return group;
+  return null;
+}
+function limitUse(group, product, variant) {
+  if (!group) return null;
+  const spec = LIMIT_GROUPS[group];
+  if (spec.measure === 'count') return 1;
+  const [amount, uom] = spec.measure === 'net' ? [product.netWeight, product.netWeightUOM] : [product.unitWeight, product.unitWeightUOM];
+  const perUnit = GRAMS_PER[normalized(uom)];
+  const grams = spec.measure === 'unit' && variant.grams ? variant.grams
+    : Number.isFinite(amount) && amount > 0 && perUnit ? amount * perUnit : null;
+  if (!grams) return null; // Unknown weight: left to the POS, which enforces limits at checkout.
+  return Math.round((spec.unit === 'oz' ? grams / 28.3495 : grams) * 1000) / 1000;
+}
 // Product photos come from GrowFlow; only plain https image URLs are passed to the app.
 function imageUrl(value) {
   try {
@@ -132,7 +170,7 @@ function imageUrl(value) {
 }
 const plainText = value => typeof value === 'string'
   ? value.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 400) : '';
-export function normalizeMenu(input, location, now) {
+export function normalizeMenu(input, location, now, categoryTypes = new Map()) {
   if (!input || !Array.isArray(input.menuGroups) || typeof input.pricesIncludeTax !== 'boolean'
     || !clean(location)) throw new AppError('MENU_SHAPE');
   const seen = new Set(), products = [], categories = [];
@@ -165,6 +203,8 @@ export function normalizeMenu(input, location, now) {
         return { ...v, unitsEach: per, available: Math.floor(stockUnits / per + 1e-9) };
       }).filter(v => v.available >= 1);
       if (!stocked.length) continue;
+      const group = limitGroup(categoryTypes.get(p.categoryId), p.category);
+      for (const v of stocked) v.limitUse = limitUse(group, p, v);
       variants.splice(0, variants.length, ...stocked);
       seen.add(p.id);
       if (!categories.includes(category)) categories.push(category);
@@ -175,7 +215,7 @@ export function normalizeMenu(input, location, now) {
           ? normalized(p.cannabisType) : '', variants, thc, cbd,
         // CBD-rich: tested CBD at least 1% and at least equal to THC (CBD-dominant or balanced).
         cbdRich: Boolean(cbd && cbd[1] >= 1 && cbd[1] >= (thc ? thc[1] : 0)),
-        image: imageUrl(p.image), description: plainText(p.description), stockUnits });
+        image: imageUrl(p.image), description: plainText(p.description), stockUnits, limitGroup: group });
     }
   }
   products.sort((a, b) => Math.min(...a.variants.map(v => v.priceCents)) - Math.min(...b.variants.map(v => v.priceCents))
@@ -233,9 +273,44 @@ export function publicMenu(menu) {
   return { ...menu, products: menu.products.map(({ stockUnits, ...p }) => ({ ...p,
     variants: p.variants.map(({ unitsEach, available, ...v }) => ({ ...v, available: Math.min(available, 10) })) })) };
 }
+// Product category Types (e.g. "Flower", "Edible") for purchase limits. Needs the Product
+// categories read scope; without it, or on any failure, names are used instead. Cached an hour.
+export const CATEGORIES_QUERY = `query TreehouseCategoryTypes {
+  findProductCategories(first: 100) { edges { node { objectId Type } } }
+}`;
+export async function getCategoryTypes(env, deps) {
+  const key = await hash(env.APP_LIMIT_SECRET, `categories:v1:${env.GROWFLOW_ORG}:${env.APP_GROWFLOW_TOKEN}`);
+  const cached = await env.APP_DB.prepare('SELECT value, updated_at FROM app_cache WHERE key = ?').bind(key).first();
+  if (cached && deps.now() - cached.updated_at < 3600000) return new Map(JSON.parse(cached.value));
+  let pairs = cached ? JSON.parse(cached.value) : [];
+  try {
+    const edges = (await queryGrowflow(env, deps, CATEGORIES_QUERY, {}))?.findProductCategories?.edges;
+    if (!Array.isArray(edges)) throw new AppError('CATEGORIES_SHAPE');
+    pairs = edges.map(e => e?.node).filter(n => typeof n?.objectId === 'string' && typeof n.Type === 'string')
+      .map(n => [n.objectId, clean(n.Type)]);
+  } catch (error) {
+    deps.report(`CATEGORIES_REFRESH${error?.category ? `_${error.category}` : ''}`);
+  }
+  // Store even an empty result so a missing scope is retried hourly, not every refresh.
+  await env.APP_DB.prepare(`INSERT INTO app_cache(key, value, updated_at) VALUES (?, ?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`)
+    .bind(key, JSON.stringify(pairs), deps.now()).run();
+  return new Map(pairs);
+}
+
+// The store's per-order limits: defaults match GrowFlow's Medical Purchase Limits, and
+// APP_PURCHASE_LIMITS (JSON, e.g. {"flower":84}) overrides any group's maximum.
+export function purchaseLimits(env) {
+  if (env.APP_PURCHASE_LIMITS_ENABLED !== 'true') return null;
+  let overrides = {};
+  try { overrides = JSON.parse(env.APP_PURCHASE_LIMITS || '{}') || {}; } catch { overrides = {}; }
+  const defaults = { flower: 84, concentrate: 28, edible: 72, topical: 72, seed: 10, clone: 6 };
+  return Object.fromEntries(Object.entries(LIMIT_GROUPS).map(([group, spec]) => [group, { ...spec,
+    max: Number.isFinite(overrides[group]) && overrides[group] >= 0 ? overrides[group] : defaults[group] }]));
+}
 export async function getMenu(env, deps) {
   const key = await hash(env.APP_LIMIT_SECRET,
-    `menu:v5-stock:${env.GROWFLOW_ORG}:${env.APP_MENU_KEY}:${env.APP_FRONT_LOCATION}:${env.APP_GROWFLOW_TOKEN}`);
+    `menu:v6-limits:${env.GROWFLOW_ORG}:${env.APP_MENU_KEY}:${env.APP_FRONT_LOCATION}:${env.APP_GROWFLOW_TOKEN}`);
   const cached = await env.APP_DB.prepare('SELECT value, updated_at FROM app_cache WHERE key = ?').bind(key).first();
   const age = cached ? deps.now() - cached.updated_at : Infinity;
   const fallback = () => {
@@ -250,7 +325,8 @@ export async function getMenu(env, deps) {
   if (!lock) return fallback();
   try {
     const result = await queryGrowflow(env, deps, MENU_QUERY, { menuKey: env.APP_MENU_KEY });
-    const menu = normalizeMenu(result.findMenus, env.APP_FRONT_LOCATION, deps.now());
+    const types = purchaseLimits(env) ? await getCategoryTypes(env, deps) : new Map();
+    const menu = normalizeMenu(result.findMenus, env.APP_FRONT_LOCATION, deps.now(), types);
     await env.APP_DB.prepare(`INSERT INTO app_cache(key, value, updated_at) VALUES (?, ?, ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`)
       .bind(key, JSON.stringify(menu), deps.now()).run();
