@@ -84,6 +84,7 @@ function notifyControl() {
   return button('Notify me when it’s ready 🔔', enableNotifications, 'secondary-button');
 }
 const canOrder = () => demo || Boolean(config.preorderEnabled && user.linked);
+const orderingOn = () => demo || Boolean(config.preorderEnabled);
 const cartCount = () => cart.reduce((n, line) => n + line.qty, 0);
 const cartTotal = () => cart.reduce((sum, line) => sum + line.priceCents * line.qty, 0);
 const ORDER_STATUS = { Submitting: 'Sending your order…', New: 'Received. The shop will start on it shortly.',
@@ -299,7 +300,8 @@ function reconcileCart() {
 }
 function renderCartBar() {
   const count = cartCount(), show = canOrder();
-  for (const link of document.querySelectorAll('.order-nav')) link.hidden = !show;
+  // The Order tab shows whenever ordering is on, so new customers can see how to get started.
+  for (const link of document.querySelectorAll('.order-nav')) link.hidden = !(show || orderingOn());
   for (const badge of document.querySelectorAll('.order-count')) { badge.hidden = !count; badge.textContent = String(count); }
   const bar = $('cart-bar'); bar.hidden = !show || !count;
   document.body.classList.toggle('cart-bar-showing', !bar.hidden && location.hash === '#menu');
@@ -317,9 +319,20 @@ function orderStatusPanel() {
   if (notify) { const row = el('div', '', 'notify-row'); row.append(notify); panel.append(row); }
   return panel;
 }
+// For customers who can't order yet: where they are in the three steps.
+function orderSteps() {
+  const panel = el('section', '', 'account-panel order-steps'), list = el('ol');
+  panel.append(el('h2', 'Order online for in-store pickup.'));
+  [['Sign in or create your account', user.signedIn], ['Get an 8-digit code from your budtender to connect your store record', user.linked],
+    ['Pick your items here, and pay when you pick up', false]].forEach(([text, done]) => {
+    const item = el('li', done ? `${text} ✓` : text); if (done) item.className = 'step-done'; list.append(item);
+  });
+  panel.append(list); return panel;
+}
 function renderOrder() {
   const target = $('order-content'); target.replaceChildren();
   if (!canOrder()) {
+    if (orderingOn() && !user.linked) target.append(orderSteps());
     if (!user.signedIn) target.append(signInPanel());
     else if (!user.linked) target.append(linkPanel());
     else target.append(empty('Ordering ahead isn’t available right now. Please call the shop.'));
@@ -522,6 +535,11 @@ function renderMenu() {
   $('menu-count').textContent = `${visible.length} ${visible.length === 1 ? 'product' : 'products'}`;
   $('filter-done').textContent = `Show ${visible.length} ${visible.length === 1 ? 'product' : 'products'}`;
   $('menu-error').textContent = menuError; $('menu-error').hidden = !menuError;
+  const hint = $('menu-order-hint'), showHint = Boolean(menu && orderingOn() && !canOrder());
+  hint.hidden = !showHint;
+  if (showHint) hint.replaceChildren(document.createTextNode(user.signedIn
+    ? 'Connect your account with a code from your budtender to order online for in-store pickup. '
+    : 'Sign in and connect your account to order online for in-store pickup. '), link('How it works →', '#order', 'text-button'));
   $('menu-tax').textContent = menu ? `${menu.pricesIncludeTax ? 'Prices include tax.' : 'Prices do not include tax.'} Availability and final pricing are confirmed in store.${canOrder() ? ' Add items to order ahead for pickup.' : ''}` : '';
   $('menu-freshness').textContent = demo ? 'Sample menu' : menu?.stale ? 'Update delayed' : menu ? `Updated ${new Date(menu.updatedAt).toLocaleTimeString([], { hour:'numeric',minute:'2-digit' })}` : 'Menu unavailable';
   const categoryRow = $('category-filters'); categoryRow.replaceChildren();
@@ -557,7 +575,7 @@ function route() {
   if (view === 'menu') void refreshMenu();
   if (view === 'order') { rewardPointsTried = false; renderOrder(); void refreshOrder(); }
   renderCartBar();
-  document.title = `${({ home:'My Treehouse',menu:'Menu',rewards:'My Points',account:'My Account',order:'Order ahead' })[view]} | Treehouse Pharmacy`;
+  document.title = `${({ home:'My Treehouse',menu:'Menu',rewards:'My Points',account:'My Account',order:'Order online' })[view]} | Treehouse Pharmacy`;
 }
 async function initialize() {
   const current = generation;
