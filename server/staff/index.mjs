@@ -1,6 +1,7 @@
 import { createRemoteJWKSet, customFetch, jwtVerify } from 'jose';
 import { consumeLimits, lookupVariables, normalizeInput } from '../rewards.mjs';
 import { AppError, bodyJSON, enabled, fetchSafe, growflowReady, hash, json, randomToken, sameOrigin } from '../customer-app/http.mjs';
+import { withEnrollmentCode } from '../customer-app/enrollment.mjs';
 import { queryGrowflow, singleCustomer } from '../customer-app/growflow.mjs';
 
 // Match only one known customer. No patient IDs or balances are requested as output.
@@ -97,10 +98,9 @@ export async function handleStaff({ request, env }, overrides = {}) {
     if (Object.keys(input).some(k => !['ticket', 'identityChecked'].includes(k)) || input.identityChecked !== true
       || typeof input.ticket !== 'string' || !/^[a-f0-9]{64}$/.test(input.ticket)) throw new AppError('INPUT', 400);
     const ticketHash = await hash(env.APP_LIMIT_SECRET, `staff-match:${input.ticket}`);
-    const code = randomToken().slice(0, 20).toUpperCase(), codeHash = await hash(env.APP_LIMIT_SECRET, `enroll:${code}`);
     const expiresAt = now + 600000;
     // Issuance, audit and ticket consumption commit together. Never return an unaudited code.
-    const result = await env.APP_DB.batch([
+    const { code, result } = await withEnrollmentCode(env, codeHash => env.APP_DB.batch([
       env.APP_DB.prepare(`INSERT INTO app_enrollments(code_hash, customer_id, expires_at)
         SELECT ?, customer_id, ? FROM app_staff_matches
         WHERE ticket_hash = ? AND staff_id = ? AND expires_at > ?
@@ -108,12 +108,14 @@ export async function handleStaff({ request, env }, overrides = {}) {
         ON CONFLICT(customer_id) DO UPDATE SET code_hash = excluded.code_hash, expires_at = excluded.expires_at
         RETURNING code_hash`).bind(codeHash, expiresAt, ticketHash, staff.id, now),
       env.APP_DB.prepare(`INSERT INTO app_staff_audit(id, staff_id, staff_email, customer_id, event, created_at)
-        SELECT ?, ?, ?, customer_id, 'code_issued', ? FROM app_enrollments WHERE code_hash = ?`)
-        .bind(randomToken(), staff.id, staff.email, now, codeHash),
+        SELECT ?, ?, ?, e.customer_id, 'code_issued', ? FROM app_enrollments e
+        JOIN app_staff_matches m ON m.customer_id = e.customer_id
+        WHERE e.code_hash = ? AND m.ticket_hash = ? AND m.staff_id = ? AND m.expires_at > ?`)
+        .bind(randomToken(), staff.id, staff.email, now, codeHash, ticketHash, staff.id, now),
       env.APP_DB.prepare('DELETE FROM app_staff_matches WHERE ticket_hash = ? AND staff_id = ?').bind(ticketHash, staff.id)
-    ]);
+    ]));
     if (result[0]?.results?.length !== 1) throw new AppError('MATCH_EXPIRED', 409);
-    return json(200, { code: code.match(/.{4}/g).join('-'), expiresAt, appUrl: `${url.origin}/app/` });
+    return json(200, { code, expiresAt, appUrl: `${url.origin}/app/` });
   } catch (error) {
     const known = error instanceof AppError, code = known ? error.code : 'INTERNAL';
     try { deps.report(code); } catch { /* Diagnostics never include identity or credentials. */ }

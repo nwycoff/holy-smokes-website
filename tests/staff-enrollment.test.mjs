@@ -119,13 +119,13 @@ test('issuing requires fresh match owned by same staff and explicit identity che
   const another = await s.token({ sub: 'staff-two', email: 'other@example.test' });
   assert.equal((await s.run('issue', { assertion: another, body: { ticket: m.ticket, identityChecked: true } })).status, 409);
   const issued = await s.run('issue', { body: { ticket: m.ticket, identityChecked: true } }); assert.equal(issued.status, 200);
-  const code = await issued.json(); assert.match(code.code, /^[A-F0-9]{4}(-[A-F0-9]{4}){4}$/);
+  const code = await issued.json(); assert.match(code.code, /^[0-9]{4} [0-9]{4}$/);
   assert.equal(code.expiresAt - s.deps.now(), 600000);
   const audit = s.env.APP_DB.db.prepare('SELECT * FROM app_staff_audit').get();
   assert.equal(audit.staff_email, 'staff@example.test'); assert.equal(audit.customer_id, 'CustomerOne');
   assert.equal(audit.event, 'code_issued'); assert.ok(!JSON.stringify(audit).includes(code.code));
   const enrollment = s.env.APP_DB.db.prepare('SELECT * FROM app_enrollments').get();
-  assert.equal(enrollment.code_hash, await hash(s.env.APP_LIMIT_SECRET, `enroll:${code.code.replaceAll('-', '')}`));
+  assert.equal(enrollment.code_hash, await hash(s.env.APP_LIMIT_SECRET, `enroll:${code.code.replaceAll(' ', '')}`));
   assert.equal((await s.run('issue', { body: { ticket: m.ticket, identityChecked: true } })).status, 409);
   assert.equal(count(s, 'app_staff_audit'), 1);
   const expired = await s.match(); s.advance(120001);

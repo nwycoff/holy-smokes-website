@@ -32,7 +32,7 @@ try {
       if (request.method() === 'POST') writes.push({ action, headers: request.headers(), body: request.postDataJSON() });
       const responses = { session: { email: 'staff@example.test', csrf: 'synthetic-csrf' },
         match: { name: 'Sample Customer', ticket: 'a'.repeat(64), expiresAt: Date.now() + 120000 },
-        issue: { code: 'ABCD-1234-EF56-7890-ABCD', expiresAt: Date.now() + 600000, appUrl: 'https://example.test/app/' } };
+        issue: { code: '0123 4567', expiresAt: Date.now() + 600000, appUrl: 'https://example.test/app/' } };
       await route.fulfill({ status: unauthorized ? 403 : 200, contentType: 'application/json',
         body: JSON.stringify(unauthorized ? { error: 'Your staff session changed. Reload this page and try again.' } : responses[action]) });
     });
@@ -46,6 +46,7 @@ try {
     assert.equal(writes.length, 1); // Native required checkbox blocks issuance.
     await page.locator('#identity-checked').check(); await page.getByRole('button', { name: 'Generate connection code' }).click();
     await page.locator('#result-panel').waitFor(); assert.equal(writes.length, 2);
+    assert.equal(await page.locator('#connection-code').textContent(), '0123 4567');
     assert.equal(writes[0].headers['x-treehouse-csrf'], 'synthetic-csrf');
     assert.deepEqual(writes[1].body, { ticket: 'a'.repeat(64), identityChecked: true });
     assert.equal(await page.locator('#matched-name').textContent(), '');
@@ -66,5 +67,24 @@ try {
     assert.equal(await page.locator('#customer-name').inputValue(), ''); assert.deepEqual(errors, []);
     await page.close();
   }
-  console.log('PASS: desktop/mobile staff flow, identity confirmation, CSRF, printable slip, clearing and denied access.');
+  // Customer connection input offers a numeric keyboard and preserves leading zeroes.
+  const customer = await browser.newPage({ viewport: { width: 390, height: 850 } });
+  const claims = [], customerErrors = []; customer.on('pageerror', e => customerErrors.push(e.message));
+  await customer.route('**/api/app/**', async route => {
+    const req = route.request(), action = new URL(req.url()).pathname.split('/').at(-1);
+    if (action === 'enroll') claims.push(req.postDataJSON());
+    const responses = { config: { enabled: true, loginEnabled: true, menuEnabled: false },
+      session: { signedIn: true, linked: false, csrf: 'synthetic-csrf' }, enroll: { linked: true }, points: { points: 123 } };
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify(responses[action] || {}) });
+  });
+  await customer.goto(`${origin}/app/#rewards`);
+  const input = customer.locator('#connection-code'); await input.waitFor();
+  assert.equal(await input.getAttribute('inputmode'), 'numeric');
+  assert.equal(await input.getAttribute('placeholder'), '1234 5678');
+  await input.fill('0123 4567'); await customer.getByRole('button', { name: 'Connect my points →' }).click();
+  await customer.getByText('Your rewards are connected.', { exact: false }).waitFor();
+  assert.deepEqual(claims, [{ code: '0123 4567' }]); assert.deepEqual(customerErrors, []);
+  assert.equal(await customer.evaluate(() => localStorage.length + sessionStorage.length), 0);
+  await customer.close();
+  console.log('PASS: desktop/mobile staff flow, identity confirmation, CSRF, printable slip, clearing, denied access and eight-digit customer entry.');
 } finally { await browser.close(); await new Promise(r => server.close(r)); }

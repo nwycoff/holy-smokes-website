@@ -1,10 +1,11 @@
 import { consumeLimits, lookupVariables, normalizeInput } from '../rewards.mjs';
 import { AppError, bodyJSON, enabled, authReady, growflowReady, menuReady, preorderReady, rewardTiersReady, hash, json,
-  randomToken, sameOrigin, cookie, LOGIN_COOKIE, redirect } from './http.mjs';
+  sameOrigin, cookie, LOGIN_COOKIE, redirect } from './http.mjs';
 import { startLogin, finishLogin, session, logout } from './auth.mjs';
 import { CUSTOMER_QUERY, singleCustomer, eligibleCustomer, queryGrowflow, getMenu, getRewards, publicMenu, purchaseLimits } from './growflow.mjs';
 import { currentPreorder, placePreorder } from './preorders.mjs';
 import { pushReady, subscribe, unsubscribe } from './push.mjs';
+import { normalizeEnrollmentCode, withEnrollmentCode } from './enrollment.mjs';
 import { licenseMemoryReady, forgetLicense } from './license.mjs';
 
 async function limit(env, deps, subject, max, window = 900000) {
@@ -78,11 +79,11 @@ export async function handleApp(context, overrides = {}) {
       if (!customer) throw new AppError('ENROLLMENT_MATCH', 400);
       const linked = await env.APP_DB.prepare('SELECT id FROM app_users WHERE customer_id = ?').bind(customer.objectId).first();
       if (linked) throw new AppError('ALREADY_LINKED', 409);
-      const code = randomToken().slice(0, 20).toUpperCase(), expiresAt = deps.now() + 600000;
-      await env.APP_DB.prepare(`INSERT INTO app_enrollments(code_hash, customer_id, expires_at) VALUES (?, ?, ?)
+      const expiresAt = deps.now() + 600000;
+      const { code } = await withEnrollmentCode(env, codeHash => env.APP_DB.prepare(`INSERT INTO app_enrollments(code_hash, customer_id, expires_at) VALUES (?, ?, ?)
         ON CONFLICT(customer_id) DO UPDATE SET code_hash = excluded.code_hash, expires_at = excluded.expires_at`)
-        .bind(await hash(env.APP_LIMIT_SECRET, `enroll:${code}`), customer.objectId, expiresAt).run();
-      return json(200, { code: code.match(/.{4}/g).join('-'), expiresAt });
+        .bind(codeHash, customer.objectId, expiresAt).run());
+      return json(200, { code, expiresAt });
     }
     const s = await session(request, env, deps);
     // Only the last four characters of a saved license ever leave the server.
@@ -102,10 +103,12 @@ export async function handleApp(context, overrides = {}) {
     if (route === 'enroll') {
       await limit(env, deps, `enroll-ip:${ip}`, 10);
       await limit(env, deps, `enroll-user:${s.id}`, 5);
-      const input = await bodyJSON(request);
-      if (Object.keys(input).some(k => k !== 'code') || typeof input.code !== 'string'
-        || !/^(?:[A-Fa-f0-9]{20}|[A-Fa-f0-9]{4}(?:-[A-Fa-f0-9]{4}){4})$/.test(input.code.trim())) throw new AppError('ENROLLMENT_CODE', 400);
-      const key = await hash(env.APP_LIMIT_SECRET, `enroll:${input.code.replaceAll('-', '').trim().toUpperCase()}`);
+      await limit(env, deps, `enroll-user-day:${s.id}`, 20, 86400000);
+      // Bound distributed guessing across accounts and IPs as well as individual attempts.
+      await limit(env, deps, 'enroll-global', 100);
+      const input = await bodyJSON(request), code = normalizeEnrollmentCode(input.code);
+      if (Object.keys(input).some(k => k !== 'code') || !code) throw new AppError('ENROLLMENT_CODE', 400);
+      const key = await hash(env.APP_LIMIT_SECRET, `enroll:${code}`);
       // Claim and consume atomically. A unique customer_id enforces one account per record.
       const results = await env.APP_DB.batch([
         env.APP_DB.prepare(`UPDATE app_users SET customer_id = (SELECT customer_id FROM app_enrollments WHERE code_hash = ? AND expires_at > ?)

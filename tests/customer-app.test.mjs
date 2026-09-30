@@ -175,8 +175,8 @@ test('staff enrollment is privileged, code is hashed, expires and cannot link tw
   const input={name:'Synthetic Patient',lastFive:'ABC-12',identityChecked:true};
   assert.equal((await s.run('staff/enroll',{method:'POST',body:input})).status,401);
   const issued=await s.run('staff/enroll',{method:'POST',body:input,headers:{authorization:`Bearer ${s.env.APP_ENROLLMENT_SECRET}`}});
-  assert.equal(issued.status,200);const {code}=await issued.json();
-  assert.ok(!JSON.stringify(s.env.APP_DB.db.prepare('SELECT * FROM app_enrollments').all()).includes(code.replaceAll('-','')));
+  assert.equal(issued.status,200);const {code}=await issued.json();assert.match(code,/^[0-9]{4} [0-9]{4}$/);
+  assert.ok(!JSON.stringify(s.env.APP_DB.db.prepare('SELECT * FROM app_enrollments').all()).includes(code.replaceAll(' ','')));
   const csrf=(await (await s.run('session',{cookie:a.cookie})).json()).csrf;
   assert.equal((await s.run('enroll',{method:'POST',cookie:a.cookie,body:{code}})).status,403);
   assert.equal((await s.run('enroll',{method:'POST',cookie:a.cookie,body:{code},headers:{'x-treehouse-csrf':csrf}})).status,200);
@@ -200,6 +200,31 @@ test('logout requires CSRF; logout-all revokes other sessions; sessions expire a
   assert.equal((await s.run('logout-all',{method:'POST',cookie:a.cookie,body:{},headers:{'x-treehouse-csrf':csrf}})).status,200);
   assert.equal((await (await s.run('session',{cookie:b.cookie})).json()).signedIn,false);
   const c=await s.login();s.advance(7*86400000+1);assert.equal((await s.run('points',{cookie:c.cookie})).status,401);
+});
+test('enrollment accepts leading-zero and legacy codes, but enforces account, IP and global guessing limits', async () => {
+  for (const code of ['0123 4567', '01234567', '0123-4567', 'ABCD-1234-EF56-7890-ABCD']) {
+    const s=setup(), a=await s.login();
+    const compact=code.replace(/[ -]/g,'');
+    s.env.APP_DB.db.prepare('INSERT INTO app_enrollments VALUES (?,?,?)').run(
+      await hash(s.env.APP_LIMIT_SECRET,`enroll:${compact}`),'CustomerOne',s.deps.now()+600000);
+    const csrf=(await (await s.run('session',{cookie:a.cookie})).json()).csrf;
+    assert.equal((await s.run('enroll',{method:'POST',cookie:a.cookie,body:{code},headers:{'x-treehouse-csrf':csrf}})).status,200);
+  }
+  for (const rule of ['user','ip','global','day']) {
+    const s=setup(),a=await s.login();
+    const csrf=(await (await s.run('session',{cookie:a.cookie})).json()).csrf;
+    const uid=s.env.APP_DB.db.prepare('SELECT id FROM app_users').get().id;
+    const [subject,window,max]=rule==='user' ? [`enroll-user:${uid}`,900000,5]
+      : rule==='ip' ? ['enroll-ip:192.0.2.9',900000,10]
+      : rule==='day' ? [`enroll-user-day:${uid}`,86400000,20] : ['enroll-global',900000,100];
+    const bucket=Math.floor(s.deps.now()/window);
+    const limitKey=await hash(s.env.APP_LIMIT_SECRET,`${subject}:${window}:${bucket}`);
+    s.env.APP_DB.db.prepare('INSERT INTO rewards_limits VALUES (?,?,?)').run(limitKey,max-1,(bucket+1)*window);
+    const attempt=()=>s.run('enroll',{method:'POST',cookie:a.cookie,body:{code:'invalid'},headers:{'x-treehouse-csrf':csrf}});
+    assert.equal((await attempt()).status,400); assert.equal((await attempt()).status,429);
+    assert.equal(s.env.APP_DB.db.prepare('SELECT customer_id FROM app_users').get().customer_id,null);
+    assert.equal((await s.run('session',{cookie:a.cookie})).status,200);
+  }
 });
 test('removing app connection requires recent login and removes every app session', async () => {
   const s=setup(),a=await s.login(),b=await s.login();const csrf=await s.seed(a.cookie);
