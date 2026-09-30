@@ -22,20 +22,19 @@ APP_PUSH_SUBJECT = "https://treehouse-app-test.pages.dev/app/"
 APP_VAPID_PUBLIC_KEY = "BCaIcMble8bm3eUqMhTkHu0XM6GD4z_sSpq3GEprpfhdiogokZfXv1yplsfJ-2UN1LbJtMJKkZ9sv9YEwc0a92w"
 # Secrets (wrangler secret put): APP_VAPID_PRIVATE_JWK, APP_PREORDER_TOKEN, APP_LIMIT_SECRET.
 
-# LIVE notifier. Fill in the two REPLACE values (see LAUNCH-CHECKLIST.md section 4), then
-# `npx wrangler deploy --env live` and add its secrets with `npx wrangler secret put <NAME> --env live`.
-# Deploying with the placeholders fails, which is intended.
+# LIVE notifier (deploy with `npx wrangler deploy --env live`; secrets via
+# `npx wrangler secret put <NAME> --env live`).
 [env.live]
 name = "treehouse-app-live-notifier"
 
 [[env.live.d1_databases]]
 binding = "APP_DB"
 database_name = "treehouse-app-live-data"
-database_id = "REPLACE_WITH_LIVE_APP_DB_ID"
+database_id = "5ac9edcb-7c27-4809-aebf-6bc14f4bbec0"
 
 [env.live.vars]
 GROWFLOW_ORG = "holysmokesdispensary"
 APP_PREORDER_ENABLED = "true"
 APP_PUSH_ENABLED = "true"
 APP_PUSH_SUBJECT = "https://www.treehousepharmacy.com/app/"
-APP_VAPID_PUBLIC_KEY = "REPLACE_WITH_LIVE_VAPID_PUBLIC_KEY"
+APP_VAPID_PUBLIC_KEY = "BHazL4tq1uQC2fmLIWKq4y7GWIbxwh5PVFqwrpYIg5OguzsyWFlU1XYdqBDj1aR-UEis0xmoFWzw--MuuTyWX5Q"
