@@ -180,16 +180,17 @@ export function normalizeRewards(data, now) {
   if (!Array.isArray(edges)) throw new AppError('REWARDS_SHAPE');
   const tiers = edges.map(e => e?.node).filter(n => n && typeof n.objectId === 'string'
     && /^[A-Za-z0-9_-]{1,64}$/.test(n.objectId) && clean(n.Name)
-    && Number.isFinite(n.PointsNeeded) && n.PointsNeeded > 0 && Number.isFinite(n.Amount) && n.Amount > 0)
+    && Number.isFinite(n.PointsNeeded) && n.PointsNeeded > 0 && Number.isSafeInteger(n.Amount) && n.Amount > 0)
     .map(n => ({ id: n.objectId, name: clean(n.Name), points: n.PointsNeeded,
-      // Percentage rewards are listed but never turned into a dollar estimate.
-      amountCents: /percent/i.test(String(n.Type || '')) ? null : Math.round(n.Amount * 100),
+      // Amount is in cents, like menu prices (a $10.00 reward is 1000). Confirmed against the
+      // live store. Percentage rewards are listed but never turned into a dollar estimate.
+      amountCents: /percent/i.test(String(n.Type || '')) ? null : n.Amount,
       type: clean(n.Type) }))
     .sort((a, b) => a.points - b.points);
   return { tiers, updatedAt: now };
 }
 export async function getRewards(env, deps) {
-  const key = await hash(env.APP_LIMIT_SECRET, `rewards:v1:${env.GROWFLOW_ORG}:${env.APP_GROWFLOW_TOKEN}`);
+  const key = await hash(env.APP_LIMIT_SECRET, `rewards:v2-cents:${env.GROWFLOW_ORG}:${env.APP_GROWFLOW_TOKEN}`);
   const cached = await env.APP_DB.prepare('SELECT value, updated_at FROM app_cache WHERE key = ?').bind(key).first();
   const age = cached ? deps.now() - cached.updated_at : Infinity;
   if (age < 600000) return JSON.parse(cached.value);

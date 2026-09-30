@@ -257,9 +257,9 @@ test('upstream redirects and diagnostic failures never leak secrets or trigger r
   assert.ok(!(await response.text()).includes('secret'));
 });
 
-const TIERS=[{objectId:'Tier2000',Name:'2000 Points - $150 Off',PointsNeeded:2000,Amount:150,Type:'Entire Order by Amount'},
-  {objectId:'Tier225',Name:'225 Points - $10 Off',PointsNeeded:225,Amount:10,Type:'Entire Order by Amount'},
-  {objectId:'Tier500',Name:'500 Points - $25 Off',PointsNeeded:500,Amount:25,Type:'Entire Order by Amount'},
+const TIERS=[{objectId:'Tier2000',Name:'2000 Points - $150 Off',PointsNeeded:2000,Amount:15000,Type:'Entire Order by Amount'},
+  {objectId:'Tier225',Name:'225 Points - $10 Off',PointsNeeded:225,Amount:1000,Type:'Entire Order by Amount'},
+  {objectId:'Tier500',Name:'500 Points - $25 Off',PointsNeeded:500,Amount:2500,Type:'Entire Order by Amount'},
   {objectId:'Bad',Name:'',PointsNeeded:0,Amount:5}];
 function preorders({ customer = {}, create, status: initialStatus = 'Completed' } = {}) {
   const s=setup(), base=s.deps.fetch, sent=[];let orders=0, status=initialStatus;

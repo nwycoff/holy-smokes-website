@@ -166,7 +166,7 @@ GrowFlow preorders have **no discount field**, so the app cannot apply a reward 
 - At order time the server re-reads `CurrentPoints` from the linked record, refuses a tier the customer can't afford or that exceeds the order, and adds `REWARD REQUESTED: <tier name> (<points> points at order time). Apply at checkout.` to the start of the order note. `preOrderTotal` stays the full price. The tier name is shown back to the customer on their order.
 - Staff apply the loyalty discount at checkout as usual, which deducts the points in GrowFlow. Points are not reserved; the app tells customers that if they spend points in store first, it will be adjusted at the counter.
 
-Setup: add the **Discounts** read scope to the existing `APP_GROWFLOW_TOKEN` token in GrowFlow (no new token needed), run `app-migrations/0006_customer_app_preorder_reward.sql` **once** in `APP_DB` (0004 and 0005 first), then set `APP_REWARD_TIERS_ENABLED=true` and redeploy. Check that the listed tiers and amounts match GrowFlow; `Amount` is read as dollars, and percentage-type rewards are listed without a dollar estimate.
+Setup: add the **Discounts** read scope to the existing `APP_GROWFLOW_TOKEN` token in GrowFlow (no new token needed), run `app-migrations/0006_customer_app_preorder_reward.sql` **once** in `APP_DB` (0004 and 0005 first), then set `APP_REWARD_TIERS_ENABLED=true` and redeploy. GrowFlow's discount `Amount` is in cents, like menu prices (a $10 reward is `1000`), confirmed against the live store. Percentage-type rewards are listed without a dollar estimate.
 
 ## API budget and operational notes
 
