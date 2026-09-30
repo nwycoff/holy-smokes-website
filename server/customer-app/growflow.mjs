@@ -12,10 +12,10 @@ export const MENU_QUERY = `query TreehouseMobileMenu($menuKey: String!) {
   findMenus(menuKey: $menuKey) {
     pricesIncludeTax
     menuGroups { name products {
-      id name brand strain cannabisType category
+      id name brand strain cannabisType category image description
       variants { weight uom price }
       packages { inventoryQty isSellable storageLocation
-        testResults { uom totalPotentialPsychoactiveThc }
+        testResults { uom totalPotentialPsychoactiveThc cbd }
       }
     } }
   }
@@ -112,16 +112,26 @@ export const eligibleCustomer = where => ({ ...where, IsDeleted: { notEqualTo: t
 
 const clean = value => typeof value === 'string' ? value.trim().slice(0, 250) : '';
 const normalized = value => clean(value).toLocaleLowerCase('en-US');
-function thcRange(packages) {
+// Percentage lab results across the eligible packages, as [min, max]; null unless every
+// package reports a valid percentage (conflicting tests show as a range).
+function potencyRange(packages, field) {
   const values = packages.map(p => {
-    const t = p.testResults;
+    const t = p.testResults, v = t?.[field];
     return ['%', 'percent', 'percentage', 'pct'].includes(normalized(t?.uom))
-      && typeof t?.totalPotentialPsychoactiveThc === 'number'
-      && Number.isFinite(t.totalPotentialPsychoactiveThc) && t.totalPotentialPsychoactiveThc >= 0
-      && t.totalPotentialPsychoactiveThc <= 100 ? t.totalPotentialPsychoactiveThc : null;
+      && typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 100 ? v : null;
   });
   return values.length && values.every(v => v !== null) ? [Math.min(...values), Math.max(...values)] : null;
 }
+const GRAMS = { g: 1, gram: 1, grams: 1, gr: 1, oz: 28.3495, ounce: 28.3495, ounces: 28.3495 };
+// Product photos come from GrowFlow; only plain https image URLs are passed to the app.
+function imageUrl(value) {
+  try {
+    const url = new URL(clean(value));
+    return url.protocol === 'https:' && !url.username && !url.password && url.href.length <= 500 ? url.href : null;
+  } catch { return null; }
+}
+const plainText = value => typeof value === 'string'
+  ? value.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 400) : '';
 export function normalizeMenu(input, location, now) {
   if (!input || !Array.isArray(input.menuGroups) || typeof input.pricesIncludeTax !== 'boolean'
     || !clean(location)) throw new AppError('MENU_SHAPE');
@@ -142,15 +152,21 @@ export function normalizeMenu(input, location, now) {
       const variants = (Array.isArray(p.variants) ? p.variants : []).filter(v => v
         && Number.isSafeInteger(v.price) && v.price >= 0).map(v => {
         const weighed = Number.isFinite(v.weight) && v.weight > 0 && clean(v.uom);
-        return { priceCents: v.price, size: weighed ? `${v.weight} ${clean(v.uom)}` : 'Each', weight: weighed ? v.weight : null };
+        const grams = weighed && GRAMS[normalized(v.uom)] ? v.weight * GRAMS[normalized(v.uom)] : null;
+        return { priceCents: v.price, size: weighed ? `${v.weight} ${clean(v.uom)}` : 'Each', weight: weighed ? v.weight : null,
+          grams: grams ? Math.round(grams * 100) / 100 : null, pricePerGramCents: grams ? Math.round(v.price / grams) : null };
       });
       if (!variants.length) continue;
       seen.add(p.id);
       if (!categories.includes(category)) categories.push(category);
       const flower = /flower|smalls|top shelf/i.test(`${p.category} ${category}`);
+      const thc = potencyRange(eligiblePackages, 'totalPotentialPsychoactiveThc'), cbd = potencyRange(eligiblePackages, 'cbd');
       products.push({ id: p.id, name: flower ? clean(p.strain) || clean(p.name) : clean(p.name),
-        brand: clean(p.brand), category, type: ['indica', 'sativa', 'hybrid'].includes(normalized(p.cannabisType))
-          ? normalized(p.cannabisType) : '', variants, thc: thcRange(eligiblePackages) });
+        brand: clean(p.brand), category, flower, type: ['indica', 'sativa', 'hybrid'].includes(normalized(p.cannabisType))
+          ? normalized(p.cannabisType) : '', variants, thc, cbd,
+        // CBD-rich: tested CBD at least 1% and at least equal to THC (CBD-dominant or balanced).
+        cbdRich: Boolean(cbd && cbd[1] >= 1 && cbd[1] >= (thc ? thc[1] : 0)),
+        image: imageUrl(p.image), description: plainText(p.description) });
     }
   }
   products.sort((a, b) => Math.min(...a.variants.map(v => v.priceCents)) - Math.min(...b.variants.map(v => v.priceCents))
@@ -204,7 +220,7 @@ export async function getRewards(env, deps) {
 
 export async function getMenu(env, deps) {
   const key = await hash(env.APP_LIMIT_SECRET,
-    `menu:v3-front-and-unassigned:${env.GROWFLOW_ORG}:${env.APP_MENU_KEY}:${env.APP_FRONT_LOCATION}:${env.APP_GROWFLOW_TOKEN}`);
+    `menu:v4-filters:${env.GROWFLOW_ORG}:${env.APP_MENU_KEY}:${env.APP_FRONT_LOCATION}:${env.APP_GROWFLOW_TOKEN}`);
   const cached = await env.APP_DB.prepare('SELECT value, updated_at FROM app_cache WHERE key = ?').bind(key).first();
   const age = cached ? deps.now() - cached.updated_at : Infinity;
   const fallback = () => {

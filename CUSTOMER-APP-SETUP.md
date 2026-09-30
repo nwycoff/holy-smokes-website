@@ -182,6 +182,16 @@ Security depends on the Cloudflare account: anyone who can deploy code or change
 
 Setup: run `app-migrations/0007_customer_app_saved_license.sql` **once** in `APP_DB` (before deploying this code; the session query reads its columns), set `APP_LICENSE_KEY` as a secret and `APP_LICENSE_MEMORY_ENABLED=true`, then redeploy. Rotating `APP_LICENSE_KEY` makes every saved number unreadable; customers are simply asked to enter it again. Set `APP_LICENSE_MEMORY_ENABLED=false` to hide the option and stop using saved numbers (run `UPDATE app_users SET license_enc = NULL, license_hint = NULL` to delete them).
 
+## 10. Menu filters, photos and value
+
+The menu has a **Filters** panel (strain type including **CBD-rich**, flower size, price band, brand) with a count beside each option and removable chips for active filters, plus sorts for **strongest THC** and **best value** (price per gram). Cards show GrowFlow product photos and descriptions when present, CBD alongside THC, and price per gram for flower sizes.
+
+- Data comes from the same menu query, which now also reads `image`, `description` and package `testResults.cbd`. Check after deploying that the menu still loads (a missing field would log `MENU_REFRESH`).
+- **CBD-rich** means tested CBD of at least 1% and at least equal to THC (CBD-dominant or balanced), from percentage lab results on eligible packages.
+- Price per gram uses variant weights in grams or ounces. Prices stay GrowFlow's regular `variants.price` (tax included for this store), not `priceMedical`.
+- Photos must be `https` URLs; the `/app/*` Content-Security-Policy allows `https:` images for this. Descriptions are shown as plain text (tags stripped, 400 characters).
+- There are no effect-based filters ("sleepy", "energetic"): GrowFlow has no such data, and Oklahoma rules limit effect and health claims.
+
 ## API budget and operational notes
 
 One shared menu read per minute plus at most 30 total GrowFlow queries/minute for this app/token, capped with transactional counters. Each customer's points requests are capped at ten/minute. Responses with 20 or fewer requests remaining or HTTP 429 set shared backoff using the reset/Retry-After headers. There are no automatic upstream retries. Use a separate token so other applications do not consume this app's headroom unnoticed.

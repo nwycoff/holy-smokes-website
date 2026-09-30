@@ -38,8 +38,11 @@ try {
     await page.locator('#menu-products .product-card').first().waitFor();
     if(width===390) await page.screenshot({path:fileURLToPath(new URL('../docs/customer-app-menu.png',import.meta.url))});
     await page.getByRole('button',{name:'Flower',exact:true}).click();
-    assert.equal(await page.locator('#menu-products .product-card').count(),3);
-    await page.locator('#budget-filter').check();assert.equal(await page.locator('#menu-products .product-card').count(),2);
+    assert.equal(await page.locator('#menu-products .product-card').count(),4);
+    await page.locator('#filter-button').click();await page.getByRole('button',{name:/^Under \$20/}).click();
+    assert.equal(await page.locator('#menu-products .product-card').count(),1);
+    await page.getByRole('button',{name:/^Show 1 product/}).click();
+    assert.equal(await page.locator('#active-filters .chip').count(),1);
     await page.locator('#menu-search').fill('no-matching-product');await page.getByText('No products match those filters.',{exact:false}).waitFor();
     await page.locator('#menu-search').fill('golden');assert.equal(await page.locator('#menu-products .product-card').count(),1);
     await page.evaluate(()=>{location.hash='rewards';});await page.locator('#rewards-content .balance-number').waitFor();

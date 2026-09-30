@@ -227,9 +227,19 @@ function productCard(product) {
   card.querySelector('.product-type').textContent = product.type;
   card.querySelector('.product-brand').textContent = product.brand;
   card.querySelector('.product-name').textContent = product.name;
-  card.querySelector('.product-thc').textContent = product.thc ? `Total THC ${product.thc[0].toFixed(1)}${product.thc[0] !== product.thc[1] ? '–' + product.thc[1].toFixed(1) : ''}%` : 'Ask your budtender for testing details';
+  const range = (label, r) => r ? `${label} ${r[0].toFixed(1)}${r[0] !== r[1] ? '–' + r[1].toFixed(1) : ''}%` : '';
+  card.querySelector('.product-thc').textContent = [range('Total THC', product.thc), product.cbd?.[1] >= 1 ? range('CBD', product.cbd) : '']
+    .filter(Boolean).join(' · ') || 'Ask your budtender for testing details';
+  if (product.cbdRich) card.querySelector('.product-type').textContent = product.type ? `${product.type} · CBD-rich` : 'CBD-rich';
+  const image = card.querySelector('.product-image');
+  if (product.image) { image.src = product.image; image.hidden = false; image.addEventListener('error', () => { image.hidden = true; }); }
+  const description = card.querySelector('.product-description');
+  if (product.description) { description.textContent = product.description; description.hidden = false; }
   for (const variant of product.variants) {
-    const row = el('div', '', 'variant'); row.append(el('span', variant.size), el('strong', money.format(variant.priceCents / 100)));
+    const row = el('div', '', 'variant'), price = el('div', '', 'variant-price');
+    price.append(el('strong', money.format(variant.priceCents / 100)));
+    if (product.flower && variant.pricePerGramCents) price.append(el('small', `${money.format(variant.pricePerGramCents / 100)}/g`));
+    row.append(el('span', variant.size), price);
     if (canOrder()) {
       const add = button('Add', () => addToCart(product, variant), 'add-button');
       add.setAttribute('aria-label', `Add ${product.name} ${variant.size} to your order`);
@@ -403,26 +413,87 @@ async function refreshOrder(force = false) {
   finally { if (current === generation) renderOrder(); }
 }
 function empty(text) { const box = el('div', '', 'empty-state'); box.append(el('p', text)); return box; }
-function renderMenu() {
-  const products = menu?.products || [], filter = $('menu-search').value.toLocaleLowerCase().trim();
-  const visible = products.filter(p => (category === 'All' || p.category === category)
-    && `${p.name} ${p.brand} ${p.category} ${p.type}`.toLocaleLowerCase().includes(filter)
-    && (!$('budget-filter').checked || p.variants.some(v => v.priceCents <= 2000)));
+// Menu filters: strain type, flower size, price band and brand, shown in a panel with
+// removable chips for whatever is active. Options list only what the current menu has.
+const filters = { types: new Set(), sizes: new Set(), brands: new Set(), price: '' };
+const TYPES = [['indica', 'Indica'], ['sativa', 'Sativa'], ['hybrid', 'Hybrid'], ['cbd', 'CBD-rich']];
+const PRICES = [['under20', 'Under $20', c => c < 2000], ['20to40', '$20–$40', c => c >= 2000 && c <= 4000], ['over40', 'Over $40', c => c > 4000]];
+const matches = {
+  types: p => !filters.types.size || filters.types.has(p.type) || (filters.types.has('cbd') && p.cbdRich),
+  sizes: p => !filters.sizes.size || (p.flower && p.variants.some(v => filters.sizes.has(v.size))),
+  brands: p => !filters.brands.size || filters.brands.has(p.brand),
+  price: p => !filters.price || p.variants.some(v => PRICES.find(([key]) => key === filters.price)[2](v.priceCents))
+};
+const activeFilterCount = () => filters.types.size + filters.sizes.size + filters.brands.size + (filters.price ? 1 : 0);
+function menuBase() {
+  const search = $('menu-search').value.toLocaleLowerCase().trim();
+  return (menu?.products || []).filter(p => (category === 'All' || p.category === category)
+    && `${p.name} ${p.brand} ${p.category} ${p.type} ${p.cbdRich ? 'cbd' : ''}`.toLocaleLowerCase().includes(search));
+}
+function chip(label, pressed, onClick, count) {
+  const b = button(count === undefined ? label : `${label} (${count})`, onClick, 'chip');
+  b.setAttribute('aria-pressed', String(pressed)); return b;
+}
+function toggle(set, value) { if (set.has(value)) set.delete(value); else set.add(value); renderMenu(); }
+function renderFilters(base) {
+  const count = test => base.filter(test).length;
+  $('filter-types').replaceChildren(...TYPES.map(([key, label]) =>
+    chip(label, filters.types.has(key), () => toggle(filters.types, key), count(p => key === 'cbd' ? p.cbdRich : p.type === key))));
+  const sizes = [...new Map((menu?.products || []).filter(p => p.flower).flatMap(p => p.variants)
+    .filter(v => v.grams).map(v => [v.size, v.grams])).entries()].sort((a, b) => a[1] - b[1]).slice(0, 8);
+  $('filter-sizes-group').hidden = !sizes.length;
+  $('filter-sizes').replaceChildren(...sizes.map(([size]) =>
+    chip(size, filters.sizes.has(size), () => toggle(filters.sizes, size), count(p => p.flower && p.variants.some(v => v.size === size)))));
+  $('filter-prices').replaceChildren(...PRICES.map(([key, label, test]) => chip(label, filters.price === key,
+    () => { filters.price = filters.price === key ? '' : key; renderMenu(); }, count(p => p.variants.some(v => test(v.priceCents))))));
+  const brands = [...new Set((menu?.products || []).map(p => p.brand).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  $('filter-brands-group').hidden = brands.length < 2;
+  $('filter-brands').replaceChildren(...brands.map(brand =>
+    chip(brand, filters.brands.has(brand), () => toggle(filters.brands, brand), count(p => p.brand === brand))));
+  const active = [...[...filters.types].map(k => [TYPES.find(t => t[0] === k)[1], () => toggle(filters.types, k)]),
+    ...[...filters.sizes].map(k => [k, () => toggle(filters.sizes, k)]),
+    ...(filters.price ? [[PRICES.find(p => p[0] === filters.price)[1], () => { filters.price = ''; renderMenu(); }]] : []),
+    ...[...filters.brands].map(k => [k, () => toggle(filters.brands, k)])];
+  $('active-filters').replaceChildren(...active.map(([label, remove]) => {
+    const b = button(`${label} ✕`, remove, 'chip active-chip'); b.setAttribute('aria-label', `Remove filter ${label}`); return b;
+  }));
+  $('active-filters').hidden = !active.length;
+  $('filter-button').textContent = activeFilterCount() ? `Filters (${activeFilterCount()})` : 'Filters';
+}
+function sortProducts(list) {
   const min = p => Math.min(...p.variants.map(v => v.priceCents));
-  visible.sort($('menu-sort').value === 'name' ? (a, b) => a.name.localeCompare(b.name)
-    : (a, b) => ($('menu-sort').value === 'price-desc' ? -1 : 1) * (min(a) - min(b)) || a.name.localeCompare(b.name));
+  const value = p => Math.min(...p.variants.map(v => v.pricePerGramCents ?? Infinity));
+  const by = { name: (a, b) => a.name.localeCompare(b.name), 'price-desc': (a, b) => min(b) - min(a),
+    thc: (a, b) => (b.thc?.[1] ?? -1) - (a.thc?.[1] ?? -1), value: (a, b) => value(a) - value(b) }[$('menu-sort').value]
+    || ((a, b) => min(a) - min(b));
+  return list.sort((a, b) => by(a, b) || a.name.localeCompare(b.name));
+}
+function renderMenu() {
+  const products = menu?.products || [], base = menuBase();
+  const visible = sortProducts(base.filter(p => matches.types(p) && matches.sizes(p) && matches.brands(p) && matches.price(p)));
+  renderFilters(base);
   $('menu-products').replaceChildren(...visible.map(productCard));
-  if (!visible.length) $('menu-products').append(empty(menu ? 'No products match those filters. Try another category or search.' : 'The menu is not available right now. Please call the shop for today’s selection.'));
+  if (!visible.length) {
+    const box = empty(menu ? 'No products match those filters. Try another category, search or filter.' : 'The menu is not available right now. Please call the shop for today’s selection.');
+    if (menu && activeFilterCount()) box.append(button('Clear filters', clearFilters, 'secondary-button'));
+    $('menu-products').append(box);
+  }
   $('home-products').replaceChildren(...products.slice(0, 3).map(productCard));
   if (!products.length) $('home-products').append(empty(menu ? 'There are no products available in this menu right now.' : 'We’re getting the menu ready. Your budtender can help with today’s selection.'));
   $('menu-count').textContent = `${visible.length} ${visible.length === 1 ? 'product' : 'products'}`;
+  $('filter-done').textContent = `Show ${visible.length} ${visible.length === 1 ? 'product' : 'products'}`;
   $('menu-error').textContent = menuError; $('menu-error').hidden = !menuError;
   $('menu-tax').textContent = menu ? `${menu.pricesIncludeTax ? 'Prices include tax.' : 'Prices do not include tax.'} Availability and final pricing are confirmed in store.${canOrder() ? ' Add items to order ahead for pickup.' : ''}` : '';
   $('menu-freshness').textContent = demo ? 'Sample menu' : menu?.stale ? 'Update delayed' : menu ? `Updated ${new Date(menu.updatedAt).toLocaleTimeString([], { hour:'numeric',minute:'2-digit' })}` : 'Menu unavailable';
-  const filters = $('category-filters'); filters.replaceChildren();
+  const categoryRow = $('category-filters'); categoryRow.replaceChildren();
   for (const name of ['All', ...(menu?.categories || [])]) {
-    const b = button(name, () => { category = name; renderMenu(); }, ''); b.setAttribute('aria-pressed', String(category === name)); filters.append(b);
+    const b = button(name, () => { category = name; renderMenu(); }, ''); b.setAttribute('aria-pressed', String(category === name)); categoryRow.append(b);
   }
+}
+function clearFilters() { filters.types.clear(); filters.sizes.clear(); filters.brands.clear(); filters.price = ''; renderMenu(); }
+function setFilterPanel(open) {
+  $('filter-panel').hidden = !open; $('filter-button').setAttribute('aria-expanded', String(open));
+  if (!open) $('menu-count').scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
 async function refreshMenu() {
   if (demo || !config.menuEnabled || menuLoading) return;
@@ -468,7 +539,9 @@ async function initialize() {
   if (!demo) { void refreshMenu(); if (user.linked) void refreshPoints(); }
 }
 $('menu-search').addEventListener('input', renderMenu); $('menu-sort').addEventListener('change', renderMenu);
-$('budget-filter').addEventListener('change', renderMenu);
+$('filter-button').addEventListener('click', () => setFilterPanel($('filter-panel').hidden));
+$('filter-done').addEventListener('click', () => setFilterPanel(false));
+$('filter-clear').addEventListener('click', clearFilters);
 addEventListener('hashchange', () => { route(); window.scrollTo({ top:0,behavior:'instant' }); });
 addEventListener('pagehide', clearPrivate);
 addEventListener('pageshow', event => { if (event.persisted) void initialize(); });

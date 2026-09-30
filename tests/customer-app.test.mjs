@@ -734,3 +734,19 @@ test('a push subscription cannot be taken over by another account', async () => 
   // The owner can refresh its own subscription.
   assert.equal((await s.run('push/subscribe',{method:'POST',cookie:one.cookie,body:phone.subscription,headers:{'x-treehouse-csrf':one.csrf}})).status,200);
 });
+
+test('menu cards carry CBD, CBD-rich, photo, plain-text description and price per gram', () => {
+  const pkg=(thc,cbd)=>({storageLocation:'Front',isSellable:true,inventoryQty:3,testResults:{uom:'%',totalPotentialPsychoactiveThc:thc,cbd}});
+  const input={pricesIncludeTax:true,menuGroups:[{name:'Flower',products:[
+    {id:'p1',name:'Eighth',strain:'Calm Day',category:'Flower',cannabisType:'Indica',image:'https://cdn.example.test/p1.jpg',
+      description:'<p>Smooth&nbsp;and <b>earthy</b>.</p>',variants:[{weight:3.5,uom:'g',price:2000},{weight:1,uom:'oz',price:14000}],packages:[pkg(4,12)]},
+    {id:'p2',name:'Strong One',category:'Flower',image:'javascript:alert(1)',variants:[{price:1500}],packages:[pkg(28,0.1)]},
+    {id:'p3',name:'Http Image',category:'Flower',image:'http://cdn.example.test/p3.jpg',variants:[{price:1500}],packages:[pkg(20,null)]}
+  ]}]};
+  const menu=normalizeMenu(input,'Front',Date.now()), [p1,p2,p3]=['p1','p2','p3'].map(id=>menu.products.find(p=>p.id===id));
+  assert.equal(p1.cbdRich,true);assert.deepEqual(p1.cbd,[12,12]);assert.equal(p1.image,'https://cdn.example.test/p1.jpg');
+  assert.equal(p1.description,'Smooth and earthy .');assert.equal(p1.flower,true);
+  assert.deepEqual(p1.variants.map(v=>[v.grams,v.pricePerGramCents]),[[3.5,571],[28.35,494]]);
+  assert.equal(p2.cbdRich,false);assert.equal(p2.image,null);assert.equal(p2.variants[0].pricePerGramCents,null);
+  assert.equal(p3.image,null);assert.equal(p3.cbd,null);assert.equal(p3.cbdRich,false);
+});

@@ -136,8 +136,10 @@
             ><span class="sr-only">Sort products</span
             ><select id="menu-sort">
               <option value="price">Price: low to high</option>
-              <option value="name">Name: A to Z</option>
               <option value="price-desc">Price: high to low</option>
+              <option value="thc">Strongest THC first</option>
+              <option value="value">Best value (price per gram)</option>
+              <option value="name">Name: A to Z</option>
             </select></label
           >
         </div>
@@ -149,10 +151,48 @@
         ></div>
         <div class="results-heading">
           <p id="menu-count" aria-live="polite"></p>
-          <label class="budget-toggle"
-            ><input id="budget-filter" type="checkbox" /> $20 and under</label
+          <button
+            id="filter-button"
+            class="filter-button"
+            type="button"
+            aria-expanded="false"
+            aria-controls="filter-panel"
           >
+            Filters
+          </button>
         </div>
+        <div id="active-filters" class="active-filters" hidden></div>
+        <section
+          id="filter-panel"
+          class="filter-panel"
+          hidden
+          aria-label="Filter products"
+        >
+          <fieldset>
+            <legend>Strain type</legend>
+            <div id="filter-types" class="chip-row"></div>
+          </fieldset>
+          <fieldset id="filter-sizes-group">
+            <legend>Flower size</legend>
+            <div id="filter-sizes" class="chip-row"></div>
+          </fieldset>
+          <fieldset>
+            <legend>Price</legend>
+            <div id="filter-prices" class="chip-row"></div>
+          </fieldset>
+          <fieldset id="filter-brands-group">
+            <legend>Brand</legend>
+            <div id="filter-brands" class="chip-row"></div>
+          </fieldset>
+          <div class="filter-actions">
+            <button id="filter-clear" type="button" class="text-button">
+              Clear all
+            </button>
+            <button id="filter-done" type="button" class="primary-button">
+              Show products
+            </button>
+          </div>
+        </section>
         <p id="menu-error" class="notice" role="status" hidden></p>
         <div id="menu-products" class="product-grid"></div>
         <p id="menu-tax" class="fine-print"></p>
@@ -270,6 +310,7 @@
     </nav>
     <template id="product-template"
       ><article class="product-card">
+        <img class="product-image" alt="" loading="lazy" decoding="async" hidden />
         <div class="product-meta">
           <span class="product-category"></span
           ><span class="product-type"></span>
@@ -277,6 +318,7 @@
         <p class="product-brand"></p>
         <h3 class="product-name"></h3>
         <p class="product-thc"></p>
+        <p class="product-description" hidden></p>
         <div class="product-variants"></div></article
     ></template>
   </body>
