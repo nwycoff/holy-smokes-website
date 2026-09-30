@@ -434,7 +434,7 @@ test('medical preorders need the customer’s own license number, checked by Gro
   const missing=await a.place(noLicense);assert.equal(missing.status,400);assert.match((await missing.json()).error,/medical license number/);
   for (const bad of ['PAAA','PAAA 1234 ABCD!','--PAAA1234']) assert.equal((await a.place({...noLicense,license:bad})).status,400);
   const wrong=await a.place({...noLicense,license:'PZZZ-9999-ZZZZ'});assert.equal(wrong.status,400);
-  assert.match((await wrong.json()).error,/doesn’t match/);assert.equal(s.mutations().length,0);
+  assert.match((await wrong.json()).error,/doesn’t match.*new or renewed license.*update your store record/s);assert.equal(s.mutations().length,0);
   const lookup=s.sent.filter(r=>r.query.includes('TreehousePreorderCustomer')).at(-1).variables.where;
   assert.deepEqual(lookup.objectId,{equalTo:'CustomerOne'});
   assert.deepEqual(Object.keys(lookup.OR[0]),['PatientLicenseNumber']);assert.equal(lookup.OR.length,3);
@@ -699,7 +699,7 @@ test('a saved license that no longer matches, or cannot be decrypted, is removed
   const user=s.env.APP_DB.db.prepare('SELECT id FROM app_users WHERE customer_id=?').get('CustomerOne').id;
   s.env.APP_DB.db.prepare('UPDATE app_users SET license_enc=? WHERE id=?').run(await sealLicense(s.env,user,'PZZZ-9999-ZZZZ'),user);
   const res=await s.a.place({...noLicense,useSavedLicense:true});assert.equal(res.status,400);
-  assert.match((await res.json()).error,/no longer matches/);assert.equal(s.saved().license_enc,null);assert.equal(s.mutations().length,1);
+  assert.match((await res.json()).error,/no longer matches.*new or renewed license.*update your store record/s);assert.equal(s.saved().license_enc,null);assert.equal(s.mutations().length,1);
   // Ciphertext bound to another account (or a rotated key) cannot be opened.
   await s.a.place({...flower(1),rememberLicense:true});await s.reopen();
   s.env.APP_DB.db.prepare('UPDATE app_users SET license_enc=? WHERE id=?').run(await sealLicense(s.env,'someone-else',LICENSE),user);

@@ -173,12 +173,12 @@ export async function handleApp(context, overrides = {}) {
       REWARD_POINTS: 'You don’t have enough points for that reward right now. Please choose another.',
       REWARD_TOO_LARGE: 'That reward is bigger than your order. Please choose a smaller one or add more items.',
       LICENSE_SAVED_MISSING: 'Please enter your medical license number.',
-      LICENSE_SAVED_MISMATCH: 'The license number we saved no longer matches your store record, so we’ve removed it. Please enter it again.',
+      LICENSE_SAVED_MISMATCH: 'Your saved license number no longer matches your store record. This usually means you have a new or renewed license. We’ve removed the old number; please enter the one on your current card. If it still doesn’t match, ask your budtender to update your store record.',
       LICENSE_REQUIRED: 'Please enter your medical license number to order ahead.',
       LICENSE_FORMAT: 'Please check your medical license number. Use letters, numbers and dashes only.',
       LICENSE_EXPIRY_MISSING: 'Your store record is missing your license expiration date. Please ask your budtender to update it.',
       LICENSE_EXPIRED: 'The medical license on your store record has expired. Please ask your budtender to update it.',
-      LICENSE_MISMATCH: 'That license number doesn’t match your store record. Please check it or ask your budtender.',
+      LICENSE_MISMATCH: 'That license number doesn’t match your store record. Check it against your current card. If you’ve recently gotten a new or renewed license, your budtender needs to update your store record before you can order ahead.',
       PREORDER_UNCONFIRMED: 'We couldn’t confirm your order. Please call the shop before ordering again.' };
     return json(known ? error.status : 503, { error: messages[code] || 'This is temporarily unavailable. Please try again later or ask your budtender.' },
       known && error.status === 429 ? { 'Retry-After': '900' } : {});
