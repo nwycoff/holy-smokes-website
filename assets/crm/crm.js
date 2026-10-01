@@ -19,13 +19,15 @@ let session = null, current = null, currentName = '';
 
 function el(tag, text = '', className = '') { const n = document.createElement(tag); n.textContent = text; if (className) n.className = className; return n; }
 function message(text = '', bad = false) { $('message').textContent = text; $('message').hidden = !text; $('message').classList.toggle('bad', bad); }
-async function api(path, body) {
+// Retries once after a short pause when the server is momentarily busy (e.g. while history loads).
+async function api(path, body, retried = false) {
   const res = await fetch(`/api/crm/${path}`, { method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin', cache: 'no-store',
     headers: body === undefined ? {} : { 'Content-Type': 'application/json', 'X-CRM-CSRF': session?.csrf || '' },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   const type = res.headers.get('content-type') || '';
   if (!type.includes('application/json')) throw new Error('Your sign-in expired. Reload the page to sign in again.');
   const data = await res.json();
+  if (res.status === 503 && !retried) { await new Promise(r => setTimeout(r, 1500)); return api(path, body, true); }
   if (!res.ok) throw new Error(data.error || 'Something went wrong.');
   return data;
 }
@@ -170,10 +172,12 @@ async function start() {
       const b = el('button', name, 'chip'); b.type = 'button';
       b.addEventListener('click', () => { fillBuilder(def); countSegment(def, name).catch(e => message(e.message, true)); }); return b;
     }));
-    const { brands } = await api('brands');
-    $('brand').append(...brands.map(b => { const o = el('option', b.name); o.value = b.id; return o; }));
-    await Promise.all([loadOverview(), loadSaved(), loadAudit()]);
-  } catch (e) { message(e.message, true); }
+  } catch (e) { message(e.message, true); return; }
+  // Each part loads on its own, so one slow part never blanks the whole page.
+  const parts = [loadOverview(), loadSaved(), loadAudit(),
+    api('brands').then(({ brands }) => $('brand').append(...brands.map(b => { const o = el('option', b.name); o.value = b.id; return o; })))];
+  const failed = (await Promise.allSettled(parts)).find(r => r.status === 'rejected');
+  if (failed) message(failed.reason?.message || 'Part of the page could not load. Reload to try again.', true);
 }
 $('builder').addEventListener('submit', e => { e.preventDefault(); const d = readBuilder();
   if (!Object.keys(d).length) { message('Add at least one rule.', true); return; }

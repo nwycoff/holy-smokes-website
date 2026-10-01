@@ -170,13 +170,18 @@ export async function handleCrm({ request, env }, overrides = {}) {
       return json(200, { forgotten: true });
     }
   } catch (error) {
-    const known = error instanceof AppError, code = known ? error.code : 'INTERNAL';
+    // Unexpected errors are logged as a fixed category, never their text.
+    const text = String(error?.message || ''), known = error instanceof AppError;
+    const code = known ? error.code : /overloaded|too many|busy|locked/i.test(text) ? 'CRM_DB_BUSY'
+      : /timeout|timed out/i.test(text) ? 'CRM_DB_TIMEOUT' : /D1_|SQLITE|no such|constraint/i.test(text) ? 'CRM_DB_ERROR' : 'INTERNAL';
     try { deps.report(code); } catch { /* Logging never breaks a response. */ }
     const messages = { CRM_AUTH: 'Please sign in again.', CRM_FORBIDDEN: 'This account is not approved for the CRM.',
       CRM_CONFIG: 'The CRM is not set up yet.', CRM_LIMIT: 'Too many requests. Please wait a minute.',
       CRM_CSRF: 'Please reload the page and try again.', SEGMENT_RULES: 'Please check the segment rules.',
       SEGMENT_NAME: 'Please give the segment a name.', CRM_RATE_LIMITED: 'GrowFlow is busy. Please try again in a minute.',
-      INPUT: 'Please check the information and try again.' };
+      INPUT: 'Please check the information and try again.',
+      CRM_DB_BUSY: 'The CRM is busy loading history from GrowFlow. Please try again in a moment.',
+      CRM_DB_TIMEOUT: 'That took too long while history is loading. Please try again in a moment.' };
     return json(known ? error.status : 503, { error: messages[code] || 'The CRM is temporarily unavailable.' });
   }
 }
