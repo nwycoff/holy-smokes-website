@@ -26,3 +26,18 @@ Owner and manager dashboard at `/crm/`: shop KPIs, top categories and brands, re
 4. **Cloudflare Access:** a self-hosted application "Treehouse CRM" with paths `crm`, `crm/*`, `api/crm/*` and `assets/crm/*` on the site's hostname, and an Allow policy listing the three approved emails. Copy its AUD tag.
 5. **Pages settings** (Production): bind `CRM_DB`; Text `CRM_ENABLED=true`, `CRM_ACCESS_ISSUER` (team domain), `CRM_ACCESS_AUD`, `CRM_EMAILS` (comma-separated, same three emails); Secrets `CRM_GROWFLOW_TOKEN` and `CRM_SECRET` (32+ random characters). Redeploy.
 6. Open `/crm/` and sign in. To remove someone's access, take them off both the Access policy and `CRM_EMAILS`, then redeploy.
+
+## Deals & news campaigns
+
+The **Deals & news** section of the CRM writes campaigns; the order notifier Worker (`workers/order-notifier`, which holds the notification key) sends them within a minute. What customers were promised in the app is enforced in code (`server/crm/campaigns.mjs`), not left to staff:
+
+- Only customers who opted in to the campaign's topic and have a phone set up, narrowed by an optional segment (everyone opted in, a ready-made segment, a saved segment, or the rules in "Find customers"). Consent is checked again just before each send.
+- **At most 2 a week per person** (rolling 7 days; test sends don't count). Over the limit is recorded as "skipped for the weekly limit".
+- **Only 9 am–8 pm Central.** Anything due outside those hours waits until 9 am, and each notification expires at 8 pm, so a phone that was offline never gets it late at night.
+- **Discreet, claim-free wording:** the title is always "Treehouse Pharmacy"; messages are 10–120 characters and refused if they name cannabis products, THC/CBD, strains or weights, or make health claims.
+- **Specials are locked** until `CRM_SPECIALS_ALLOWED=true` is set on the Pages project (after confirming discount advertising is allowed).
+- **Held-back group:** 0, 5, 10 (default) or 20% of each audience is kept back, chosen the same way every time per customer. Results compare visits and spend in the 7 days after sending for the people sent it vs. those held back.
+- **Test sends** go to the phones of the CRM user's own customer record (Show customers → "Use for my tests"), at any hour, prefixed "Test:".
+- Every send, test, cancel and test-phone choice is in Recent activity. Campaign records and who got them follow the 24-month retention; removing a customer removes their rows.
+
+Setup: run `crm-migrations/0003_crm_campaigns.sql` in `CRM_DB`; bind `CRM_DB` to the notifier Worker and set `CRM_CAMPAIGNS_ENABLED = "true"` there (see its `wrangler.toml`) and on the Pages project; redeploy both. The notifier already has the notification key and the app database.

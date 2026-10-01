@@ -135,8 +135,9 @@ async function apply(env, source, nodes, now) {
 }
 
 export function forgetStatements(db, customerId) {
-  return ['crm_lines', 'crm_orders'].map(table => db.prepare(`DELETE FROM ${table} WHERE customer_id = ?`).bind(customerId))
-    .concat(db.prepare('DELETE FROM crm_customers WHERE id = ?').bind(customerId));
+  return ['crm_lines', 'crm_orders', 'crm_campaign_recipients'].map(table => db.prepare(`DELETE FROM ${table} WHERE customer_id = ?`).bind(customerId))
+    .concat(db.prepare('DELETE FROM crm_customers WHERE id = ?').bind(customerId),
+      db.prepare('UPDATE crm_settings SET test_customer_id = NULL WHERE test_customer_id = ?').bind(customerId));
 }
 
 // Position: `since` (an updatedAt) and `last_id`. DONE_AT_SINCE means every record at exactly
@@ -214,6 +215,8 @@ export async function purge(env, now) {
       AND id NOT IN (SELECT customer_id FROM crm_orders)
       AND (SELECT caught_up_at FROM crm_sync_state WHERE source = 'orders') IS NOT NULL`).bind(customerCutoff),
     env.CRM_DB.prepare('DELETE FROM crm_audit WHERE at < ?').bind(customerCutoff),
+    env.CRM_DB.prepare('DELETE FROM crm_campaign_recipients WHERE campaign_id IN (SELECT id FROM crm_campaigns WHERE created_at < ?)').bind(lineCutoff),
+    env.CRM_DB.prepare('DELETE FROM crm_campaigns WHERE created_at < ?').bind(lineCutoff),
     env.CRM_DB.prepare('DELETE FROM crm_limits WHERE expires_at < ?').bind(now)
   ]);
 }

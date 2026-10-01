@@ -60,6 +60,30 @@
       <div id="saved" class="card"></div>
     </section>
 
+    <section aria-labelledby="campaigns-title" id="campaigns-section" hidden>
+      <div class="heading"><h1 id="campaigns-title">Deals &amp; news</h1><p id="cp-rules" class="muted"></p></div>
+      <form id="campaign" class="card builder" autocomplete="off">
+        <label class="wide">Campaign name <input id="cp-name" maxlength="60" placeholder="e.g. October new arrivals" required></label>
+        <label>Who <select id="cp-audience"></select></label>
+        <label>Topic <select id="cp-topic"></select></label>
+        <label class="wide">Message <textarea id="cp-body" maxlength="120" rows="3" placeholder="New arrivals from a brand you love just landed. Tap to see what’s new."></textarea>
+          <span id="cp-count" class="muted"></span></label>
+        <div class="wide lockscreen" aria-label="Lock screen preview"><p class="eyebrow">Lock screen preview</p>
+          <div class="notification"><strong>Treehouse Pharmacy</strong><span id="cp-preview">Your message appears here.</span></div></div>
+        <label>Tapping opens <select id="cp-link"></select></label>
+        <label>Hold back to measure results <select id="cp-holdout"></select></label>
+        <label>When <select id="cp-when"><option value="now">As soon as possible</option><option value="later">At a set time</option></select>
+          <input type="datetime-local" id="cp-at" hidden></label>
+        <div class="actions">
+          <button type="button" id="cp-check" class="secondary">Check audience</button>
+          <button type="button" id="cp-test" class="secondary">Send a test to my phone</button>
+          <button type="submit">Send</button>
+        </div>
+        <p id="cp-result" class="wide muted"></p>
+      </form>
+      <div id="campaigns" class="card"></div>
+    </section>
+
     <details class="card audit"><summary>Recent activity</summary><div id="audit"></div></details>
     <noscript>The CRM needs JavaScript. Enable it and reload.</noscript>
   </main>
