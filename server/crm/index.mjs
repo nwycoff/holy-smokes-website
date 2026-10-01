@@ -174,7 +174,9 @@ export async function handleCrm({ request, env }, overrides = {}) {
     const text = String(error?.message || ''), known = error instanceof AppError;
     const code = known ? error.code : /overloaded|too many|busy|locked/i.test(text) ? 'CRM_DB_BUSY'
       : /timeout|timed out/i.test(text) ? 'CRM_DB_TIMEOUT' : /D1_|SQLITE|no such|constraint/i.test(text) ? 'CRM_DB_ERROR' : 'INTERNAL';
-    try { deps.report(code); } catch { /* Logging never breaks a response. */ }
+    // Database messages describe SQL, not rows; numbers are masked anyway.
+    const detail = code.startsWith('CRM_DB_') ? ` ${text.replace(/\d+/g, '#').slice(0, 200)}` : '';
+    try { deps.report(code + detail); } catch { /* Logging never breaks a response. */ }
     const messages = { CRM_AUTH: 'Please sign in again.', CRM_FORBIDDEN: 'This account is not approved for the CRM.',
       CRM_CONFIG: 'The CRM is not set up yet.', CRM_LIMIT: 'Too many requests. Please wait a minute.',
       CRM_CSRF: 'Please reload the page and try again.', SEGMENT_RULES: 'Please check the segment rules.',
