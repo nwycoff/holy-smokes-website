@@ -203,7 +203,7 @@ export async function purge(env, now) {
 }
 
 // Scheduled run: a bounded number of GrowFlow pages across sources, then flags and retention.
-export async function runSync(env, deps, maxPages = 20) {
+export async function runSync(env, deps, maxPages = 40) {
   if (!crmReady(env)) return { pages: 0 };
   let pages = 0;
   const pending = ['orders', 'lines', 'customers'];
