@@ -214,6 +214,16 @@ test('Deals & news counts only opted-in customers who have a device, and can be 
   app.exec("UPDATE app_marketing_prefs SET topics = '[]' WHERE user_id = 'u1'"); await s.sync();
   assert.equal(s.db.prepare('SELECT count(*) n FROM crm_customers WHERE app_marketing = 1').get().n, 0);
 });
+test('long-time customers are not removed while their order history is still loading', async () => {
+  const s = await setup();
+  s.customer('Old', { createdAt: new Date(s.now() - 2000 * DAY).toISOString() });
+  for (let i = 0; i < 150; i++) s.order(`h${i}`, 'X', 300 - i, 100);
+  s.order('recent', 'Old', 3, 5000);
+  await s.sync(3); // one page each: customers loaded, orders only partly
+  assert.equal(s.db.prepare("SELECT count(*) n FROM crm_customers WHERE id = 'Old'").get().n, 1);
+  await s.sync();
+  assert.ok(s.db.prepare("SELECT last_visit FROM crm_customers WHERE id = 'Old'").get().last_visit);
+});
 test('a busy GrowFlow gets smaller pages, and one failing source does not stop the others', async () => {
   const s = await setup(); seed(s);
   s.gf.failNext.count = 1; await s.sync();

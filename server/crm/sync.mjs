@@ -209,8 +209,10 @@ export async function purge(env, now) {
   await env.CRM_DB.batch([
     env.CRM_DB.prepare('DELETE FROM crm_lines WHERE sold_at < ?').bind(lineCutoff),
     env.CRM_DB.prepare('DELETE FROM crm_orders WHERE completed_at < ?').bind(lineCutoff),
+    // Only once order history has fully loaded: before that, a regular's recent visits may not be in yet.
     env.CRM_DB.prepare(`DELETE FROM crm_customers WHERE COALESCE(last_visit, first_seen) < ?
-      AND id NOT IN (SELECT customer_id FROM crm_orders)`).bind(customerCutoff),
+      AND id NOT IN (SELECT customer_id FROM crm_orders)
+      AND (SELECT caught_up_at FROM crm_sync_state WHERE source = 'orders') IS NOT NULL`).bind(customerCutoff),
     env.CRM_DB.prepare('DELETE FROM crm_audit WHERE at < ?').bind(customerCutoff),
     env.CRM_DB.prepare('DELETE FROM crm_limits WHERE expires_at < ?').bind(now)
   ]);
