@@ -33,7 +33,7 @@ const origin = 'https://www.example.test', aud = 'c'.repeat(64), issuer = 'https
 
 // A tiny in-memory GrowFlow: pages through records sorted by updatedAt, honoring since/skip.
 function growflow(now) {
-  const store = { orders: [], lines: [], customers: [] }, queries = [];
+  const store = { orders: [], lines: [], customers: [] }, queries = [], failNext = { count: 0 };
   const root = { findOrders: 'orders', findOrderItems: 'lines', findCustomers: 'customers' };
   const fetch = async (url, init) => {
     assert.equal(init.redirect, 'manual');
@@ -42,14 +42,20 @@ function growflow(now) {
     const { query, variables } = JSON.parse(init.body); queries.push({ query, variables });
     if (query.includes('TreehouseCrmNames'))
       return Response.json({ data: { findCustomers: { edges: variables.ids.map(id => ({ node: { objectId: id, Name: `Name of ${id}` } })) } } });
-    assert.match(query, /OR: \[\{ updatedAt: \{ greaterThan: \$since \} \}/);
-    const field = Object.keys(root).find(f => query.includes(f)), all = store[root[field]]
-      .filter(r => r.updatedAt > variables.since || (r.updatedAt === variables.since && r.objectId > variables.lastId))
-      .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt) || a.objectId.localeCompare(b.objectId));
-    const page = all.slice(0, 100);
-    return Response.json({ data: { [field]: { pageInfo: { hasNextPage: all.length > 100 }, edges: page.map(node => ({ node })) } } });
+    assert.ok(!/\bOR\b/.test(JSON.stringify(variables.where)), 'no either/or queries');
+    const field = Object.keys(root).find(f => query.includes(`${f}(`));
+    const test = (r, w) => w.AND ? w.AND.every(x => test(r, x)) : Object.entries(w).every(([k, c]) => {
+      const v = k === 'CompletedAt' || k === 'SoldAt' ? r[k] : r[k];
+      return Object.entries(c).every(([op, x]) => op === 'equalTo' ? v === x : op === 'greaterThan' ? v > x
+        : op === 'greaterThanOrEqualTo' ? v >= x : false); });
+    const keys = variables.order.map(o => o.replace('_ASC', ''));
+    const all = store[root[field]].filter(r => test(r, variables.where))
+      .sort((a, b) => keys.reduce((n, k) => n || String(a[k]).localeCompare(String(b[k])), 0));
+    if (failNext.count > 0 && variables.first > 25) { failNext.count--; return new Response('busy', { status: 503 }); }
+    const page = all.slice(0, variables.first);
+    return Response.json({ data: { [field]: { pageInfo: { hasNextPage: all.length > variables.first }, edges: page.map(node => ({ node })) } } });
   };
-  return { store, queries, fetch };
+  return { store, queries, fetch, failNext };
 }
 async function setup() {
   let now = Date.UTC(2026, 9, 1, 15);
@@ -169,4 +175,24 @@ test('saved segments, customer removal, and app adoption flags', async () => {
   assert.equal(s.db.prepare("SELECT count(*) n FROM crm_orders WHERE customer_id = 'A'").get().n, 0);
   assert.equal(s.db.prepare("SELECT count(*) n FROM crm_customers WHERE id = 'A'").get().n, 0);
   assert.deepEqual(s.db.prepare('SELECT action FROM crm_audit ORDER BY at').all().map(a => a.action).sort(), ['delete_segment', 'forget_customer', 'save_segment']);
+});
+
+test('a busy GrowFlow gets smaller pages, and one failing source does not stop the others', async () => {
+  const s = await setup(); seed(s);
+  s.gf.failNext.count = 1; await s.sync();
+  assert.equal(s.db.prepare('SELECT count(*) n FROM crm_orders').get().n, 6);
+  assert.ok(s.gf.queries.some(q => q.variables.first === 25));
+  const t = await setup(); seed(t);
+  const base = t.deps.fetch; t.deps.fetch = async (url, init) => String(init?.body || '').includes('findOrders(') ? new Response('down', { status: 500 }) : base(url, init);
+  await t.sync();
+  assert.equal(t.db.prepare('SELECT count(*) n FROM crm_orders').get().n, 0);
+  assert.equal(t.db.prepare('SELECT count(*) n FROM crm_lines').get().n, 5);
+  assert.ok(t.logs.includes('CRM_HTTP_500_ORDERS'));
+});
+test('only orders and lines inside the 24-month window are requested', async () => {
+  const s = await setup(); s.customer('A');
+  s.order('old', 'A', 900, 5000, { updatedAt: new Date(s.now() - 2 * DAY).toISOString() }); s.order('new', 'A', 5, 1000);
+  await s.sync();
+  assert.deepEqual(s.db.prepare('SELECT id FROM crm_orders').all().map(r => r.id), ['new']);
+  assert.ok(s.gf.queries.filter(q => q.query.includes('findOrders(')).every(q => JSON.stringify(q.variables.where).includes('CompletedAt')));
 });

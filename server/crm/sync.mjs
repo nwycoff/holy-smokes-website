@@ -6,34 +6,27 @@ import { limitGroup } from '../customer-app/growflow.mjs';
 // (see crm-migrations/0001_crm.sql); personal details are never requested here.
 const DAY = 86400000;
 export const RETENTION = { lineDays: 730, customerDays: 1095 };
-const PAGE = 100;
-// Keyset paging: strictly after the last record seen, ordered by (updatedAt, objectId). A record
-// that changes again later simply reappears with its new updatedAt, so nothing is skipped.
-const AFTER = `{ OR: [{ updatedAt: { greaterThan: $since } },
-  { AND: [{ updatedAt: { equalTo: $since } }, { objectId: { greaterThan: $lastId } }] }] }`;
-
-const SOURCES = {
-  orders: `query TreehouseCrmOrders($since: Date!, $lastId: ID!) {
-    findOrders(where: ${AFTER}, order: [updatedAt_ASC, objectId_ASC], first: ${PAGE}) {
-      pageInfo { hasNextPage }
-      edges { node { objectId updatedAt CompletedAt VoidedAt Status Total IsPreOrder Customer { objectId } } }
-    }
-  }`,
-  lines: `query TreehouseCrmLines($since: Date!, $lastId: ID!) {
-    findOrderItems(where: ${AFTER}, order: [updatedAt_ASC, objectId_ASC], first: ${PAGE}) {
-      pageInfo { hasNextPage }
-      edges { node { objectId updatedAt SoldAt ReturnedAt Status NetPrice Customer { objectId }
-        Brand { objectId Name } ProductCategory { objectId Name Type } } }
-    }
-  }`,
-  customers: `query TreehouseCrmCustomers($since: Date!, $lastId: ID!) {
-    findCustomers(where: ${AFTER}, order: [updatedAt_ASC, objectId_ASC], first: ${PAGE}) {
-      pageInfo { hasNextPage }
-      edges { node { objectId updatedAt createdAt Birthday CustomerType CurrentPoints IsDeleted IsAnon } }
-    }
-  }`
+const PAGE = 100, SMALL_PAGE = 25;
+const FIELDS = {
+  orders: 'objectId updatedAt CompletedAt VoidedAt Status Total IsPreOrder Customer { objectId }',
+  lines: `objectId updatedAt SoldAt ReturnedAt Status NetPrice Customer { objectId }
+        Brand { objectId Name } ProductCategory { objectId Name Type }`,
+  customers: 'objectId updatedAt createdAt Birthday CustomerType CurrentPoints IsDeleted IsAnon'
 };
-const ROOT = { orders: 'findOrders', lines: 'findOrderItems', customers: 'findCustomers' };
+const TYPES = { orders: 'OrdersWhereInput', lines: 'OrderItemsWhereInput', customers: 'CustomersWhereInput' };
+const ORDERS = { orders: 'OrdersOrder', lines: 'OrderItemsOrder', customers: 'CustomersOrder' };
+const query = source => `query TreehouseCrm_${source}($where: ${TYPES[source]}!, $order: [${ORDERS[source]}!], $first: Int!) {
+  ${ROOT_FIELD[source]}(where: $where, order: $order, first: $first) {
+    pageInfo { hasNextPage } edges { node { ${FIELDS[source]} } }
+  }
+}`;
+const ROOT_FIELD = { orders: 'findOrders', lines: 'findOrderItems', customers: 'findCustomers' };
+// Orders and lines are only requested within the retention window; older history is never kept.
+function recency(source, now) {
+  const cutoff = new Date(now - RETENTION.lineDays * DAY).toISOString();
+  return source === 'orders' ? [{ CompletedAt: { greaterThanOrEqualTo: cutoff } }]
+    : source === 'lines' ? [{ SoldAt: { greaterThanOrEqualTo: cutoff } }] : [];
+}
 
 const iso = value => typeof value === 'string' ? value : typeof value?.iso === 'string' ? value.iso : null;
 const time = value => { const t = Date.parse(iso(value) || ''); return Number.isFinite(t) ? t : null; };
@@ -137,28 +130,49 @@ export function forgetStatements(db, customerId) {
     .concat(db.prepare('DELETE FROM crm_customers WHERE id = ?').bind(customerId));
 }
 
+// Position: `since` (an updatedAt) and `last_id`. DONE_AT_SINCE means every record at exactly
+// `since` has been handled, so the next step moves strictly past it.
+const DONE_AT_SINCE = '~';
 async function state(env, source, now) {
   const row = await env.CRM_DB.prepare('SELECT since, last_id, caught_up_at FROM crm_sync_state WHERE source = ?').bind(source).first();
   if (row) return row;
   // Orders and lines start 24 months back (the retention window); customers from the beginning.
   const since = source === 'customers' ? '2000-01-01T00:00:00.000Z' : new Date(now - RETENTION.lineDays * DAY).toISOString();
-  return { since, last_id: '', caught_up_at: null };
+  return { since, last_id: DONE_AT_SINCE, caught_up_at: null };
 }
+const retryable = error => error instanceof AppError && /^CRM_HTTP_(5\d\d)$|^CRM_QUERY$/.test(error.code)
+  || !(error instanceof AppError);
 
-// One page per call, resuming strictly after the last record handled.
+// One page per call, in two simple steps instead of one heavy either/or query: first finish the
+// records at exactly `since` (by objectId), then continue strictly after `since` (by updatedAt).
+// A record that changes again later simply reappears with its new updatedAt.
 async function syncPage(env, deps, source) {
   const now = deps.now(), current = await state(env, source, now);
-  const { data, slowDown } = await growflow(env, deps, SOURCES[source], { since: current.since, lastId: current.last_id });
-  const connection = data[ROOT[source]];
+  const atSince = current.last_id !== DONE_AT_SINCE;
+  const where = { AND: [...(atSince
+    ? [{ updatedAt: { equalTo: current.since } }, { objectId: { greaterThan: current.last_id } }]
+    : [{ updatedAt: { greaterThan: current.since } }]), ...recency(source, now)] };
+  const order = atSince ? ['objectId_ASC'] : ['updatedAt_ASC', 'objectId_ASC'];
+  let result;
+  try { result = await growflow(env, deps, query(source), { where, order, first: PAGE }); }
+  catch (error) {
+    // GrowFlow sometimes struggles with large pages; one retry with a smaller one.
+    if (!retryable(error)) throw error;
+    result = await growflow(env, deps, query(source), { where, order, first: SMALL_PAGE });
+  }
+  const connection = result.data[ROOT_FIELD[source]];
   const nodes = (connection?.edges || []).map(e => e?.node).filter(Boolean);
   await apply(env, source, nodes, now);
-  const last = nodes.at(-1), since = iso(last?.updatedAt) || current.since, lastId = id(last?.objectId) || current.last_id;
-  const done = !connection?.pageInfo?.hasNextPage;
+  const more = Boolean(connection?.pageInfo?.hasNextPage), last = nodes.at(-1);
+  let since = current.since, lastId = current.last_id, done = false;
+  if (atSince) lastId = more ? id(last?.objectId) || DONE_AT_SINCE : DONE_AT_SINCE;
+  else if (last) { since = iso(last.updatedAt) || since; lastId = more ? id(last.objectId) || DONE_AT_SINCE : DONE_AT_SINCE; done = !more; }
+  else done = true;
   await env.CRM_DB.prepare(`INSERT INTO crm_sync_state(source, since, last_id, caught_up_at, updated_at) VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(source) DO UPDATE SET since = excluded.since, last_id = excluded.last_id,
     caught_up_at = COALESCE(excluded.caught_up_at, crm_sync_state.caught_up_at), updated_at = excluded.updated_at`)
     .bind(source, since, lastId, done ? now : null, now).run();
-  return { done, slowDown, count: nodes.length };
+  return { done, slowDown: result.slowDown, count: nodes.length };
 }
 
 // App adoption flags, read from the app's database (linked accounts, notification devices).
@@ -193,15 +207,18 @@ export async function runSync(env, deps, maxPages = 20) {
   if (!crmReady(env)) return { pages: 0 };
   let pages = 0;
   const pending = ['orders', 'lines', 'customers'];
-  try {
-    while (pending.length && pages < maxPages) {
-      const source = pending[0], result = await syncPage(env, deps, source);
-      pages++;
-      if (result.done) pending.shift(); else pending.push(pending.shift()); // round-robin until caught up
+  // Round-robin across sources until caught up. A source that errors is set aside for this run
+  // so the others keep moving; it is retried on the next run.
+  while (pending.length && pages < maxPages) {
+    const source = pending.shift();
+    pages++;
+    try {
+      const result = await syncPage(env, deps, source);
+      if (!result.done) pending.push(source);
       if (result.slowDown) break;
+    } catch (error) {
+      deps.report(`${error instanceof AppError ? error.code : 'CRM_SYNC'}_${source.toUpperCase()}`);
     }
-  } catch (error) {
-    deps.report(error instanceof AppError ? error.code : 'CRM_SYNC');
   }
   await syncAppFlags(env).catch(() => deps.report('CRM_APP_FLAGS'));
   await purge(env, deps.now()).catch(() => deps.report('CRM_PURGE'));
