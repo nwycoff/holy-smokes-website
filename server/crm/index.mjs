@@ -2,8 +2,8 @@ import { createRemoteJWKSet, customFetch, jwtVerify } from 'jose';
 import { AppError, bodyJSON, fetchSafe, hash, json, randomToken, sameOrigin } from '../customer-app/http.mjs';
 import { crmReady, forgetStatements } from './sync.mjs';
 import { GROUPS, members, preview, validateDefinition } from './segments.mjs';
-import { campaignsReady, cancelCampaign, createCampaign, listCampaigns, previewCampaign, validateCampaign, HOLDOUTS, LINKS, QUIET,
-  WEEKLY_CAP } from './campaigns.mjs';
+import { campaignsReady, cancelCampaign, createAutomation, createCampaign, listAutomations, listCampaigns, previewCampaign,
+  setAutomationActive, validateAutomation, validateCampaign, AUTOMATION_HOUR, COOLDOWNS, HOLDOUTS, LINKS, QUIET, WEEKLY_CAP } from './campaigns.mjs';
 import { TOPICS } from '../customer-app/marketing.mjs';
 
 // Owner/manager CRM at /crm/, behind its own Cloudflare Access application. Every request is
@@ -119,7 +119,7 @@ export async function handleCrm({ request, env }, overrides = {}) {
   const allowed = { session: 'GET', overview: 'GET', brands: 'GET', segments: 'GET', audit: 'GET',
     preview: 'POST', customers: 'POST', 'segments/save': 'POST', 'segments/delete': 'POST', forget: 'POST',
     campaigns: 'GET', 'campaigns/preview': 'POST', 'campaigns/send': 'POST', 'campaigns/test': 'POST', 'campaigns/cancel': 'POST',
-    'settings/test-customer': 'POST' };
+    'settings/test-customer': 'POST', 'automations/create': 'POST', 'automations/active': 'POST' };
   if (!allowed[route]) return json(404, { error: 'Not found.' });
   if (allowed[route] !== request.method) return json(405, { error: 'Method not allowed.' }, { Allow: allowed[route] });
   try {
@@ -140,12 +140,13 @@ export async function handleCrm({ request, env }, overrides = {}) {
       const { results = [] } = await db.prepare('SELECT id, name, definition, created_by, updated_at FROM crm_segments ORDER BY name').bind().run();
       return json(200, { segments: results.map(s => ({ ...s, definition: JSON.parse(s.definition) })) });
     }
-    if (route.startsWith('campaigns') && !campaignsReady(env)) throw new AppError('CAMPAIGNS_CONFIG');
+    if ((route.startsWith('campaigns') || route.startsWith('automations')) && !campaignsReady(env)) throw new AppError('CAMPAIGNS_CONFIG');
     const testCustomer = async () => (await db.prepare('SELECT test_customer_id FROM crm_settings WHERE email = ?')
       .bind(user.email).first())?.test_customer_id || null;
     if (route === 'campaigns') return json(200, { campaigns: await listCampaigns(env, now), testPhone: Boolean(await testCustomer()),
       topics: TOPICS, links: Object.keys(LINKS), holdouts: HOLDOUTS,
-      weeklyCap: WEEKLY_CAP, quietHours: QUIET });
+      weeklyCap: WEEKLY_CAP, quietHours: QUIET, automations: await listAutomations(env, now), cooldowns: COOLDOWNS,
+      automationHour: AUTOMATION_HOUR });
     if (route === 'audit') {
       const { results = [] } = await db.prepare('SELECT at, actor, action, detail FROM crm_audit ORDER BY at DESC LIMIT 100').bind().run();
       return json(200, { audit: results });
@@ -192,6 +193,19 @@ export async function handleCrm({ request, env }, overrides = {}) {
       await createCampaign(env, user.email, validateCampaign(input.campaign, env, now), now, customerId);
       await audit(env, deps, user.email, 'test_campaign', null);
       return json(200, { queued: true });
+    }
+    if (route === 'automations/create') {
+      await limit(env, deps, `crm-send:${user.email}`, 10, 3600000);
+      const automation = validateAutomation(input.automation, env, now), id = await createAutomation(env, user.email, automation, now);
+      await audit(env, deps, user.email, 'create_automation', { name: automation.name, topic: automation.topic,
+        audience: automation.audienceLabel, cooldownDays: automation.cooldownDays });
+      return json(200, { id });
+    }
+    if (route === 'automations/active') {
+      if (typeof input.id !== 'string' || !/^[a-f0-9]{64}$/.test(input.id) || typeof input.active !== 'boolean') throw new AppError('INPUT', 400);
+      await setAutomationActive(env, input.id, input.active, now);
+      await audit(env, deps, user.email, input.active ? 'resume_automation' : 'pause_automation', null);
+      return json(200, { active: input.active });
     }
     if (route === 'campaigns/cancel') {
       if (typeof input.id !== 'string' || !/^[a-f0-9]{64}$/.test(input.id)) throw new AppError('INPUT', 400);

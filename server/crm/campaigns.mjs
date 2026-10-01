@@ -13,6 +13,9 @@ export const QUIET = { start: 9, end: 20, zone: 'America/Chicago' };
 export const LINKS = { home: '/app/', menu: '/app/#menu', rewards: '/app/#rewards', order: '/app/#order' };
 export const HOLDOUTS = [0, 5, 10, 20];
 export const TITLE = 'Treehouse Pharmacy';
+// Automatic messages: checked once a day at this hour (Central). 0 days = only ever once.
+export const AUTOMATION_HOUR = 11;
+export const COOLDOWNS = [7, 14, 30, 60, 90, 180, 365, 0];
 // Words that would say "cannabis" on a lock screen, and health claims Oklahoma rules forbid.
 const NOT_DISCREET = /\b(cannabis|marijuana|weed|thc|cbd|dispensary|dabs?|vapes?|carts?|cartridges?|joints?|pre-?rolls?|blunts?|stoned|420|edibles?|gummies|indica|sativa|strains?|kush|grams?|ounces?|oz)\b/i;
 const HEALTH_CLAIM = /\b(cures?|cured|heals?|healing|relief|relieves?|anxiety|pain|insomnia|depression|medicine)\b/i;
@@ -24,6 +27,7 @@ function localHour(ms) {
   return Number(new Intl.DateTimeFormat('en-US', { timeZone: QUIET.zone, hour: 'numeric', hourCycle: 'h23' }).format(ms));
 }
 export const quietAt = ms => { const h = localHour(ms); return h < QUIET.start || h >= QUIET.end; };
+const localDay = ms => new Intl.DateTimeFormat('en-CA', { timeZone: QUIET.zone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(ms);
 // Seconds left before quiet hours, so a phone that is offline never receives it late at night.
 function secondsUntilQuiet(ms) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: QUIET.zone, hour: 'numeric', minute: 'numeric',
@@ -49,6 +53,13 @@ export function validateCampaign(input, env, now) {
   const sendAt = input.sendAt === null || input.sendAt === undefined ? now : input.sendAt;
   if (!Number.isInteger(sendAt) || sendAt < now - 60000 || sendAt > now + 30 * DAY) fail('CAMPAIGN_TIME');
   return { name, topic: input.topic, body, link: input.link, definition, audienceLabel, holdoutPct: input.holdoutPct, sendAt };
+}
+
+export function validateAutomation(input, env, now) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new AppError('INPUT', 400);
+  const { cooldownDays, ...rest } = input;
+  if (!COOLDOWNS.includes(cooldownDays)) throw new AppError('INPUT', 400);
+  return { ...validateCampaign({ ...rest, sendAt: null }, env, now), cooldownDays };
 }
 
 // Linked customers who chose this topic and have at least one phone set up for notifications.
@@ -98,6 +109,19 @@ export async function createCampaign(env, user, campaign, now, testCustomerId = 
       campaign.audienceLabel, testCustomerId ? 0 : campaign.holdoutPct, testCustomerId, testCustomerId ? now : campaign.sendAt, user, now).run();
   return id;
 }
+export async function createAutomation(env, user, a, now) {
+  const id = randomToken();
+  await env.CRM_DB.prepare(`INSERT INTO crm_automations(id, name, topic, body, link, definition, audience_label, holdout_pct,
+    cooldown_days, active, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`)
+    .bind(id, a.name, a.topic, a.body, a.link, a.definition ? JSON.stringify(a.definition) : null, a.audienceLabel, a.holdoutPct,
+      a.cooldownDays, user, now, now).run();
+  return id;
+}
+export async function setAutomationActive(env, id, active, now) {
+  const row = await env.CRM_DB.prepare('UPDATE crm_automations SET active = ?, updated_at = ? WHERE id = ? RETURNING id')
+    .bind(active ? 1 : 0, now, id).first();
+  if (!row) throw new AppError('INPUT', 400);
+}
 export async function cancelCampaign(env, id, now) {
   const row = await env.CRM_DB.prepare(`UPDATE crm_campaigns SET status = 'canceled', finished_at = ?
     WHERE id = ? AND status IN ('scheduled', 'sending') RETURNING id`).bind(now, id).first();
@@ -111,7 +135,7 @@ export async function listCampaigns(env, now) {
   const { results = [] } = await db.prepare(`SELECT c.id, c.name, c.topic, c.body, c.link, c.audience_label, c.holdout_pct, c.status,
     c.send_at, c.started_at, c.finished_at, c.created_by,
     (SELECT json_group_object(state, n) FROM (SELECT state, COUNT(*) AS n FROM crm_campaign_recipients r WHERE r.campaign_id = c.id GROUP BY state)) AS counts
-    FROM crm_campaigns c WHERE c.test_customer_id IS NULL ORDER BY c.created_at DESC LIMIT 30`).bind().run();
+    FROM crm_campaigns c WHERE c.test_customer_id IS NULL AND c.automation_id IS NULL ORDER BY c.created_at DESC LIMIT 30`).bind().run();
   const campaigns = [];
   for (const c of results) {
     const out = { ...c, counts: JSON.parse(c.counts || '{}'), results: null };
@@ -130,6 +154,28 @@ export async function listCampaigns(env, now) {
   return campaigns;
 }
 
+// Automatic messages with their totals, and how people sent them behaved in the 7 days after
+// each send compared with the held-back group.
+export async function listAutomations(env, now) {
+  const db = env.CRM_DB;
+  const { results = [] } = await db.prepare(`SELECT a.id, a.name, a.topic, a.body, a.link, a.audience_label, a.holdout_pct, a.cooldown_days,
+    a.active, a.created_by, a.created_at, (SELECT MAX(c.started_at) FROM crm_campaigns c WHERE c.automation_id = a.id) AS last_sent_at
+    FROM crm_automations a ORDER BY a.created_at DESC`).bind().run();
+  const automations = [];
+  for (const a of results) {
+    const { results: groups = [] } = await db.prepare(`SELECT r.state, COUNT(*) AS people,
+      SUM(EXISTS (SELECT 1 FROM crm_orders o WHERE o.customer_id = r.customer_id AND o.completed_at BETWEEN c.started_at AND MIN(c.started_at + ?, ?))) AS visited,
+      SUM((SELECT COALESCE(SUM(o.total_cents), 0) FROM crm_orders o WHERE o.customer_id = r.customer_id
+        AND o.completed_at BETWEEN c.started_at AND MIN(c.started_at + ?, ?))) AS cents
+      FROM crm_campaign_recipients r JOIN crm_campaigns c ON c.id = r.campaign_id
+      WHERE c.automation_id = ? AND c.started_at IS NOT NULL AND r.state IN ('sent', 'holdout') GROUP BY r.state`)
+      .bind(7 * DAY, now, 7 * DAY, now, a.id).run();
+    automations.push({ ...a, active: Boolean(a.active),
+      results: Object.fromEntries(groups.map(g => [g.state, { people: g.people, visited: g.visited || 0, cents: g.cents || 0 }])) });
+  }
+  return automations;
+}
+
 // --- Sending (notifier Worker) ---
 
 export function campaignSenderReady(env) {
@@ -139,11 +185,12 @@ export function campaignSenderReady(env) {
       && /^(mailto:[^\s@]+@[^\s@]+|https:\/\/\S+)$/.test(env.APP_PUSH_SUBJECT || '');
   } catch { return false; }
 }
-// Recipients are written idempotently, so two overlapping runs produce the same list.
-async function start(env, c, now) {
-  const ids = c.test_customer_id ? [c.test_customer_id] : await audience(env, c.definition ? JSON.parse(c.definition) : null, c.topic, now);
+// Recipients are written idempotently, so two overlapping runs produce the same list. An
+// automatic message's held-back group is chosen per automation, so it stays the same people.
+async function start(env, c, now, chosen = null) {
+  const ids = chosen || (c.test_customer_id ? [c.test_customer_id] : await audience(env, c.definition ? JSON.parse(c.definition) : null, c.topic, now));
   const rows = [];
-  for (const id of ids) rows.push([id, await heldBack(c.id, id, c.holdout_pct) ? 'holdout' : 'pending']);
+  for (const id of ids) rows.push([id, await heldBack(c.automation_id || c.id, id, c.holdout_pct) ? 'holdout' : 'pending']);
   for (let i = 0; i < rows.length; i += 50)
     await env.CRM_DB.batch(rows.slice(i, i + 50).map(([id, state]) => env.CRM_DB.prepare(`INSERT OR IGNORE INTO crm_campaign_recipients(campaign_id,
       customer_id, state) VALUES (?, ?, ?)`).bind(c.id, id, state)));
@@ -167,10 +214,38 @@ async function deliver(env, deps, c, customerId) {
   }
   return sent ? 'sent' : failed ? 'failed' : 'skipped';
 }
+// Once a day from 11 am Central: everyone who matches an active automatic message, opted in to
+// its topic, and hasn't had it within its cooldown gets it as one campaign batch. People held
+// back count as having had it. Over-the-limit, failed or skipped people are tried again next day.
+async function runAutomations(env, now) {
+  if (quietAt(now) || localHour(now) < AUTOMATION_HOUR) return;
+  const db = env.CRM_DB, today = localDay(now);
+  const { results = [] } = await db.prepare(`SELECT * FROM crm_automations WHERE active = 1 AND (last_run_on IS NULL OR last_run_on < ?)`)
+    .bind(today).run();
+  for (const a of results) {
+    const claimed = await db.prepare(`UPDATE crm_automations SET last_run_on = ? WHERE id = ? AND active = 1
+      AND (last_run_on IS NULL OR last_run_on < ?) RETURNING id`).bind(today, a.id, today).first();
+    if (!claimed) continue; // Another run took it.
+    const matching = await audience(env, a.definition ? JSON.parse(a.definition) : null, a.topic, now);
+    if (!matching.length) continue;
+    const { results: recent = [] } = await db.prepare(`SELECT DISTINCT r.customer_id FROM crm_campaign_recipients r
+      JOIN crm_campaigns c ON c.id = r.campaign_id WHERE c.automation_id = ? AND c.started_at >= ?
+      AND r.state IN ('sent', 'holdout', 'pending', 'sending') AND r.customer_id IN (SELECT value FROM json_each(?))`)
+      .bind(a.id, a.cooldown_days ? now - a.cooldown_days * DAY : 0, JSON.stringify(matching)).run();
+    const had = new Set(recent.map(r => r.customer_id)), ids = matching.filter(id => !had.has(id));
+    if (!ids.length) continue;
+    const id = randomToken();
+    await db.prepare(`INSERT INTO crm_campaigns(id, name, topic, body, link, definition, audience_label, holdout_pct, automation_id,
+      status, send_at, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?, ?, ?)`)
+      .bind(id, a.name, a.topic, a.body, a.link, a.definition, a.audience_label, a.holdout_pct, a.id, now, a.created_by, now).run();
+    await start(env, { id, automation_id: a.id, holdout_pct: a.holdout_pct }, now, ids);
+  }
+}
 export async function sendCampaigns(env, deps, budgetMs = 40000) {
   if (!campaignSenderReady(env)) return { sent: 0 };
   const db = env.CRM_DB, started = deps.now(), quiet = quietAt(started);
   let sent = 0;
+  await runAutomations(env, started);
   const { results: due = [] } = await db.prepare(`SELECT * FROM crm_campaigns WHERE status = 'scheduled' AND send_at <= ?
     ORDER BY send_at LIMIT 5`).bind(started).run();
   for (const c of due) if (!quiet || c.test_customer_id) await start(env, c, started);

@@ -62,6 +62,7 @@
 
     <section aria-labelledby="campaigns-title" id="campaigns-section" hidden>
       <div class="heading"><h1 id="campaigns-title">Deals &amp; news</h1><p id="cp-rules" class="muted"></p></div>
+      <div class="ideas"><span class="muted">Automatic message ideas:</span> <span id="cp-ideas" class="chips"></span></div>
       <form id="campaign" class="card builder" autocomplete="off">
         <label class="wide">Campaign name <input id="cp-name" maxlength="60" placeholder="e.g. October new arrivals" required></label>
         <label>Who <select id="cp-audience"></select></label>
@@ -72,8 +73,11 @@
           <div class="notification"><strong>Treehouse Pharmacy</strong><span id="cp-preview">Your message appears here.</span></div></div>
         <label>Tapping opens <select id="cp-link"></select></label>
         <label>Hold back to measure results <select id="cp-holdout"></select></label>
-        <label>When <select id="cp-when"><option value="now">As soon as possible</option><option value="later">At a set time</option></select>
+        <label>When <select id="cp-when"><option value="now">As soon as possible</option><option value="later">At a set time</option>
+          <option value="auto">Automatically, whenever someone matches</option></select>
           <input type="datetime-local" id="cp-at" hidden></label>
+        <label id="cp-cooldown-label" hidden>Send each person at most once every <select id="cp-cooldown"></select></label>
+        <p id="cp-auto-note" class="wide muted" hidden></p>
         <div class="actions">
           <button type="button" id="cp-check" class="secondary">Check audience</button>
           <button type="button" id="cp-test" class="secondary">Send a test to my phone</button>
@@ -81,6 +85,7 @@
         </div>
         <p id="cp-result" class="wide muted"></p>
       </form>
+      <div id="automations" class="card" hidden></div>
       <div id="campaigns" class="card"></div>
     </section>
 

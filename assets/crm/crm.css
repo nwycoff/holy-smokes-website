@@ -69,6 +69,8 @@ textarea { font: inherit; width: 100%; padding: 8px 10px; border: 1px solid #b7c
 .status { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--soft); color: var(--forest); }
 .status.canceled { background: #f1e3e0; color: var(--error); }
 .result { font-size: 13px; }
+.ideas { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.status.paused { background: #f3ecdf; color: #7a5a22; }
 footer { text-align: center; color: var(--muted); font-size: 12px; padding: 20px 28px 40px; }
 @media (max-width: 760px) {
   main { padding: 18px 16px 50px; }

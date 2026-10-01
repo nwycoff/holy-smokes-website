@@ -370,3 +370,42 @@ test('canceled campaigns are not sent; campaigns stay off until enabled; removin
   assert.equal((await s.call('campaigns')).status, 503);
   assert.deepEqual(await sendCampaigns(s.env, s.deps), { sent: 0 });
 });
+
+test('automatic messages go daily at 11 am to people who newly match, at most once per cooldown, until paused', async () => {
+  const s = await campaigns(); // 10 am Central
+  const auto = { name: 'Thank-you points', topic: 'events', body: 'Thanks for being a regular! Your points are waiting in the app.',
+    link: 'rewards', definition: { pointsMin: 100 }, audienceLabel: 'Points 100+', holdoutPct: 0, cooldownDays: 30 };
+  assert.equal((await s.call('automations/create', { automation: { ...auto, cooldownDays: 3 } })).status, 400);
+  assert.equal((await s.call('automations/create', { automation: { ...auto, body: 'Your THC rewards' } })).status, 400);
+  const { id } = await (await s.call('automations/create', { automation: auto })).json();
+  const sentTo = () => s.db.prepare(`SELECT r.customer_id, r.state FROM crm_campaign_recipients r JOIN crm_campaigns c ON c.id = r.campaign_id
+    WHERE c.automation_id = ? ORDER BY c.started_at, r.customer_id`).all(id).map(r => `${r.customer_id}:${r.state}`);
+  await s.deliver(); assert.deepEqual(sentTo(), []); // before 11 am
+  s.advance(3600000); await s.deliver(); await s.deliver();
+  assert.deepEqual(sentTo(), ['A:sent', 'B:sent']); // C chose other topics; once per day
+  s.customer('D', { CurrentPoints: 300, updatedAt: new Date(s.now()).toISOString() }); await s.optIn('D', ['events']);
+  s.advance(DAY); await s.sync(); await s.deliver();
+  assert.deepEqual(sentTo(), ['A:sent', 'B:sent', 'D:sent']); // only the newcomer; A and B are within 30 days
+  const list = await (await s.call('campaigns')).json();
+  assert.equal(list.campaigns.length, 0); assert.equal(list.automations[0].results.sent.people, 3); assert.equal(list.automations[0].active, true);
+  await s.call('automations/active', { id, active: false });
+  s.advance(31 * DAY + 3600000); await s.deliver(); // +1 hour: daylight saving ends on Nov 1
+  assert.equal(sentTo().length, 3); // paused
+  await s.call('automations/active', { id, active: true }); await s.deliver();
+  assert.deepEqual(sentTo().slice(3), ['A:sent', 'B:sent', 'D:sent']); // after the cooldown, still matching
+  assert.deepEqual(s.db.prepare("SELECT action FROM crm_audit WHERE action LIKE '%automation%' ORDER BY at").all().map(a => a.action),
+    ['create_automation', 'pause_automation', 'resume_automation']);
+});
+
+test('"only once" automatic messages never repeat, and held-back people stay held back', async () => {
+  const s = await campaigns(); s.advance(3600000);
+  for (let i = 0; i < 30; i++) await s.optIn(`Q${i}`, ['events']);
+  const { id } = await (await s.call('automations/create', { automation: { name: 'Welcome', topic: 'events', body: 'Welcome to Deals & news from Treehouse!',
+    link: 'home', definition: null, audienceLabel: 'Everyone', holdoutPct: 20, cooldownDays: 0 } })).json();
+  await s.deliver();
+  const first = s.db.prepare(`SELECT r.customer_id, r.state FROM crm_campaign_recipients r JOIN crm_campaigns c ON c.id = r.campaign_id
+    WHERE c.automation_id = ?`).all(id);
+  assert.equal(first.length, 32); assert.ok(first.some(r => r.state === 'holdout'));
+  s.advance(400 * DAY); await s.deliver();
+  assert.equal(s.db.prepare('SELECT COUNT(*) n FROM crm_campaigns WHERE automation_id = ?').get(id).n, 1);
+});
