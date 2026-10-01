@@ -15,7 +15,21 @@ const TEMPLATES = [
   ['New customers (30 days)', { newWithinDays: 30 }],
   ['Deals & news subscribers', { app: 'marketing' }]
 ];
-let session = null, current = null, currentName = '';
+let session = null, current = null, currentName = '', savedSegments = [], campaignSetup = null;
+const TOPIC_LABELS = { new_arrivals: 'New arrivals & restocks', rewards: 'Rewards & points reminders', events: 'Events', specials: 'Specials' };
+const LINK_LABELS = { home: 'App home', menu: 'Menu', rewards: 'My points', order: 'Order ahead' };
+// One-click starting points for automatic messages. Everything stays editable before turning it on.
+const AUTOMATION_IDEAS = [
+  { name: 'Points ready', definition: { pointsMin: 225, lastVisit: { maxDays: 365 } }, topic: 'rewards', link: 'rewards', cooldown: 30,
+    body: 'You have enough points for a reward. Use it on your next visit or when you order ahead.' },
+  { name: 'Birthday month', definition: { birthday: 'this_month', lastVisit: { maxDays: 365 } }, topic: 'rewards', link: 'home', cooldown: 365,
+    body: 'Happy birthday month from all of us at Treehouse! Stop in and say hi.' },
+  { name: 'We miss you', definition: { lastVisit: { minDays: 45, maxDays: 120 } }, topic: 'new_arrivals', link: 'menu', cooldown: 60,
+    body: 'It’s been a little while! See what’s new on the menu since your last visit.' },
+  { name: 'Thanks for your first visit', definition: { newWithinDays: 7 }, topic: 'rewards', link: 'rewards', cooldown: 0,
+    body: 'Thanks for choosing Treehouse! You earn points every visit. Check your balance in the app.' }
+];
+const cooldownText = days => days ? `at most once every ${days} days` : 'only once';
 
 function el(tag, text = '', className = '') { const n = document.createElement(tag); n.textContent = text; if (className) n.className = className; return n; }
 function message(text = '', bad = false) { $('message').textContent = text; $('message').hidden = !text; $('message').classList.toggle('bad', bad); }
@@ -135,7 +149,17 @@ async function showCustomers(sort = 'spend') {
     [c.name || 'Name unavailable', ago(c.last_visit), count.format(c.visits_90), money.format(c.spend_90_cents / 100),
       LABELS[c.top_group] || '—', c.points === null ? '—' : count.format(Math.floor(c.points)), c.app_marketing ? 'Deals & news' : c.app_push ? 'Order alerts' : c.app_linked ? 'Yes' : '—']
       .forEach(v => row.append(el('td', v)));
-    const cell = el('td'); cell.append(forget); row.append(cell); body.append(row);
+    const cell = el('td'); cell.append(forget);
+    if (campaignSetup) {
+      const mine = el('button', 'Use for my tests', 'link'); mine.type = 'button';
+      mine.title = 'Your own record: test campaigns go to the phones on this customer’s app account';
+      mine.addEventListener('click', async () => {
+        try { await api('settings/test-customer', { customerId: c.id }); campaignSetup.testPhone = true; message(`Test campaigns will go to ${c.name || 'this customer'}’s phones.`); }
+        catch (e) { message(e.message, true); }
+      });
+      cell.append(mine);
+    }
+    row.append(cell); body.append(row);
   }
   table.append(body);
   const wrap = el('div', '', 'table-wrap'); wrap.append(table);
@@ -150,6 +174,7 @@ async function saveSegment() {
 }
 async function loadSaved() {
   const { segments } = await api('segments'), box = $('saved');
+  savedSegments = segments; fillAudiences();
   box.replaceChildren(...segments.map(s => {
     const row = el('div', '', 'saved-row'), open = el('button', s.name, 'link'), del = el('button', 'Delete', 'link danger');
     open.type = del.type = 'button';
@@ -161,8 +186,152 @@ async function loadSaved() {
 }
 async function loadAudit() {
   const { audit } = await api('audit');
-  const names = { view_customers: 'viewed a customer list', save_segment: 'saved a segment', delete_segment: 'deleted a segment', forget_customer: 'removed a customer' };
+  const names = { view_customers: 'viewed a customer list', save_segment: 'saved a segment', delete_segment: 'deleted a segment', forget_customer: 'removed a customer',
+    send_campaign: 'sent or scheduled a campaign', test_campaign: 'sent a test campaign', cancel_campaign: 'canceled a campaign', set_test_phone: 'chose their test phone',
+    create_automation: 'turned on an automatic message', pause_automation: 'paused an automatic message', resume_automation: 'turned an automatic message back on' };
   $('audit').replaceChildren(...audit.map(a => el('p', `${new Date(a.at).toLocaleString()} · ${a.actor} ${names[a.action] || a.action}`)));
+}
+
+// --- Deals & news campaigns ---
+function fillAudiences() {
+  const select = $('cp-audience'), keep = select.value;
+  const option = (value, text) => { const o = el('option', text); o.value = value; return o; };
+  select.replaceChildren(option('all', 'Everyone opted in to the topic'), option('builder', 'The rules in “Find customers” above'),
+    ...TEMPLATES.map(([name], i) => option(`tpl:${i}`, name)), ...savedSegments.map(seg => option(`seg:${seg.id}`, `Saved: ${seg.name}`)));
+  if ([...select.options].some(o => o.value === keep)) select.value = keep;
+}
+// A short, readable summary of segment rules, stored with campaigns built from "Find customers".
+function describeRules(d) {
+  const parts = [], lv = d.lastVisit;
+  if (lv) parts.push(lv.minDays !== undefined && lv.maxDays !== undefined ? `last visit ${lv.minDays}–${lv.maxDays} days ago`
+    : lv.maxDays !== undefined ? `visited in the last ${lv.maxDays} days` : `no visit in ${lv.minDays}+ days`);
+  if (d.visits) parts.push(`${d.visits.min ?? 0}+ visits in ${d.visits.days} days`);
+  if (d.spend) parts.push(`$${d.spend.min ?? 0}+ spent in ${d.spend.days} days`);
+  if (d.categories) parts.push(`bought ${d.categories.groups.map(g => LABELS[g] || g).join(' or ')} in ${d.categories.days} days`);
+  if (d.brands) parts.push(`bought ${$('brand').selectedOptions[0]?.textContent || 'a brand'} in ${d.brands.days} days`);
+  if (d.pointsMin !== undefined) parts.push(`${d.pointsMin}+ points`);
+  if (d.birthday) parts.push(d.birthday === 'this_month' ? 'birthday this month' : 'birthday next month');
+  if (d.app) parts.push($('app').selectedOptions[0]?.textContent || d.app);
+  if (d.newWithinDays) parts.push(`new in the last ${d.newWithinDays} days`);
+  const text = parts.join(' · ');
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+function readCampaign() {
+  const who = $('cp-audience').value, label = $('cp-audience').selectedOptions[0]?.textContent || '';
+  let definition = null;
+  if (who === 'builder') { definition = readBuilder(); if (!Object.keys(definition).length) throw new Error('Add at least one rule in “Find customers”, or pick another audience.'); }
+  else if (who.startsWith('tpl:')) definition = TEMPLATES[Number(who.slice(4))][1];
+  else if (who.startsWith('seg:')) definition = savedSegments.find(seg => seg.id === who.slice(4))?.definition || null;
+  let sendAt = null;
+  if ($('cp-when').value === 'later') {
+    sendAt = new Date($('cp-at').value).getTime();
+    if (!Number.isFinite(sendAt)) throw new Error('Pick a date and time to send.');
+  }
+  return { name: $('cp-name').value, topic: $('cp-topic').value, body: $('cp-body').value, link: $('cp-link').value,
+    definition, audienceLabel: who === 'builder' ? describeRules(definition).slice(0, 80) : label.replace(/^Saved: /, ''),
+    holdoutPct: Number($('cp-holdout').value), sendAt };
+}
+function readAutomation() {
+  const { sendAt, ...campaign } = readCampaign();
+  return { ...campaign, cooldownDays: Number($('cp-cooldown').value) };
+}
+function setWhen() {
+  const when = $('cp-when').value, auto = when === 'auto';
+  $('cp-at').hidden = when !== 'later'; $('cp-cooldown-label').hidden = !auto; $('cp-auto-note').hidden = !auto;
+  $('campaign').querySelector('button[type=submit]').textContent = auto ? 'Turn on' : 'Send';
+}
+function useIdea(idea) {
+  fillBuilder(idea.definition);
+  $('cp-name').value = idea.name; $('cp-audience').value = 'builder'; $('cp-topic').value = idea.topic; $('cp-link').value = idea.link;
+  $('cp-body').value = idea.body; $('cp-body').dispatchEvent(new Event('input'));
+  $('cp-when').value = 'auto'; $('cp-cooldown').value = String(idea.cooldown); setWhen();
+  $('cp-result').textContent = 'Filled in from the idea, using the rules in “Find customers” above. Adjust anything, then Check audience.';
+  $('campaign').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+function describePreview(p) {
+  const parts = [`Reaches ${count.format(p.reach)} ${p.reach === 1 ? 'person' : 'people'}`];
+  if (p.heldBack) parts.push(`${count.format(p.heldBack)} held back to measure results`);
+  if (p.weeklyLimit) parts.push(`${count.format(p.weeklyLimit)} skipped (already had ${campaignSetup.weeklyCap} this week)`);
+  let text = `${parts.join(' · ')}. Only people who opted in to “${TOPIC_LABELS[$('cp-topic').value]}” and have a phone set up are counted.`;
+  if (p.waitsForMorning) text += ' That time is outside 9 am–8 pm Central, so it will go out at 9 am.';
+  return text;
+}
+async function checkCampaign() {
+  const p = await api('campaigns/preview', { campaign: readCampaign() });
+  $('cp-result').textContent = describePreview(p); return p;
+}
+function statusText(c) {
+  if (c.status === 'scheduled') return `Scheduled for ${new Date(c.send_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`;
+  if (c.status === 'sending') return 'Sending';
+  if (c.status === 'sent') return `Sent ${new Date(c.finished_at || c.started_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`;
+  return 'Canceled';
+}
+function resultText(r) {
+  if (!r?.sent?.people) return '';
+  const pct = g => Math.round(g.visited / g.people * 100), each = g => money.format(g.cents / g.people / 100);
+  let text = `In the ${r.days >= 7 ? '7 days' : 'time'} since: ${pct(r.sent)}% of people sent it visited, ${each(r.sent)} spent per person`;
+  if (r.holdout?.people) {
+    text += `; held back: ${pct(r.holdout)}% visited, ${each(r.holdout)} per person.`;
+    if (r.holdout.people < 30) text += ' The held-back group is small, so treat the difference as a rough guide.';
+  } else text += '.';
+  if (r.days < 7) text += ' Results settle after 7 days.';
+  return text;
+}
+async function loadCampaigns() {
+  let data;
+  try { data = await api('campaigns'); }
+  catch (e) { if (/switched on/.test(e.message)) { $('campaigns-section').hidden = true; return; } throw e; }
+  const first = !campaignSetup; campaignSetup = data; $('campaigns-section').hidden = false;
+  if (first) {
+    const option = (value, text) => { const o = el('option', text); o.value = value; return o; };
+    $('cp-topic').replaceChildren(...data.topics.map(t => option(t, TOPIC_LABELS[t] || t)));
+    $('cp-link').replaceChildren(...data.links.map(l => option(l, LINK_LABELS[l] || l)));
+    $('cp-holdout').replaceChildren(...data.holdouts.map(h => option(String(h), h === 10 ? '10% (recommended)' : h ? `${h}%` : 'None')));
+    $('cp-holdout').value = '10'; $('cp-link').value = 'menu'; fillAudiences();
+    $('cp-cooldown').replaceChildren(...data.cooldowns.map(d => option(String(d), d ? `${d} days` : 'Only once, ever')));
+    $('cp-cooldown').value = '30';
+    $('cp-auto-note').textContent = `Checked every day at ${data.automationHour} am Central. Anyone who matches, opted in to the topic, and hasn’t had this message in the chosen time gets it. The weekly limit still applies.`;
+    $('cp-ideas').replaceChildren(...AUTOMATION_IDEAS.map(idea => { const b = el('button', idea.name, 'chip'); b.type = 'button';
+      b.addEventListener('click', () => useIdea(idea)); return b; }));
+    $('cp-rules').textContent = `Customers get at most ${data.weeklyCap} a week, only 9 am–8 pm Central, and only topics they chose.`;
+  }
+  const autos = $('automations'); autos.hidden = !data.automations.length;
+  autos.replaceChildren(el('h2', 'Automatic messages'), ...data.automations.map(a => {
+    const row = el('div', '', 'campaign-row'), title = el('div', '', 'title'), toggle = el('button', a.active ? 'Pause' : 'Turn back on', 'link');
+    toggle.type = 'button';
+    toggle.addEventListener('click', async () => {
+      try { await api('automations/active', { id: a.id, active: !a.active }); await loadCampaigns(); void loadAudit(); } catch (e) { message(e.message, true); }
+    });
+    title.append(el('strong', a.name), el('span', a.active ? 'On' : 'Paused', `status ${a.active ? 'sent' : 'paused'}`), toggle);
+    const sent = a.results.sent?.people || 0, held = a.results.holdout?.people || 0;
+    row.append(title, el('p', `${TOPIC_LABELS[a.topic] || a.topic} · ${a.audience_label} · ${cooldownText(a.cooldown_days)} · opens ${LINK_LABELS[a.link] || a.link} · by ${a.created_by}`, 'muted'),
+      el('p', `“${a.body}”`, 'result'),
+      el('p', sent || held ? `${count.format(sent)} sent so far · ${count.format(held)} held back · last sent ${ago(a.last_sent_at)}` : 'Nobody has matched yet. It checks every day.', 'muted'));
+    const result = resultText({ days: 7, ...a.results }); if (result) row.append(el('p', result.replace('In the 7 days since', 'Within 7 days of each send'), 'result'));
+    return row;
+  }));
+  $('campaigns').replaceChildren(...data.campaigns.map(c => {
+    const row = el('div', '', 'campaign-row'), title = el('div', '', 'title'), counts = c.counts || {};
+    title.append(el('strong', c.name), el('span', statusText(c), `status ${c.status}`));
+    if (['scheduled', 'sending'].includes(c.status)) {
+      const cancel = el('button', 'Cancel', 'link danger'); cancel.type = 'button';
+      cancel.addEventListener('click', async () => {
+        if (!confirm(`Cancel “${c.name}”? Anyone not yet sent it won’t get it.`)) return;
+        try { await api('campaigns/cancel', { id: c.id }); await loadCampaigns(); } catch (e) { message(e.message, true); }
+      });
+      title.append(cancel);
+    }
+    const tally = [['sent', 'sent'], ['holdout', 'held back'], ['capped', 'skipped for the weekly limit'], ['skipped', 'no longer opted in or no phone'],
+      ['failed', 'couldn’t be delivered']].filter(([k]) => counts[k]).map(([k, t]) => `${count.format(counts[k])} ${t}`);
+    const waiting = (counts.pending || 0) + (counts.sending || 0);
+    if (waiting) tally.push(`${count.format(waiting)} still to send`);
+    row.append(title, el('p', `${TOPIC_LABELS[c.topic] || c.topic} · ${c.audience_label} · opens ${LINK_LABELS[c.link] || c.link} · by ${c.created_by}`, 'muted'),
+      el('p', `“${c.body}”`, 'result'));
+    if (tally.length) row.append(el('p', tally.join(' · '), 'muted'));
+    const result = resultText(c.results); if (result) row.append(el('p', result, 'result'));
+    return row;
+  }));
+  if (!data.campaigns.length) $('campaigns').append(el('p', 'No campaigns yet. Write one above; send yourself a test first.', 'muted'));
 }
 
 async function start() {
@@ -178,7 +347,7 @@ async function start() {
     }));
   } catch (e) { message(e.message, true); return; }
   // Each part loads on its own, so one slow part never blanks the whole page.
-  const parts = [loadOverview(), loadSaved(), loadAudit(),
+  const parts = [loadOverview(), loadSaved(), loadAudit(), loadCampaigns(),
     api('brands').then(({ brands }) => $('brand').append(...brands.map(b => { const o = el('option', b.name); o.value = b.id; return o; })))];
   const failed = (await Promise.allSettled(parts)).find(r => r.status === 'rejected');
   if (failed) message(failed.reason?.message || 'Part of the page could not load. Reload to try again.', true);
@@ -190,4 +359,40 @@ $('show').addEventListener('click', async () => { const d = readBuilder();
   if (!Object.keys(d).length) { message('Add at least one rule.', true); return; }
   try { await countSegment(d); await showCustomers(); } catch (e) { message(e.message, true); } });
 $('clear').addEventListener('click', () => { fillBuilder({}); $('preview').hidden = true; $('list').hidden = true; current = null; });
+$('cp-body').addEventListener('input', () => {
+  const text = $('cp-body').value.trim(); $('cp-preview').textContent = text || 'Your message appears here.';
+  $('cp-count').textContent = `${text.length} of 120 characters`;
+});
+$('cp-when').addEventListener('change', setWhen);
+$('cp-check').addEventListener('click', () => checkCampaign().catch(e => message(e.message, true)));
+$('cp-test').addEventListener('click', async () => {
+  try {
+    if (!campaignSetup?.testPhone) throw new Error('Choose your own customer record first: Show customers, find yourself, then “Use for my tests”.');
+    await api('campaigns/test', { campaign: readCampaign() });
+    message('Test queued. It should reach your phone within a minute or two, starting with “Test:”.'); void loadAudit();
+  } catch (e) { message(e.message, true); }
+});
+$('campaign').addEventListener('submit', async event => {
+  event.preventDefault();
+  try {
+    if ($('cp-when').value === 'auto') {
+      const automation = readAutomation(), p = await checkCampaign();
+      if (!confirm(`Turn on “${automation.name}”? ${count.format(p.reach + p.heldBack)} ${p.reach + p.heldBack === 1 ? 'person matches' : 'people match'} today and will get it at the next daily check (${campaignSetup.automationHour} am Central), ${cooldownText(automation.cooldownDays)} each. People who match later get it then.`)) return;
+      await api('automations/create', { automation });
+      message(`“${automation.name}” is on. You can pause it anytime under Automatic messages.`);
+      $('campaign').reset(); setWhen(); $('cp-holdout').value = '10'; $('cp-link').value = 'menu'; $('cp-cooldown').value = '30';
+      $('cp-result').textContent = ''; $('cp-preview').textContent = 'Your message appears here.'; $('cp-count').textContent = '';
+      await loadCampaigns(); void loadAudit(); return;
+    }
+    const campaign = readCampaign(), p = await checkCampaign();
+    if (!p.reach) { message('Nobody in this audience can get it right now.', true); return; }
+    const when = campaign.sendAt ? `at ${new Date(campaign.sendAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}` : 'now';
+    if (!confirm(`Send “${campaign.name}” ${when} to about ${count.format(p.reach)} ${p.reach === 1 ? 'person' : 'people'}?`)) return;
+    await api('campaigns/send', { campaign });
+    message(campaign.sendAt ? 'Scheduled.' : 'Sending. It goes out within a minute or two.');
+    $('campaign').reset(); $('cp-at').hidden = true; $('cp-holdout').value = '10'; $('cp-link').value = 'menu'; $('cp-result').textContent = '';
+    $('cp-preview').textContent = 'Your message appears here.'; $('cp-count').textContent = '';
+    await loadCampaigns(); void loadAudit();
+  } catch (e) { message(e.message, true); }
+});
 void start();

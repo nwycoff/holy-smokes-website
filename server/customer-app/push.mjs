@@ -87,13 +87,14 @@ export async function encryptPayload(subscription, plaintext) {
 
 // Returns 'sent', 'gone' (subscription expired or revoked) or 'failed'.
 // `topic` lets the push service replace an undelivered copy instead of queueing a second one.
-export async function sendPush(env, deps, subscription, message, topic) {
+// Marketing passes { ttl, urgency } so an undelivered message expires instead of arriving late.
+export async function sendPush(env, deps, subscription, message, topic, { ttl = 3600, urgency = 'high' } = {}) {
   const endpoint = pushEndpoint(subscription.endpoint);
   if (!endpoint) return 'gone';
   try {
     const res = await fetchSafe(deps, endpoint, { method: 'POST', headers: {
       Authorization: await vapidAuthorization(env, endpoint, deps.now()),
-      'Content-Encoding': 'aes128gcm', 'Content-Type': 'application/octet-stream', TTL: '3600', Urgency: 'high',
+      'Content-Encoding': 'aes128gcm', 'Content-Type': 'application/octet-stream', TTL: String(ttl), Urgency: urgency,
       ...(topic ? { Topic: topic } : {})
     }, body: await encryptPayload(subscription, JSON.stringify(message)) });
     if (res.status === 404 || res.status === 410) return 'gone';

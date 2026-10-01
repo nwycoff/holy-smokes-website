@@ -7,6 +7,7 @@ import { handleCrm } from '../server/crm/index.mjs';
 import { runSync, purge } from '../server/crm/sync.mjs';
 import { validateDefinition, compile } from '../server/crm/segments.mjs';
 import { hash } from '../server/customer-app/http.mjs';
+import { sendCampaigns, validateCampaign } from '../server/crm/campaigns.mjs';
 
 class D1 {
   constructor(dir) {
@@ -242,4 +243,169 @@ test('only orders and lines inside the 24-month window are requested', async () 
   await s.sync();
   assert.deepEqual(s.db.prepare('SELECT id FROM crm_orders').all().map(r => r.id), ['new']);
   assert.ok(s.gf.queries.filter(q => q.query.includes('findOrders(')).every(q => JSON.stringify(q.variables.where).includes('CompletedAt')));
+});
+
+// --- Deals & news campaigns ---
+async function phone(n) {
+  const k = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+  return { endpoint: `https://fcm.googleapis.com/fcm/send/device-${n}`,
+    p256dh: Buffer.from(new Uint8Array(await crypto.subtle.exportKey('raw', k.publicKey))).toString('base64url'),
+    auth: Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString('base64url') };
+}
+async function campaigns() {
+  const s = await setup(); seed(s);
+  const pair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+  Object.assign(s.env, { CRM_CAMPAIGNS_ENABLED: 'true', APP_PUSH_ENABLED: 'true', APP_PUSH_SUBJECT: 'mailto:owner@example.test',
+    APP_VAPID_PUBLIC_KEY: Buffer.from(new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey))).toString('base64url'),
+    APP_VAPID_PRIVATE_JWK: JSON.stringify(await crypto.subtle.exportKey('jwk', pair.privateKey)) });
+  const pushes = [], base = s.deps.fetch;
+  s.deps.fetch = async (url, init) => {
+    if (new URL(String(url)).hostname !== 'fcm.googleapis.com') return base(url, init);
+    pushes.push({ url: String(url), headers: init.headers }); return new Response('', { status: 201 });
+  };
+  const app = s.env.APP_DB.db;
+  async function optIn(customer, topics) {
+    const user = `user-${customer}`, device = await phone(customer);
+    app.prepare('INSERT INTO app_users(id, identity_hash, customer_id, created_at) VALUES (?, ?, ?, 1)').run(user, `h-${customer}`, customer);
+    app.prepare('INSERT INTO app_push_subscriptions(endpoint, user_id, p256dh, auth, created_at) VALUES (?, ?, ?, ?, 1)').run(device.endpoint, user, device.p256dh, device.auth);
+    app.prepare('INSERT INTO app_marketing_prefs(user_id, topics, updated_at) VALUES (?, ?, 1)').run(user, JSON.stringify(topics));
+  }
+  await optIn('A', ['new_arrivals', 'events']); await optIn('B', ['events']); await optIn('C', ['new_arrivals']);
+  await s.sync();
+  const draft = (extra = {}) => ({ name: 'October arrivals', topic: 'new_arrivals', body: 'New arrivals just landed. Tap to see what’s new.',
+    link: 'menu', definition: null, audienceLabel: 'Everyone', holdoutPct: 0, ...extra });
+  // A fresh Access token per request, since these tests move the clock forward by days.
+  const call = async (route, body) => s.run(route, body, { assertion: await s.token() });
+  const send = async extra => (await (await call('campaigns/send', { campaign: draft(extra) })).json()).id;
+  const states = id => Object.fromEntries(s.db.prepare('SELECT customer_id, state FROM crm_campaign_recipients WHERE campaign_id = ?').all(id).map(r => [r.customer_id, r.state]));
+  return { ...s, app, pushes, optIn, draft, call, send, states, deliver: () => sendCampaigns(s.env, s.deps) };
+}
+
+test('campaign wording stays discreet and claim-free; every topic, including specials, can be sent', () => {
+  const env = {}, now = Date.UTC(2026, 9, 1, 15), base = { name: 'X', topic: 'events', body: 'Join us Saturday for our anniversary party!',
+    link: 'home', holdoutPct: 10 };
+  assert.equal(validateCampaign(base, env, now).sendAt, now);
+  const code = extra => { try { validateCampaign({ ...base, ...extra }, env, now); return 'ok'; } catch (e) { return e.code; } };
+  assert.equal(code({ body: 'Fresh THC carts just landed, come see' }), 'CAMPAIGN_DISCREET');
+  assert.equal(code({ body: 'New gummies are in. Tap to see.' }), 'CAMPAIGN_DISCREET');
+  assert.equal(code({ body: 'Our best picks for pain relief are here' }), 'CAMPAIGN_CLAIMS');
+  assert.equal(code({ body: 'Hi' }), 'CAMPAIGN_LENGTH');
+  assert.equal(code({ topic: 'specials' }), 'ok');
+  assert.equal(code({ link: 'https://example.test' }), 'INPUT');
+  assert.equal(code({ holdoutPct: 50 }), 'INPUT');
+  assert.equal(code({ sendAt: now + 40 * DAY }), 'CAMPAIGN_TIME');
+  assert.equal(code({ extra: 1 }), 'INPUT');
+});
+
+test('a campaign reaches only customers opted in to its topic, narrowed by segment rules, and is sent once', async () => {
+  const s = await campaigns();
+  const preview = async extra => (await s.call('campaigns/preview', { campaign: s.draft(extra) })).json();
+  assert.deepEqual(await preview(), { optedIn: 2, weeklyLimit: 0, heldBack: 0, reach: 2, waitsForMorning: false });
+  assert.equal((await preview({ definition: { categories: { groups: ['concentrate'], days: 90 } } })).reach, 1);
+  const id = await s.send();
+  await s.deliver(); await s.deliver();
+  assert.deepEqual(s.states(id), { A: 'sent', C: 'sent' });
+  assert.equal(s.pushes.length, 2);
+  const headers = s.pushes[0].headers;
+  assert.equal(headers.Urgency, 'normal'); assert.equal(headers.Topic, id.slice(0, 32));
+  assert.ok(Number(headers.TTL) <= 10 * 3600, 'expires before 8 pm Central');
+  const list = (await (await s.call('campaigns')).json()).campaigns;
+  assert.equal(list[0].status, 'sent'); assert.equal(list[0].counts.sent, 2);
+  assert.deepEqual(s.db.prepare('SELECT action FROM crm_audit').all().map(a => a.action), ['send_campaign']);
+});
+
+test('no more than 2 a week per person, nothing late at night, and a changed mind is respected', async () => {
+  const s = await campaigns();
+  const one = await s.send({ topic: 'events' }); await s.deliver();
+  const two = await s.send({ topic: 'events' }); await s.deliver();
+  const three = await s.send({ topic: 'events' });
+  assert.equal((await (await s.call('campaigns/preview', { campaign: s.draft({ topic: 'events' }) })).json()).weeklyLimit, 2);
+  await s.deliver();
+  assert.deepEqual([s.states(one), s.states(two), s.states(three)], [{ A: 'sent', B: 'sent' }, { A: 'sent', B: 'sent' }, { A: 'capped', B: 'capped' }]);
+  // 9 pm Central: waits until morning, and anyone who opts out meanwhile is skipped.
+  s.advance(8 * DAY + 11 * 3600000);
+  const late = await s.send();
+  await s.deliver(); assert.deepEqual(s.states(late), {});
+  s.app.exec("UPDATE app_marketing_prefs SET topics = '[\"events\"]' WHERE user_id = 'user-C'");
+  s.advance(12 * 3600000); await s.deliver();
+  assert.deepEqual(s.states(late), { A: 'sent' });
+  const before = s.pushes.length; s.advance(60000); await s.deliver(); assert.equal(s.pushes.length, before);
+});
+
+test('held-back customers are never sent it, and results compare both groups over 7 days', async () => {
+  const s = await campaigns();
+  for (let i = 0; i < 40; i++) await s.optIn(`P${i}`, ['events']);
+  const id = await s.send({ topic: 'events', holdoutPct: 20 });
+  await s.deliver();
+  const st = s.states(id), held = Object.values(st).filter(x => x === 'holdout').length, sent = Object.values(st).filter(x => x === 'sent').length;
+  assert.ok(held >= 1 && held <= 20, `held back ${held}`); assert.equal(sent + held, 42); assert.equal(s.pushes.length, sent);
+  const sentOne = Object.keys(st).find(k => st[k] === 'sent');
+  s.order('after1', sentOne, -2, 5000); s.advance(3 * DAY); await s.sync();
+  const r = (await (await s.call('campaigns')).json()).campaigns[0].results;
+  assert.equal(r.sent.people, sent); assert.equal(r.sent.visited, 1); assert.equal(r.holdout.people, held); assert.equal(r.holdout.visited, 0);
+});
+
+test('test sends go only to the sender’s own record, any hour, and never count toward the limit', async () => {
+  const s = await campaigns();
+  assert.equal((await s.call('campaigns/test', { campaign: s.draft() })).status, 400);
+  assert.equal((await s.call('settings/test-customer', { customerId: 'B' })).status, 200);
+  s.advance(11 * 3600000); // 9 pm Central
+  assert.equal((await s.call('campaigns/test', { campaign: s.draft() })).status, 200);
+  await s.deliver();
+  assert.equal(s.pushes.length, 1); assert.ok(s.pushes[0].url.endsWith('device-B'));
+  assert.equal((await (await s.call('campaigns')).json()).campaigns.length, 0);
+  assert.equal((await (await s.call('campaigns/preview', { campaign: s.draft({ topic: 'events' }) })).json()).weeklyLimit, 0);
+});
+
+test('canceled campaigns are not sent; campaigns stay off until enabled; removing a customer removes their sends', async () => {
+  const s = await campaigns();
+  const later = await s.send({ sendAt: s.now() + 3600000 });
+  assert.equal((await s.call('campaigns/cancel', { id: later })).status, 200);
+  s.advance(2 * 3600000); await s.deliver(); assert.equal(s.pushes.length, 0);
+  assert.equal((await s.call('campaigns/cancel', { id: later })).status, 409);
+  const id = await s.send(); await s.deliver();
+  await s.call('forget', { customerId: 'A' });
+  assert.deepEqual(s.states(id), { C: 'sent' });
+  s.env.CRM_CAMPAIGNS_ENABLED = 'false';
+  assert.equal((await s.call('campaigns')).status, 503);
+  assert.deepEqual(await sendCampaigns(s.env, s.deps), { sent: 0 });
+});
+
+test('automatic messages go daily at 11 am to people who newly match, at most once per cooldown, until paused', async () => {
+  const s = await campaigns(); // 10 am Central
+  const auto = { name: 'Thank-you points', topic: 'events', body: 'Thanks for being a regular! Your points are waiting in the app.',
+    link: 'rewards', definition: { pointsMin: 100 }, audienceLabel: 'Points 100+', holdoutPct: 0, cooldownDays: 30 };
+  assert.equal((await s.call('automations/create', { automation: { ...auto, cooldownDays: 3 } })).status, 400);
+  assert.equal((await s.call('automations/create', { automation: { ...auto, body: 'Your THC rewards' } })).status, 400);
+  const { id } = await (await s.call('automations/create', { automation: auto })).json();
+  const sentTo = () => s.db.prepare(`SELECT r.customer_id, r.state FROM crm_campaign_recipients r JOIN crm_campaigns c ON c.id = r.campaign_id
+    WHERE c.automation_id = ? ORDER BY c.started_at, r.customer_id`).all(id).map(r => `${r.customer_id}:${r.state}`);
+  await s.deliver(); assert.deepEqual(sentTo(), []); // before 11 am
+  s.advance(3600000); await s.deliver(); await s.deliver();
+  assert.deepEqual(sentTo(), ['A:sent', 'B:sent']); // C chose other topics; once per day
+  s.customer('D', { CurrentPoints: 300, updatedAt: new Date(s.now()).toISOString() }); await s.optIn('D', ['events']);
+  s.advance(DAY); await s.sync(); await s.deliver();
+  assert.deepEqual(sentTo(), ['A:sent', 'B:sent', 'D:sent']); // only the newcomer; A and B are within 30 days
+  const list = await (await s.call('campaigns')).json();
+  assert.equal(list.campaigns.length, 0); assert.equal(list.automations[0].results.sent.people, 3); assert.equal(list.automations[0].active, true);
+  await s.call('automations/active', { id, active: false });
+  s.advance(31 * DAY + 3600000); await s.deliver(); // +1 hour: daylight saving ends on Nov 1
+  assert.equal(sentTo().length, 3); // paused
+  await s.call('automations/active', { id, active: true }); await s.deliver();
+  assert.deepEqual(sentTo().slice(3), ['A:sent', 'B:sent', 'D:sent']); // after the cooldown, still matching
+  assert.deepEqual(s.db.prepare("SELECT action FROM crm_audit WHERE action LIKE '%automation%' ORDER BY at").all().map(a => a.action),
+    ['create_automation', 'pause_automation', 'resume_automation']);
+});
+
+test('"only once" automatic messages never repeat, and held-back people stay held back', async () => {
+  const s = await campaigns(); s.advance(3600000);
+  for (let i = 0; i < 30; i++) await s.optIn(`Q${i}`, ['events']);
+  const { id } = await (await s.call('automations/create', { automation: { name: 'Welcome', topic: 'events', body: 'Welcome to Deals & news from Treehouse!',
+    link: 'home', definition: null, audienceLabel: 'Everyone', holdoutPct: 20, cooldownDays: 0 } })).json();
+  await s.deliver();
+  const first = s.db.prepare(`SELECT r.customer_id, r.state FROM crm_campaign_recipients r JOIN crm_campaigns c ON c.id = r.campaign_id
+    WHERE c.automation_id = ?`).all(id);
+  assert.equal(first.length, 32); assert.ok(first.some(r => r.state === 'holdout'));
+  s.advance(400 * DAY); await s.deliver();
+  assert.equal(s.db.prepare('SELECT COUNT(*) n FROM crm_campaigns WHERE automation_id = ?').get(id).n, 1);
 });

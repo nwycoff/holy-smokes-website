@@ -2,6 +2,9 @@ import { createRemoteJWKSet, customFetch, jwtVerify } from 'jose';
 import { AppError, bodyJSON, fetchSafe, hash, json, randomToken, sameOrigin } from '../customer-app/http.mjs';
 import { crmReady, forgetStatements } from './sync.mjs';
 import { GROUPS, members, preview, validateDefinition } from './segments.mjs';
+import { campaignsReady, cancelCampaign, createAutomation, createCampaign, listAutomations, listCampaigns, previewCampaign,
+  setAutomationActive, validateAutomation, validateCampaign, AUTOMATION_HOUR, COOLDOWNS, HOLDOUTS, LINKS, QUIET, WEEKLY_CAP } from './campaigns.mjs';
+import { TOPICS } from '../customer-app/marketing.mjs';
 
 // Owner/manager CRM at /crm/, behind its own Cloudflare Access application. Every request is
 // re-verified here (signature, issuer, audience, approved email). Customer names are fetched
@@ -114,7 +117,9 @@ export async function handleCrm({ request, env }, overrides = {}) {
     report: code => console.warn(`TREEHOUSE_CRM_FAILURE ${code}`), ...overrides };
   const url = new URL(request.url), route = url.pathname.replace(/^\/api\/crm\//, '').replace(/\/$/, '');
   const allowed = { session: 'GET', overview: 'GET', brands: 'GET', segments: 'GET', audit: 'GET',
-    preview: 'POST', customers: 'POST', 'segments/save': 'POST', 'segments/delete': 'POST', forget: 'POST' };
+    preview: 'POST', customers: 'POST', 'segments/save': 'POST', 'segments/delete': 'POST', forget: 'POST',
+    campaigns: 'GET', 'campaigns/preview': 'POST', 'campaigns/send': 'POST', 'campaigns/test': 'POST', 'campaigns/cancel': 'POST',
+    'settings/test-customer': 'POST', 'automations/create': 'POST', 'automations/active': 'POST' };
   if (!allowed[route]) return json(404, { error: 'Not found.' });
   if (allowed[route] !== request.method) return json(405, { error: 'Method not allowed.' }, { Allow: allowed[route] });
   try {
@@ -135,6 +140,13 @@ export async function handleCrm({ request, env }, overrides = {}) {
       const { results = [] } = await db.prepare('SELECT id, name, definition, created_by, updated_at FROM crm_segments ORDER BY name').bind().run();
       return json(200, { segments: results.map(s => ({ ...s, definition: JSON.parse(s.definition) })) });
     }
+    if ((route.startsWith('campaigns') || route.startsWith('automations')) && !campaignsReady(env)) throw new AppError('CAMPAIGNS_CONFIG');
+    const testCustomer = async () => (await db.prepare('SELECT test_customer_id FROM crm_settings WHERE email = ?')
+      .bind(user.email).first())?.test_customer_id || null;
+    if (route === 'campaigns') return json(200, { campaigns: await listCampaigns(env, now), testPhone: Boolean(await testCustomer()),
+      topics: TOPICS, links: Object.keys(LINKS), holdouts: HOLDOUTS,
+      weeklyCap: WEEKLY_CAP, quietHours: QUIET, automations: await listAutomations(env, now), cooldowns: COOLDOWNS,
+      automationHour: AUTOMATION_HOUR });
     if (route === 'audit') {
       const { results = [] } = await db.prepare('SELECT at, actor, action, detail FROM crm_audit ORDER BY at DESC LIMIT 100').bind().run();
       return json(200, { audit: results });
@@ -166,6 +178,49 @@ export async function handleCrm({ request, env }, overrides = {}) {
       await audit(env, deps, user.email, 'delete_segment', null);
       return json(200, { deleted: true });
     }
+    if (route === 'campaigns/preview') return json(200, await previewCampaign(env, validateCampaign(input.campaign, env, now), now));
+    if (route === 'campaigns/send') {
+      await limit(env, deps, `crm-send:${user.email}`, 10, 3600000);
+      const campaign = validateCampaign(input.campaign, env, now), id = await createCampaign(env, user.email, campaign, now);
+      await audit(env, deps, user.email, 'send_campaign', { name: campaign.name, topic: campaign.topic, audience: campaign.audienceLabel,
+        sendAt: campaign.sendAt });
+      return json(200, { id });
+    }
+    if (route === 'campaigns/test') {
+      await limit(env, deps, `crm-test:${user.email}`, 10, 600000);
+      const customerId = await testCustomer();
+      if (!customerId) throw new AppError('CAMPAIGN_TEST_PHONE', 400);
+      await createCampaign(env, user.email, validateCampaign(input.campaign, env, now), now, customerId);
+      await audit(env, deps, user.email, 'test_campaign', null);
+      return json(200, { queued: true });
+    }
+    if (route === 'automations/create') {
+      await limit(env, deps, `crm-send:${user.email}`, 10, 3600000);
+      const automation = validateAutomation(input.automation, env, now), id = await createAutomation(env, user.email, automation, now);
+      await audit(env, deps, user.email, 'create_automation', { name: automation.name, topic: automation.topic,
+        audience: automation.audienceLabel, cooldownDays: automation.cooldownDays });
+      return json(200, { id });
+    }
+    if (route === 'automations/active') {
+      if (typeof input.id !== 'string' || !/^[a-f0-9]{64}$/.test(input.id) || typeof input.active !== 'boolean') throw new AppError('INPUT', 400);
+      await setAutomationActive(env, input.id, input.active, now);
+      await audit(env, deps, user.email, input.active ? 'resume_automation' : 'pause_automation', null);
+      return json(200, { active: input.active });
+    }
+    if (route === 'campaigns/cancel') {
+      if (typeof input.id !== 'string' || !/^[a-f0-9]{64}$/.test(input.id)) throw new AppError('INPUT', 400);
+      await cancelCampaign(env, input.id, now);
+      await audit(env, deps, user.email, 'cancel_campaign', null);
+      return json(200, { canceled: true });
+    }
+    if (route === 'settings/test-customer') {
+      if (typeof input.customerId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(input.customerId)) throw new AppError('INPUT', 400);
+      await db.prepare(`INSERT INTO crm_settings(email, test_customer_id, updated_at) VALUES (?, ?, ?)
+        ON CONFLICT(email) DO UPDATE SET test_customer_id = excluded.test_customer_id, updated_at = excluded.updated_at`)
+        .bind(user.email, input.customerId, now).run();
+      await audit(env, deps, user.email, 'set_test_phone', null);
+      return json(200, { testPhone: true });
+    }
     if (route === 'forget') {
       // A customer's request to be removed. Their GrowFlow record is untouched.
       if (typeof input.customerId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(input.customerId)) throw new AppError('INPUT', 400);
@@ -186,6 +241,12 @@ export async function handleCrm({ request, env }, overrides = {}) {
       CRM_CSRF: 'Please reload the page and try again.', SEGMENT_RULES: 'Please check the segment rules.',
       SEGMENT_NAME: 'Please give the segment a name.', CRM_RATE_LIMITED: 'GrowFlow is busy. Please try again in a minute.',
       INPUT: 'Please check the information and try again.',
+      CAMPAIGNS_CONFIG: 'Deals & news campaigns aren’t switched on yet.', CAMPAIGN_NAME: 'Please give the campaign a name.',
+      CAMPAIGN_LENGTH: 'The message needs to be 10 to 120 characters.',
+      CAMPAIGN_DISCREET: 'Notifications show on lock screens, so please leave out cannabis words (product types, THC, strains, weights). Say it inside the app instead.',
+      CAMPAIGN_CLAIMS: 'Please leave out health claims (pain, anxiety, relief, cures…). Oklahoma rules don’t allow them.',
+      CAMPAIGN_TIME: 'Please pick a time within the next 30 days.', CAMPAIGN_DONE: 'That campaign has already finished.',
+      CAMPAIGN_TEST_PHONE: 'Choose your own customer record first: Show customers, find yourself, then “Use for my tests”.',
       CRM_DB_BUSY: 'The CRM is busy loading history from GrowFlow. Please try again in a moment.',
       CRM_DB_TIMEOUT: 'That took too long while history is loading. Please try again in a moment.' };
     return json(known ? error.status : 503, { error: messages[code] || 'The CRM is temporarily unavailable.' });
