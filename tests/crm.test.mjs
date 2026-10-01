@@ -177,6 +177,22 @@ test('saved segments, customer removal, and app adoption flags', async () => {
   assert.deepEqual(s.db.prepare('SELECT action FROM crm_audit ORDER BY at').all().map(a => a.action).sort(), ['delete_segment', 'forget_customer', 'save_segment']);
 });
 
+test('re-reading unchanged records and app flags writes nothing (D1 bills every row written)', async () => {
+  const s = await setup(); seed(s);
+  s.env.APP_DB.db.exec("INSERT INTO app_users(id, identity_hash, customer_id, created_at) VALUES ('u1', 'h1', 'A', 1)");
+  await s.sync();
+  s.db.exec('CREATE TABLE writes (n INTEGER); INSERT INTO writes VALUES (0);');
+  for (const t of ['crm_customers', 'crm_orders', 'crm_lines', 'crm_brands', 'crm_categories'])
+    s.db.exec(`CREATE TRIGGER count_${t} AFTER UPDATE ON ${t} BEGIN UPDATE writes SET n = n + 1; END;`);
+  s.db.exec('DELETE FROM crm_sync_state'); s.advance(60000);
+  await s.sync(); await s.sync();
+  assert.equal(s.db.prepare('SELECT n FROM writes').get().n, 0);
+  s.env.APP_DB.db.exec("UPDATE app_users SET customer_id = 'B' WHERE id = 'u1'");
+  Object.assign(s.gf.store.customers.find(c => c.objectId === 'C'), { CurrentPoints: 300, updatedAt: new Date(s.now()).toISOString() });
+  await s.sync();
+  assert.equal(s.db.prepare('SELECT n FROM writes').get().n, 3); // A unlinked, B linked, C's points
+  assert.deepEqual(s.db.prepare('SELECT id FROM crm_customers WHERE app_linked = 1').all().map(r => r.id), ['B']);
+});
 test('a busy GrowFlow gets smaller pages, and one failing source does not stop the others', async () => {
   const s = await setup(); seed(s);
   s.gf.failNext.count = 1; await s.sync();

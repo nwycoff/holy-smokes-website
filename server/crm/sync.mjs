@@ -86,26 +86,33 @@ async function apply(env, source, nodes, now) {
       }
       statements.push(db.prepare(`INSERT INTO crm_customers(id, first_seen, last_visit, updated_at) VALUES (?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET first_seen = MIN(first_seen, excluded.first_seen),
-        last_visit = MAX(COALESCE(last_visit, 0), excluded.last_visit), updated_at = excluded.updated_at`)
+        last_visit = MAX(COALESCE(last_visit, 0), excluded.last_visit), updated_at = excluded.updated_at
+        WHERE crm_customers.first_seen > excluded.first_seen OR COALESCE(crm_customers.last_visit, 0) < excluded.last_visit`)
         .bind(row.customerId, row.completed, row.completed, now));
       statements.push(db.prepare(`INSERT INTO crm_orders(id, customer_id, completed_at, total_cents, is_preorder, status, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET customer_id = excluded.customer_id,
         completed_at = excluded.completed_at, total_cents = excluded.total_cents, is_preorder = excluded.is_preorder,
-        status = excluded.status, updated_at = excluded.updated_at`)
+        status = excluded.status, updated_at = excluded.updated_at
+        WHERE (crm_orders.customer_id, crm_orders.completed_at, crm_orders.total_cents, crm_orders.is_preorder, crm_orders.status)
+          IS NOT (excluded.customer_id, excluded.completed_at, excluded.total_cents, excluded.is_preorder, excluded.status)`)
         .bind(row.id, row.customerId, row.completed, row.totalCents, row.preorder, row.status, now));
     } else if (source === 'lines') {
       const row = lineRow(env, node, now);
       if (!row) continue;
       if (!row.customerId || !row.sold) { statements.push(db.prepare('DELETE FROM crm_lines WHERE id = ?').bind(row.id)); continue; }
       if (row.brandId && row.brandName) statements.push(db.prepare(`INSERT INTO crm_brands(id, name) VALUES (?, ?)
-        ON CONFLICT(id) DO UPDATE SET name = excluded.name`).bind(row.brandId, row.brandName));
+        ON CONFLICT(id) DO UPDATE SET name = excluded.name WHERE crm_brands.name IS NOT excluded.name`).bind(row.brandId, row.brandName));
       if (row.categoryId && row.categoryName) statements.push(db.prepare(`INSERT INTO crm_categories(id, name, category_group)
-        VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, category_group = excluded.category_group`)
+        VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, category_group = excluded.category_group
+        WHERE (crm_categories.name, crm_categories.category_group) IS NOT (excluded.name, excluded.category_group)`)
         .bind(row.categoryId, row.categoryName, row.group));
       statements.push(db.prepare(`INSERT INTO crm_lines(id, customer_id, sold_at, category_group, category_id, brand_id, net_cents, returned, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET customer_id = excluded.customer_id, sold_at = excluded.sold_at,
         category_group = excluded.category_group, category_id = excluded.category_id, brand_id = excluded.brand_id,
-        net_cents = excluded.net_cents, returned = excluded.returned, updated_at = excluded.updated_at`)
+        net_cents = excluded.net_cents, returned = excluded.returned, updated_at = excluded.updated_at
+        WHERE (crm_lines.customer_id, crm_lines.sold_at, crm_lines.category_group, crm_lines.category_id, crm_lines.brand_id,
+          crm_lines.net_cents, crm_lines.returned) IS NOT (excluded.customer_id, excluded.sold_at, excluded.category_group,
+          excluded.category_id, excluded.brand_id, excluded.net_cents, excluded.returned)`)
         .bind(row.id, row.customerId, row.sold, row.group, row.categoryId, row.brandId, row.netCents, row.returned, now));
     } else {
       const customerId = id(node?.objectId);
@@ -117,7 +124,9 @@ async function apply(env, source, nodes, now) {
       statements.push(db.prepare(`INSERT INTO crm_customers(id, first_seen, birth_month, customer_type, points, updated_at)
         VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET first_seen = MIN(first_seen, excluded.first_seen),
         birth_month = excluded.birth_month, customer_type = excluded.customer_type, points = excluded.points,
-        updated_at = excluded.updated_at`)
+        updated_at = excluded.updated_at
+        WHERE crm_customers.first_seen > excluded.first_seen OR (crm_customers.birth_month, crm_customers.customer_type, crm_customers.points)
+          IS NOT (excluded.birth_month, excluded.customer_type, excluded.points)`)
         .bind(customerId, created, born ? new Date(born).getUTCMonth() + 1 : null, type,
           Number.isFinite(node.CurrentPoints) ? node.CurrentPoints : null, now));
     }
@@ -181,12 +190,13 @@ async function syncAppFlags(env) {
   const linked = (await env.APP_DB.prepare('SELECT customer_id FROM app_users WHERE customer_id IS NOT NULL').bind().run()).results || [];
   const push = (await env.APP_DB.prepare(`SELECT DISTINCT u.customer_id FROM app_push_subscriptions s
     JOIN app_users u ON u.id = s.user_id WHERE u.customer_id IS NOT NULL`).bind().run()).results || [];
-  const statements = [env.CRM_DB.prepare('UPDATE crm_customers SET app_linked = 0, app_push = 0').bind()];
-  for (const [column, rows] of [['app_linked', linked], ['app_push', push]])
-    for (let i = 0; i < rows.length; i += 50) {
-      const ids = rows.slice(i, i + 50).map(r => r.customer_id).filter(id);
-      if (ids.length) statements.push(env.CRM_DB.prepare(`UPDATE crm_customers SET ${column} = 1 WHERE id IN (${ids.map(() => '?').join(',')})`).bind(...ids));
-    }
+  // Only rows whose flag actually changes are written (every write counts against D1 usage).
+  const statements = [];
+  for (const [column, rows] of [['app_linked', linked], ['app_push', push]]) {
+    const ids = JSON.stringify([...new Set(rows.map(r => r.customer_id).filter(id))]);
+    statements.push(env.CRM_DB.prepare(`UPDATE crm_customers SET ${column} = 0 WHERE ${column} = 1 AND id NOT IN (SELECT value FROM json_each(?))`).bind(ids),
+      env.CRM_DB.prepare(`UPDATE crm_customers SET ${column} = 1 WHERE ${column} = 0 AND id IN (SELECT value FROM json_each(?))`).bind(ids));
+  }
   await env.CRM_DB.batch(statements);
 }
 

@@ -7,8 +7,7 @@ compatibility_date = "2026-09-29"
 workers_dev = false
 
 [triggers]
-# Paused 2026-10-01: the history backfill used up the free D1 daily write limit.
-crons = []
+crons = ["* * * * *"]
 
 [[d1_databases]]
 binding = "CRM_DB"
