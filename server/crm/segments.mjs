@@ -42,7 +42,7 @@ export function validateDefinition(input) {
   }
   if (d.pointsMin !== undefined) { if (!num(d.pointsMin, 0, 1000000)) fail(); out.pointsMin = d.pointsMin; }
   if (d.birthday !== undefined) { if (!['this_month', 'next_month'].includes(d.birthday)) fail(); out.birthday = d.birthday; }
-  if (d.app !== undefined) { if (!['linked', 'not_linked', 'push'].includes(d.app)) fail(); out.app = d.app; }
+  if (d.app !== undefined) { if (!['linked', 'not_linked', 'push', 'marketing'].includes(d.app)) fail(); out.app = d.app; }
   if (d.newWithinDays !== undefined) { if (!int(d.newWithinDays, 1, 730)) fail(); out.newWithinDays = d.newWithinDays; }
   if (!Object.keys(out).length) fail();
   return out;
@@ -85,6 +85,7 @@ export function compile(def, now) {
   if (def.app === 'linked') where.push('c.app_linked = 1');
   if (def.app === 'not_linked') where.push('c.app_linked = 0');
   if (def.app === 'push') where.push('c.app_push = 1');
+  if (def.app === 'marketing') where.push('c.app_marketing = 1');
   if (def.newWithinDays) { where.push('c.first_seen >= ? AND c.last_visit IS NOT NULL'); params.push(since(def.newWithinDays)); }
   return { where: where.join(' AND '), params };
 }
@@ -93,11 +94,11 @@ export function compile(def, now) {
 export async function preview(db, def, now) {
   const { where, params } = compile(def, now);
   const row = await db.prepare(`SELECT COUNT(*) AS customers, AVG(c.points) AS avg_points, SUM(c.app_linked) AS app_linked,
-    SUM(c.app_push) AS app_push, (SELECT COALESCE(SUM(o.total_cents), 0) FROM crm_orders o WHERE o.completed_at >= ?
+    SUM(c.app_push) AS app_push, SUM(c.app_marketing) AS app_marketing, (SELECT COALESCE(SUM(o.total_cents), 0) FROM crm_orders o WHERE o.completed_at >= ?
       AND o.customer_id IN (SELECT c.id FROM crm_customers c WHERE ${where})) AS spend_90_cents
     FROM crm_customers c WHERE ${where}`).bind(now - 90 * DAY, ...params, ...params).first();
   return { customers: row?.customers || 0, avgPoints: row?.avg_points === null ? null : Math.round(row?.avg_points || 0),
-    appLinked: row?.app_linked || 0, appPush: row?.app_push || 0, spend90Cents: row?.spend_90_cents || 0 };
+    appLinked: row?.app_linked || 0, appPush: row?.app_push || 0, appMarketing: row?.app_marketing || 0, spend90Cents: row?.spend_90_cents || 0 };
 }
 
 const SORTS = { spend: 'spend_90_cents DESC', recent: 'c.last_visit DESC', visits: 'visits_90 DESC', points: 'c.points DESC' };
@@ -105,7 +106,7 @@ const SORTS = { spend: 'spend_90_cents DESC', recent: 'c.last_visit DESC', visit
 export async function members(db, def, now, sort = 'spend', limit = 200) {
   const { where, params } = compile(def, now);
   const since90 = now - 90 * DAY, since365 = now - 365 * DAY;
-  const { results = [] } = await db.prepare(`SELECT c.id, c.last_visit, c.points, c.app_linked, c.app_push, c.birth_month,
+  const { results = [] } = await db.prepare(`SELECT c.id, c.last_visit, c.points, c.app_linked, c.app_push, c.app_marketing, c.birth_month,
     (SELECT COUNT(*) FROM crm_orders o WHERE o.customer_id = c.id AND o.completed_at >= ?) AS visits_90,
     (SELECT COALESCE(SUM(o.total_cents), 0) FROM crm_orders o WHERE o.customer_id = c.id AND o.completed_at >= ?) AS spend_90_cents,
     (SELECT l.category_group FROM crm_lines l WHERE l.customer_id = c.id AND l.returned = 0 AND l.sold_at >= ?

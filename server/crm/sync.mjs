@@ -190,9 +190,13 @@ async function syncAppFlags(env) {
   const linked = (await env.APP_DB.prepare('SELECT customer_id FROM app_users WHERE customer_id IS NOT NULL').bind().run()).results || [];
   const push = (await env.APP_DB.prepare(`SELECT DISTINCT u.customer_id FROM app_push_subscriptions s
     JOIN app_users u ON u.id = s.user_id WHERE u.customer_id IS NOT NULL`).bind().run()).results || [];
+  // Opted in to Deals & news with at least one device. Skipped (left as is) until the app migration exists.
+  const marketing = (await env.APP_DB.prepare(`SELECT DISTINCT u.customer_id FROM app_marketing_prefs m
+    JOIN app_users u ON u.id = m.user_id JOIN app_push_subscriptions s ON s.user_id = u.id
+    WHERE u.customer_id IS NOT NULL AND m.topics <> '[]'`).bind().run().catch(() => null))?.results;
   // Only rows whose flag actually changes are written (every write counts against D1 usage).
   const statements = [];
-  for (const [column, rows] of [['app_linked', linked], ['app_push', push]]) {
+  for (const [column, rows] of [['app_linked', linked], ['app_push', push], ...(marketing ? [['app_marketing', marketing]] : [])]) {
     const ids = JSON.stringify([...new Set(rows.map(r => r.customer_id).filter(id))]);
     statements.push(env.CRM_DB.prepare(`UPDATE crm_customers SET ${column} = 0 WHERE ${column} = 1 AND id NOT IN (SELECT value FROM json_each(?))`).bind(ids),
       env.CRM_DB.prepare(`UPDATE crm_customers SET ${column} = 1 WHERE ${column} = 0 AND id IN (SELECT value FROM json_each(?))`).bind(ids));

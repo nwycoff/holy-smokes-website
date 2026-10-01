@@ -194,6 +194,16 @@ The menu has a **Filters** panel (strain type including **CBD-rich**, flower siz
 - **Purchase limits (per order):** GrowFlow's API does not expose the store's Medical Purchase Limits, so the app mirrors them: flower 84 g and concentrate 28 g (unit weight), edible 72 oz (net weight; OMMA does not separate liquid edibles), topical 72 oz (unit weight), seed 10 and clone 6. Turn on with `APP_PURCHASE_LIMITS_ENABLED=true`; if GrowFlow's limits change, override any group with `APP_PURCHASE_LIMITS` as JSON, e.g. `{"flower":84,"concentrate":28}`. Products are grouped by their GrowFlow product category **Type** (needs the **Product categories** read scope on `APP_GROWFLOW_TOKEN`; cached an hour) and otherwise by category name keywords (pre-roll, cartridge, gummies…). Items with an unknown weight or group are not counted; the POS still enforces limits, including any over time, at checkout. The cart stops additions over a limit, the order screen shows usage ("7 of 84 g flower"), and the server refuses orders over a limit.
 - There are no effect-based filters ("sleepy", "energetic"): GrowFlow has no such data, and Oklahoma rules limit effect and health claims.
 
+## 11. Deals & news (marketing notifications, opt-in)
+
+Linked customers can turn on **Deals & news** under Account, choosing topics: new arrivals & restocks, rewards & points reminders, events, specials. It is separate from order-ready alerts: turning it off never stops those, and order-ready permission is never used for marketing. The app asks once at a good moment (when an order is ready or picked up, or on My points); "Not now" stops the prompt for 90 days. The customer is promised **no more than 2 a week, never late at night, and discreet lock-screen wording**; the campaign sender must enforce all three.
+
+- Consent is per account. `app_marketing_prefs` holds the chosen topics (`[]` = off), when it was last turned on and when the customer was last asked; `app_marketing_consent_log` records each change of topics with the time and where it was made (`account` or `prompt`). Both are deleted when the customer removes their rewards connection.
+- Messages go to the account's devices that are set up for notifications (the same push subscriptions as order-ready alerts). The service worker opens only `/app/` screens and tags news separately (`treehouse-news`) so it never replaces an order alert.
+- The CRM sync marks customers who opted in and have a device (`app_marketing`), shown as **Get Deals & news** on the dashboard and as the segment option "gets Deals & news".
+- Setup: run `app-migrations/0008_customer_app_marketing.sql` in `APP_DB` and `crm-migrations/0002_crm_marketing.sql` **once** in `CRM_DB`, then set `APP_MARKETING_ENABLED=true` on the Pages project (needs push and preorders on). The privacy section in the app describes it.
+- Sending campaigns is the next release; nothing sends Deals & news yet.
+
 ## API budget and operational notes
 
 One shared menu read per minute plus at most 30 total GrowFlow queries/minute for this app/token, capped with transactional counters. Each customer's points requests are capped at ten/minute. Responses with 20 or fewer requests remaining or HTTP 429 set shared backoff using the reset/Retry-After headers. There are no automatic upstream retries. Use a separate token so other applications do not consume this app's headroom unnoticed.
@@ -206,7 +216,7 @@ Before a public launch: complete actual Auth0/Cloudflare/GrowFlow tests; test iP
 
 ## Later releases
 
-Offers/push, birthday automation, purchase-history segments, redemption, delivery and pickup-time slots are not implemented or switched on. A push permission prompt is not shown. Those features need separate consent, verified source fields and redemption rules. The app does not read order histories; it reads a linked customer's birth date only at the moment they place a preorder, because GrowFlow requires it, and does not store it.
+Campaign sending, birthday automation, redemption, delivery and pickup-time slots are not implemented or switched on. Those need verified source fields and redemption rules. The app itself does not read order histories (the separate CRM does, for staff); it reads a linked customer's birth date only at the moment they place a preorder, because GrowFlow requires it, and does not store it.
 
 ## Primary references
 

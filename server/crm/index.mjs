@@ -88,6 +88,7 @@ async function overview(env, now) {
       (SELECT COUNT(*) FROM crm_customers WHERE birth_month = ? AND last_visit >= ?) AS birthdays_month,
       (SELECT COUNT(*) FROM crm_customers WHERE app_linked = 1) AS app_linked,
       (SELECT COUNT(*) FROM crm_customers WHERE app_push = 1) AS app_push,
+      (SELECT COUNT(*) FROM crm_customers WHERE app_marketing = 1) AS app_marketing,
       (SELECT COUNT(*) FROM crm_customers WHERE points >= 225 AND last_visit >= ?) AS can_redeem,
       (SELECT COUNT(*) FROM crm_orders WHERE completed_at >= ?) AS visits_30,
       (SELECT COALESCE(SUM(total_cents), 0) FROM crm_orders WHERE completed_at >= ?) AS revenue_30_cents,

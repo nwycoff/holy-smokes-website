@@ -13,7 +13,7 @@ const TEMPLATES = [
   ['Edible buyers', { categories: { groups: ['edible'], days: 90 } }],
   ['Recent visitors not on the app', { lastVisit: { maxDays: 30 }, app: 'not_linked' }],
   ['New customers (30 days)', { newWithinDays: 30 }],
-  ['App notification subscribers', { app: 'push' }]
+  ['Deals & news subscribers', { app: 'marketing' }]
 ];
 let session = null, current = null, currentName = '';
 
@@ -58,7 +58,8 @@ async function loadOverview() {
     kpi('Lapsed 60–180 days', count.format(t.lapsed_60_180 || 0), 'good win-back audience'),
     kpi('Birthdays this month', count.format(t.birthdays_month || 0)),
     kpi('Can redeem a reward', count.format(t.can_redeem || 0), '225+ points'),
-    kpi('On My Treehouse', count.format(t.app_linked || 0), `${count.format(t.app_push || 0)} get notifications`),
+    kpi('On My Treehouse', count.format(t.app_linked || 0), `${count.format(t.app_push || 0)} get order alerts`),
+    kpi('Get Deals & news', count.format(t.app_marketing || 0), 'opted in, with a device'),
     kpi('Online orders · 30 days', count.format(t.preorders_30 || 0)));
   bars($('categories'), o.categories || [], r => LABELS[r.grp] || r.grp);
   bars($('brands'), o.brands || [], r => r.name);
@@ -105,7 +106,7 @@ async function countSegment(def, name = '') {
   const box = $('preview'); box.hidden = false;
   const stats = el('div', '', 'preview-stats');
   stats.append(el('strong', `${count.format(p.customers)} customers`), el('span', `${money.format(p.spend90Cents / 100)} spent in 90 days`),
-    el('span', p.avgPoints === null ? '' : `average ${count.format(p.avgPoints)} points`), el('span', `${count.format(p.appLinked)} on the app · ${count.format(p.appPush)} get notifications`));
+    el('span', p.avgPoints === null ? '' : `average ${count.format(p.avgPoints)} points`), el('span', `${count.format(p.appLinked)} on the app · ${count.format(p.appMarketing || 0)} get Deals & news`));
   const save = el('button', 'Save segment', 'secondary'); save.type = 'button'; save.addEventListener('click', saveSegment);
   const show = el('button', 'Show customers'); show.type = 'button'; show.addEventListener('click', () => showCustomers().catch(e => message(e.message, true)));
   const actions = el('div', '', 'actions'); actions.append(show, save);
@@ -132,7 +133,7 @@ async function showCustomers(sort = 'spend') {
       try { await api('forget', { customerId: c.id }); row.remove(); message('Customer removed from the CRM.'); } catch (e) { message(e.message, true); }
     });
     [c.name || 'Name unavailable', ago(c.last_visit), count.format(c.visits_90), money.format(c.spend_90_cents / 100),
-      LABELS[c.top_group] || '—', c.points === null ? '—' : count.format(Math.floor(c.points)), c.app_push ? 'Notifications' : c.app_linked ? 'Yes' : '—']
+      LABELS[c.top_group] || '—', c.points === null ? '—' : count.format(Math.floor(c.points)), c.app_marketing ? 'Deals & news' : c.app_push ? 'Order alerts' : c.app_linked ? 'Yes' : '—']
       .forEach(v => row.append(el('td', v)));
     const cell = el('td'); cell.append(forget); row.append(cell); body.append(row);
   }

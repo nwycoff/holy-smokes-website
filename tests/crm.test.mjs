@@ -200,6 +200,20 @@ test('a run stops starting pages after its time budget so minute runs never over
   const result = await runSync(s.env, { ...s.deps, now: () => (t += 10000) }, 40, 45000);
   assert.ok(result.pages >= 1 && result.pages <= 4, `ran ${result.pages} pages`);
 });
+test('Deals & news counts only opted-in customers who have a device, and can be targeted', async () => {
+  const s = await setup(); seed(s);
+  const app = s.env.APP_DB.db;
+  app.exec("INSERT INTO app_users(id, identity_hash, customer_id, created_at) VALUES ('u1', 'h1', 'A', 1), ('u2', 'h2', 'B', 1), ('u3', 'h3', 'C', 1)");
+  app.exec("INSERT INTO app_push_subscriptions(endpoint, user_id, p256dh, auth, created_at) VALUES ('https://fcm.googleapis.com/a', 'u1', 'k', 'a', 1), ('https://fcm.googleapis.com/c', 'u3', 'k', 'a', 1)");
+  app.exec(`INSERT INTO app_marketing_prefs(user_id, topics, updated_at) VALUES ('u1', '["events"]', 1), ('u2', '["events"]', 1), ('u3', '[]', 1)`);
+  await s.sync();
+  assert.deepEqual(s.db.prepare('SELECT id FROM crm_customers WHERE app_marketing = 1').all().map(r => r.id), ['A']);
+  const p = await (await s.run('preview', { definition: { app: 'marketing' } })).json();
+  assert.equal(p.customers, 1); assert.equal(p.appMarketing, 1);
+  assert.equal((await (await s.run('overview')).json()).totals.app_marketing, 1);
+  app.exec("UPDATE app_marketing_prefs SET topics = '[]' WHERE user_id = 'u1'"); await s.sync();
+  assert.equal(s.db.prepare('SELECT count(*) n FROM crm_customers WHERE app_marketing = 1').get().n, 0);
+});
 test('a busy GrowFlow gets smaller pages, and one failing source does not stop the others', async () => {
   const s = await setup(); seed(s);
   s.gf.failNext.count = 1; await s.sync();
