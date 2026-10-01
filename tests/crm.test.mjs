@@ -281,7 +281,7 @@ async function campaigns() {
   return { ...s, app, pushes, optIn, draft, call, send, states, deliver: () => sendCampaigns(s.env, s.deps) };
 }
 
-test('campaign wording stays discreet and claim-free; specials stay locked until allowed', () => {
+test('campaign wording stays discreet and claim-free; every topic, including specials, can be sent', () => {
   const env = {}, now = Date.UTC(2026, 9, 1, 15), base = { name: 'X', topic: 'events', body: 'Join us Saturday for our anniversary party!',
     link: 'home', holdoutPct: 10 };
   assert.equal(validateCampaign(base, env, now).sendAt, now);
@@ -290,8 +290,7 @@ test('campaign wording stays discreet and claim-free; specials stay locked until
   assert.equal(code({ body: 'New gummies are in. Tap to see.' }), 'CAMPAIGN_DISCREET');
   assert.equal(code({ body: 'Our best picks for pain relief are here' }), 'CAMPAIGN_CLAIMS');
   assert.equal(code({ body: 'Hi' }), 'CAMPAIGN_LENGTH');
-  assert.equal(code({ topic: 'specials' }), 'CAMPAIGN_SPECIALS');
-  env.CRM_SPECIALS_ALLOWED = 'true'; assert.equal(code({ topic: 'specials' }), 'ok');
+  assert.equal(code({ topic: 'specials' }), 'ok');
   assert.equal(code({ link: 'https://example.test' }), 'INPUT');
   assert.equal(code({ holdoutPct: 50 }), 'INPUT');
   assert.equal(code({ sendAt: now + 40 * DAY }), 'CAMPAIGN_TIME');

@@ -237,8 +237,7 @@ async function loadCampaigns() {
   const first = !campaignSetup; campaignSetup = data; $('campaigns-section').hidden = false;
   if (first) {
     const option = (value, text) => { const o = el('option', text); o.value = value; return o; };
-    $('cp-topic').replaceChildren(...data.topics.map(t => { const o = option(t, TOPIC_LABELS[t] || t);
-      if (t === 'specials' && !data.specialsAllowed) { o.disabled = true; o.textContent += ' (locked until confirmed)'; } return o; }));
+    $('cp-topic').replaceChildren(...data.topics.map(t => option(t, TOPIC_LABELS[t] || t)));
     $('cp-link').replaceChildren(...data.links.map(l => option(l, LINK_LABELS[l] || l)));
     $('cp-holdout').replaceChildren(...data.holdouts.map(h => option(String(h), h === 10 ? '10% (recommended)' : h ? `${h}%` : 'None')));
     $('cp-holdout').value = '10'; $('cp-link').value = 'menu'; fillAudiences();

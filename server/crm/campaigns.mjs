@@ -6,7 +6,7 @@ import { compile, validateDefinition } from './segments.mjs';
 // Deals & news campaigns. The CRM writes a campaign; the notifier Worker (which holds the
 // notification key) sends it. What customers were promised is enforced here, not by staff:
 // at most WEEKLY_CAP a week each, only between 9 am and 8 pm Central, discreet lock-screen
-// wording, and only the topics they chose. Specials stay locked until CRM_SPECIALS_ALLOWED.
+// wording, and only the topics they chose.
 const DAY = 86400000;
 export const WEEKLY_CAP = 2;
 export const QUIET = { start: 9, end: 20, zone: 'America/Chicago' };
@@ -19,7 +19,6 @@ const HEALTH_CLAIM = /\b(cures?|cured|heals?|healing|relief|relieves?|anxiety|pa
 const LEASE = 120000, RETRY = 300000, MAX_ATTEMPTS = 3, BATCH = 25;
 
 export const campaignsReady = env => env.CRM_CAMPAIGNS_ENABLED === 'true' && Boolean(env.CRM_DB && env.APP_DB);
-const specialsAllowed = env => env.CRM_SPECIALS_ALLOWED === 'true';
 
 function localHour(ms) {
   return Number(new Intl.DateTimeFormat('en-US', { timeZone: QUIET.zone, hour: 'numeric', hourCycle: 'h23' }).format(ms));
@@ -41,7 +40,6 @@ export function validateCampaign(input, env, now) {
   const name = clean(input.name, 60), body = clean(input.body, 200), audienceLabel = clean(input.audienceLabel, 80) || 'Everyone opted in';
   if (!name) fail('CAMPAIGN_NAME');
   if (!TOPICS.includes(input.topic)) fail('INPUT');
-  if (input.topic === 'specials' && !specialsAllowed(env)) throw new AppError('CAMPAIGN_SPECIALS', 403);
   if (body.length < 10 || body.length > 120) fail('CAMPAIGN_LENGTH');
   if (NOT_DISCREET.test(body)) fail('CAMPAIGN_DISCREET');
   if (HEALTH_CLAIM.test(body)) fail('CAMPAIGN_CLAIMS');

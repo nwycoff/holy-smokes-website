@@ -35,7 +35,6 @@ The **Deals & news** section of the CRM writes campaigns; the order notifier Wor
 - **At most 2 a week per person** (rolling 7 days; test sends don't count). Over the limit is recorded as "skipped for the weekly limit".
 - **Only 9 am–8 pm Central.** Anything due outside those hours waits until 9 am, and each notification expires at 8 pm, so a phone that was offline never gets it late at night.
 - **Discreet, claim-free wording:** the title is always "Treehouse Pharmacy"; messages are 10–120 characters and refused if they name cannabis products, THC/CBD, strains or weights, or make health claims.
-- **Specials are locked** until `CRM_SPECIALS_ALLOWED=true` is set on the Pages project (after confirming discount advertising is allowed).
 - **Held-back group:** 0, 5, 10 (default) or 20% of each audience is kept back, chosen the same way every time per customer. Results compare visits and spend in the 7 days after sending for the people sent it vs. those held back.
 - **Test sends** go to the phones of the CRM user's own customer record (Show customers → "Use for my tests"), at any hour, prefixed "Test:".
 - Every send, test, cancel and test-phone choice is in Recent activity. Campaign records and who got them follow the 24-month retention; removing a customer removes their rows.

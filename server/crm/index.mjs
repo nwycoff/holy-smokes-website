@@ -144,7 +144,7 @@ export async function handleCrm({ request, env }, overrides = {}) {
     const testCustomer = async () => (await db.prepare('SELECT test_customer_id FROM crm_settings WHERE email = ?')
       .bind(user.email).first())?.test_customer_id || null;
     if (route === 'campaigns') return json(200, { campaigns: await listCampaigns(env, now), testPhone: Boolean(await testCustomer()),
-      topics: TOPICS, specialsAllowed: env.CRM_SPECIALS_ALLOWED === 'true', links: Object.keys(LINKS), holdouts: HOLDOUTS,
+      topics: TOPICS, links: Object.keys(LINKS), holdouts: HOLDOUTS,
       weeklyCap: WEEKLY_CAP, quietHours: QUIET });
     if (route === 'audit') {
       const { results = [] } = await db.prepare('SELECT at, actor, action, detail FROM crm_audit ORDER BY at DESC LIMIT 100').bind().run();
@@ -231,7 +231,6 @@ export async function handleCrm({ request, env }, overrides = {}) {
       CAMPAIGN_LENGTH: 'The message needs to be 10 to 120 characters.',
       CAMPAIGN_DISCREET: 'Notifications show on lock screens, so please leave out cannabis words (product types, THC, strains, weights). Say it inside the app instead.',
       CAMPAIGN_CLAIMS: 'Please leave out health claims (pain, anxiety, relief, cures…). Oklahoma rules don’t allow them.',
-      CAMPAIGN_SPECIALS: 'Specials are locked until you’ve confirmed discount messages are allowed.',
       CAMPAIGN_TIME: 'Please pick a time within the next 30 days.', CAMPAIGN_DONE: 'That campaign has already finished.',
       CAMPAIGN_TEST_PHONE: 'Choose your own customer record first: Show customers, find yourself, then “Use for my tests”.',
       CRM_DB_BUSY: 'The CRM is busy loading history from GrowFlow. Please try again in a moment.',
