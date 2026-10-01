@@ -16,7 +16,7 @@ Owner and manager dashboard at `/crm/`: shop KPIs, top categories and brands, re
 
 ## How the sync works
 
-`workers/crm-sync` runs every minute. It reads orders, order items and customers changed since the last record it handled (two simple steps per page: finish records at the current updatedAt by objectId, then move past it; 100 per page, retried once at 25; up to 40 pages per run, about a third of GrowFlow's per-token limit), keeps the lean facts above, refreshes app adoption flags from the app database, and applies retention. The first runs backfill 24 months of history, which can take a while; the dashboard shows progress. Money is read as whole cents, like the rest of GrowFlow; set `CRM_MONEY_UNIT=dollars` on the Worker and site only if order totals turn out to be dollar amounts.
+`workers/crm-sync` runs every minute. It reads orders, order items and customers changed since the last record it handled (two simple steps per page: finish records at the current updatedAt by objectId, then move past it; 100 per page, retried once at 25; up to 40 pages per run and no new page after 45 seconds, so runs never overlap; well under GrowFlow's per-token limit), keeps the lean facts above, refreshes app adoption flags from the app database, and applies retention. The first runs backfill 24 months of history, which can take a while; the dashboard shows progress. Money is read as whole cents, like the rest of GrowFlow; set `CRM_MONEY_UNIT=dollars` on the Worker and site only if order totals turn out to be dollar amounts.
 
 ## Setup (test project first, then live)
 

@@ -213,13 +213,15 @@ export async function purge(env, now) {
 }
 
 // Scheduled run: a bounded number of GrowFlow pages across sources, then flags and retention.
-export async function runSync(env, deps, maxPages = 40) {
+export async function runSync(env, deps, maxPages = 40, budgetMs = 45000) {
   if (!crmReady(env)) return { pages: 0 };
   let pages = 0;
+  const started = deps.now();
   const pending = ['orders', 'lines', 'customers'];
   // Round-robin across sources until caught up. A source that errors is set aside for this run
-  // so the others keep moving; it is retried on the next run.
-  while (pending.length && pages < maxPages) {
+  // so the others keep moving; it is retried on the next run. No new page starts after the time
+  // budget, so a run ends before the next minute's run begins and the two never redo each other's pages.
+  while (pending.length && pages < maxPages && deps.now() - started < budgetMs) {
     const source = pending.shift();
     pages++;
     try {

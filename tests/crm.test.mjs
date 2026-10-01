@@ -193,6 +193,13 @@ test('re-reading unchanged records and app flags writes nothing (D1 bills every 
   assert.equal(s.db.prepare('SELECT n FROM writes').get().n, 3); // A unlinked, B linked, C's points
   assert.deepEqual(s.db.prepare('SELECT id FROM crm_customers WHERE app_linked = 1').all().map(r => r.id), ['B']);
 });
+test('a run stops starting pages after its time budget so minute runs never overlap', async () => {
+  const s = await setup();
+  for (let i = 0; i < 1000; i++) s.order(`slow${i}`, 'A', 10 + i / 100, 100);
+  let t = s.now();
+  const result = await runSync(s.env, { ...s.deps, now: () => (t += 10000) }, 40, 45000);
+  assert.ok(result.pages >= 1 && result.pages <= 4, `ran ${result.pages} pages`);
+});
 test('a busy GrowFlow gets smaller pages, and one failing source does not stop the others', async () => {
   const s = await setup(); seed(s);
   s.gf.failNext.count = 1; await s.sync();
