@@ -811,7 +811,7 @@ test('products are grouped for purchase limits by GrowFlow category type, fallin
   assert.equal(limitGroup('','Vape Cartridges'),'concentrate');assert.equal(limitGroup('','Gummies'),'edible');
   assert.equal(limitGroup('Edible','Infused Pre-Roll'),'edible'); // Type wins over the name.
   assert.equal(limitGroup('','Drinks'),'edible');assert.equal(limitGroup('','Lotion'),'topical');
-  assert.equal(limitGroup('','Seeds'),'seed');assert.equal(limitGroup('','Clones'),'clone');assert.equal(limitGroup('','Accessories'),null);
+  assert.equal(limitGroup('','Seeds'),'seed');assert.equal(limitGroup('','Dab Accessories'),null);assert.equal(limitGroup('','Batteries / Pens'),null);assert.equal(limitGroup('','Papers / Wraps'),null);assert.equal(limitGroup('','Live Badder Buckets - 3.5'),'concentrate');assert.equal(limitGroup('','Infused Pre-Roll'),'flower');assert.equal(limitGroup('','Clones'),'clone');assert.equal(limitGroup('','Accessories'),null);
   const pkg={storageLocation:'Front',isSellable:true,inventoryQty:50,testResults:null};
   const menu=normalizeMenu({pricesIncludeTax:true,menuGroups:[{name:'Edibles and Pre-Rolls',products:[
     {id:'pr',name:'Pre-roll',category:'Pre-Rolls',categoryId:'c1',uom:'Each',unitWeight:1,unitWeightUOM:'Grams',variants:[{price:800}],packages:[pkg]},
@@ -855,4 +855,53 @@ test('a failed menu refresh logs why (e.g. a timeout)', async () => {
   s.deps.fetch=async()=>{ const e=new Error('The operation timed out'); e.name='TimeoutError'; throw e; };
   const stale=await (await s.run('menu')).json();assert.equal(stale.stale,true);
   assert.ok(s.codes.includes('MENU_REFRESH_GROWFLOW_HTTP_TIMEOUT'),s.codes.join(' '));
+});
+
+test('Deals & news is off until enabled, needs a linked account and CSRF, and accepts only known topics', async () => {
+  const s=await withPush();
+  assert.equal((await (await s.run('config')).json()).marketingEnabled,false);
+  const b=await s.linked(), news=(body,headers={'x-treehouse-csrf':b.csrf})=>s.run('marketing',{method:'POST',cookie:b.cookie,body,headers});
+  assert.equal((await (await s.run('session',{cookie:b.cookie})).json()).marketing,undefined);
+  assert.equal((await news({topics:['events'],source:'account'})).status,503);
+  s.env.APP_MARKETING_ENABLED='true';
+  assert.equal((await (await s.run('config')).json()).marketingEnabled,true);
+  assert.deepEqual((await (await s.run('session',{cookie:b.cookie})).json()).marketing,{topics:[],ask:true});
+  const a=await s.login('auth0|test-two'), csrfA=(await (await s.run('session',{cookie:a.cookie})).json()).csrf;
+  assert.equal((await s.run('marketing',{method:'POST',cookie:a.cookie,body:{topics:['events'],source:'account'},headers:{'x-treehouse-csrf':csrfA}})).status,403);
+  assert.equal((await news({topics:['events'],source:'account'},{})).status,403);
+  for (const body of [{topics:['casino'],source:'account'},{topics:['events','events'],source:'account'},{topics:'events',source:'account'},
+    {topics:['events'],source:'email'},{topics:['events'],source:'account',extra:1},{dismissed:true,topics:[]}])
+    assert.equal((await news(body)).status,400,JSON.stringify(body));
+  assert.equal(s.env.APP_DB.db.prepare('SELECT count(*) n FROM app_marketing_prefs').get().n,0);
+});
+
+test('consent is recorded per topic with when and where it changed; turning it off is immediate', async () => {
+  const s=await withPush(); s.env.APP_MARKETING_ENABLED='true';
+  const b=await s.linked(), news=body=>s.run('marketing',{method:'POST',cookie:b.cookie,body,headers:{'x-treehouse-csrf':b.csrf}});
+  const on=await (await news({topics:['events','new_arrivals'],source:'prompt'})).json();
+  assert.deepEqual(on.marketing,{topics:['new_arrivals','events'],ask:false});
+  await news({topics:['events','new_arrivals'],source:'account'}); // unchanged: not logged again
+  const log=()=>s.env.APP_DB.db.prepare('SELECT topics, source FROM app_marketing_consent_log ORDER BY id').all().map(r=>({...r}));
+  assert.deepEqual(log(),[{topics:'["new_arrivals","events"]',source:'prompt'}]);
+  const first=s.env.APP_DB.db.prepare('SELECT opted_in_at FROM app_marketing_prefs').get().opted_in_at; assert.ok(first);
+  s.advance(1000); await news({topics:['new_arrivals'],source:'account'});
+  assert.equal(s.env.APP_DB.db.prepare('SELECT opted_in_at FROM app_marketing_prefs').get().opted_in_at,first);
+  const off=await (await news({topics:[],source:'account'})).json();
+  assert.deepEqual(off.marketing.topics,[]);
+  assert.equal(s.env.APP_DB.db.prepare('SELECT opted_in_at FROM app_marketing_prefs').get().opted_in_at,null);
+  assert.deepEqual(log().map(r=>r.topics),['["new_arrivals","events"]','["new_arrivals"]','[]']);
+  // Unlinking removes the preferences and their history with the account.
+  await s.run('remove-link',{method:'POST',cookie:b.cookie,body:{},headers:{'x-treehouse-csrf':b.csrf}});
+  assert.equal(s.env.APP_DB.db.prepare('SELECT count(*) n FROM app_marketing_prefs').get().n,0);
+  assert.equal(s.env.APP_DB.db.prepare('SELECT count(*) n FROM app_marketing_consent_log').get().n,0);
+});
+
+test('"Not now" stops the opt-in prompt for 90 days without recording consent', async () => {
+  const s=await withPush(); s.env.APP_MARKETING_ENABLED='true';
+  const b=await s.linked(), state=async()=>{ const c=(await s.login()).cookie; return (await (await s.run('session',{cookie:c})).json()).marketing; };
+  const res=await s.run('marketing',{method:'POST',cookie:b.cookie,body:{dismissed:true},headers:{'x-treehouse-csrf':b.csrf}});
+  assert.deepEqual((await res.json()).marketing,{topics:[],ask:false});
+  assert.equal(s.env.APP_DB.db.prepare('SELECT count(*) n FROM app_marketing_consent_log').get().n,0);
+  s.advance(89*86400000); assert.equal((await state()).ask,false);
+  s.advance(2*86400000); assert.equal((await state()).ask,true);
 });

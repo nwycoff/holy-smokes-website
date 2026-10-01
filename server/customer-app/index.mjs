@@ -7,6 +7,7 @@ import { currentPreorder, placePreorder } from './preorders.mjs';
 import { pushReady, subscribe, unsubscribe } from './push.mjs';
 import { normalizeEnrollmentCode, withEnrollmentCode } from './enrollment.mjs';
 import { licenseMemoryReady, forgetLicense } from './license.mjs';
+import { marketingReady, marketingState, setMarketing } from './marketing.mjs';
 
 async function limit(env, deps, subject, max, window = 900000) {
   if (!await consumeLimits(env.APP_DB, env.APP_LIMIT_SECRET, [{ subject, max, window }], deps.now()))
@@ -26,7 +27,8 @@ export async function handleApp(context, overrides = {}) {
   const url = new URL(request.url), route = url.pathname.replace(/^\/api\/app\//, '').replace(/\/$/, '');
   const allowed = { config: 'GET', menu: 'GET', rewards: 'GET', session: 'GET', points: 'GET', login: 'POST',
     callback: 'GET', enroll: 'POST', logout: 'POST', 'logout-all': 'POST', 'remove-link': 'POST', 'staff/enroll': 'POST',
-    preorder: 'GET', 'preorder/place': 'POST', 'push/subscribe': 'POST', 'push/unsubscribe': 'POST', 'license/forget': 'POST' };
+    preorder: 'GET', 'preorder/place': 'POST', 'push/subscribe': 'POST', 'push/unsubscribe': 'POST', 'license/forget': 'POST',
+    marketing: 'POST' };
   if (!allowed[route]) return json(404, { error: 'Not found.' });
   if (allowed[route] !== request.method) return json(405, { error: 'Method not allowed.' }, { Allow: allowed[route] });
   if (route !== 'callback' && url.search) return json(400, { error: 'Invalid request.' });
@@ -35,6 +37,7 @@ export async function handleApp(context, overrides = {}) {
     loginEnabled: Boolean(active && authReady(env)), menuEnabled: Boolean(active && menuReady(env)),
     preorderEnabled: Boolean(active && preorderReady(env)), rewardTiersEnabled: Boolean(active && rewardTiersReady(env)),
     licenseMemoryEnabled: Boolean(active && preorderReady(env) && licenseMemoryReady(env)),
+    marketingEnabled: Boolean(active && marketingReady(env)),
     ...(active && preorderReady(env) && purchaseLimits(env) ? { purchaseLimits: purchaseLimits(env) } : {}),
     ...(active && preorderReady(env) && pushReady(env) ? { pushKey: env.APP_VAPID_PUBLIC_KEY } : {}) });
   if (!active) return json(503, { error: 'The customer app is not available yet. You can still use My Points on our website.' });
@@ -88,7 +91,8 @@ export async function handleApp(context, overrides = {}) {
     const s = await session(request, env, deps);
     // Only the last four characters of a saved license ever leave the server.
     if (route === 'session') return json(200, s ? { signedIn: true, linked: Boolean(s.customer_id), csrf: s.csrf,
-      ...(s.license_hint && licenseMemoryReady(env) ? { licenseHint: s.license_hint } : {}) }
+      ...(s.license_hint && licenseMemoryReady(env) ? { licenseHint: s.license_hint } : {}),
+      ...(s.customer_id && marketingReady(env) ? { marketing: await marketingState(env, deps, s.id) } : {}) }
       : { signedIn: false, linked: false });
     if (!s) throw new AppError('SIGN_IN', 401);
     if (request.method === 'POST' && request.headers.get('x-treehouse-csrf') !== s.csrf) throw new AppError('CSRF', 403);
@@ -133,6 +137,12 @@ export async function handleApp(context, overrides = {}) {
       return json(200, { points: customer.CurrentPoints, checkedAt: deps.now() });
     }
     if (route === 'license/forget') { await forgetLicense(env, s.id); return json(200, { licenseHint: null }); }
+    if (route === 'marketing') {
+      if (!s.customer_id) throw new AppError('LINK_REQUIRED', 403);
+      if (!marketingReady(env)) throw new AppError('MARKETING_CONFIG');
+      await limit(env, deps, `marketing:${s.id}`, 30);
+      return json(200, { marketing: await setMarketing(env, deps, s, await bodyJSON(request)) });
+    }
     if (route === 'push/subscribe' || route === 'push/unsubscribe') {
       if (route === 'push/unsubscribe') { await unsubscribe(env, s, await bodyJSON(request)); return json(200, { subscribed: false }); }
       if (!s.customer_id) throw new AppError('LINK_REQUIRED', 403);

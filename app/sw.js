@@ -9,20 +9,24 @@ self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET' || url.origin !== self.location.origin || url.search || !SHELL.includes(url.pathname)) return;
   event.respondWith(fetch(event.request).catch(() => caches.match(url.pathname)));
 });
-// "Your order is ready" notifications. The message carries no order details.
+// Order-ready alerts and opted-in "Deals & news". Messages carry no order details, and a tap
+// can only open a screen inside the app.
 self.addEventListener('push', event => {
   let data = {};
   try { data = event.data?.json() || {}; } catch { /* Fall back to the default wording. */ }
   const title = typeof data.title === 'string' ? data.title.slice(0, 80) : 'Treehouse Pharmacy';
   const body = typeof data.body === 'string' ? data.body.slice(0, 160) : 'There’s an update on your order.';
+  const url = typeof data.url === 'string' && /^\/app\/(#[a-z-]{1,24})?$/.test(data.url) ? data.url : '/app/#order';
+  const tag = data.tag === 'treehouse-news' ? 'treehouse-news' : 'treehouse-order';
   event.waitUntil(self.registration.showNotification(title, { body, icon: '/images/img2.png', badge: '/app/icon.svg',
-    tag: 'treehouse-order', data: { url: '/app/#order' } }));
+    tag, data: { url } }));
 });
 self.addEventListener('notificationclick', event => {
   event.notification.close();
+  const url = event.notification.data?.url || '/app/#order';
   event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windows => {
     const open = windows.find(w => new URL(w.url).pathname.startsWith('/app/'));
-    if (open) { open.navigate('/app/#order').catch(() => {}); return open.focus(); }
-    return self.clients.openWindow('/app/#order');
+    if (open) { open.navigate(url).catch(() => {}); return open.focus(); }
+    return self.clients.openWindow(url);
   }));
 });

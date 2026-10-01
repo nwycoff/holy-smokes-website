@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer">
+  <title>Treehouse CRM</title>
+  <link rel="stylesheet" href="/assets/crm/crm.css">
+  <script type="module" src="/assets/crm/crm.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a href="/crm/" class="brand">TREEHOUSE <span>CRM</span></a>
+    <span class="who"><span id="who">Checking sign-in…</span> · <a href="/cdn-cgi/access/logout">Sign out</a></span>
+  </header>
+  <main>
+    <p id="message" class="message" role="status" aria-live="polite" hidden></p>
+
+    <section aria-labelledby="overview-title">
+      <div class="heading"><h1 id="overview-title">How the shop is doing</h1><p id="sync-status" class="muted"></p></div>
+      <div id="kpis" class="kpis"></div>
+      <div class="two-col">
+        <div class="card"><h2>Top categories · 90 days</h2><div id="categories" class="bars"></div></div>
+        <div class="card"><h2>Top brands · 90 days</h2><div id="brands" class="bars"></div></div>
+      </div>
+    </section>
+
+    <section aria-labelledby="segments-title">
+      <div class="heading"><h1 id="segments-title">Find customers</h1><p class="muted">Pick a ready-made segment or build your own. Every rule must match.</p></div>
+      <div id="templates" class="chips"></div>
+      <form id="builder" class="card builder" autocomplete="off">
+        <fieldset><legend>Last visit</legend>
+          <label>between <input type="number" id="lv-min" min="0" max="3650" placeholder="0"> and <input type="number" id="lv-max" min="1" max="3650" placeholder="any"> days ago</label></fieldset>
+        <fieldset><legend>Visits</legend>
+          <label>at least <input type="number" id="v-min" min="0" max="10000" placeholder="–"> visits in the last <input type="number" id="v-days" min="1" max="730" value="90"> days</label></fieldset>
+        <fieldset><legend>Spend</legend>
+          <label>at least $<input type="number" id="s-min" min="0" step="1" placeholder="–"> in the last <input type="number" id="s-days" min="1" max="730" value="90"> days</label></fieldset>
+        <fieldset><legend>Bought</legend>
+          <div id="groups" class="checks"></div>
+          <label>in the last <input type="number" id="c-days" min="1" max="730" value="90"> days</label></fieldset>
+        <fieldset><legend>Brand</legend>
+          <select id="brand"><option value="">Any brand</option></select>
+          <label>in the last <input type="number" id="b-days" min="1" max="730" value="180"> days</label></fieldset>
+        <fieldset><legend>More</legend>
+          <label>Points at least <input type="number" id="points" min="0" placeholder="–"></label>
+          <label>Birthday <select id="birthday"><option value="">any time</option><option value="this_month">this month</option><option value="next_month">next month</option></select></label>
+          <label>My Treehouse app <select id="app"><option value="">any</option><option value="linked">uses the app</option><option value="not_linked">not on the app</option><option value="push">gets order alerts</option><option value="marketing">gets Deals &amp; news</option></select></label>
+          <label>New customer in the last <input type="number" id="new-days" min="1" max="730" placeholder="–"> days</label></fieldset>
+        <div class="actions">
+          <button type="submit">Count customers</button>
+          <button type="button" id="show" class="secondary">Show customers</button>
+          <button type="button" id="clear" class="link">Clear</button>
+        </div>
+      </form>
+      <div id="preview" class="card preview" hidden></div>
+      <div id="list" class="card" hidden></div>
+    </section>
+
+    <section aria-labelledby="saved-title">
+      <div class="heading"><h1 id="saved-title">Saved segments</h1></div>
+      <div id="saved" class="card"></div>
+    </section>
+
+    <details class="card audit"><summary>Recent activity</summary><div id="audit"></div></details>
+    <noscript>The CRM needs JavaScript. Enable it and reload.</noscript>
+  </main>
+  <footer>Treehouse Pharmacy · Customer insights. Names are shown from GrowFlow and never stored here. Every customer list viewed is logged.</footer>
+</body>
+</html>

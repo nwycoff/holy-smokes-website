@@ -63,7 +63,7 @@ async function enableNotifications() {
     await subscription.unsubscribe(); subscription = await fresh();
     await api('push/subscribe', subscription.toJSON());
   }
-  pushSubscribed = true; message('We’ll notify this device when your order is ready.'); renderOrder(); renderAccount();
+  pushSubscribed = true; message(marketingTopics().length ? 'This device will get your Treehouse notifications.' : 'We’ll notify this device when your order is ready.'); renderOrder(); renderAccount();
 }
 // Removes this device's notifications, locally and on the server. Never blocks sign-out.
 async function disableNotifications() {
@@ -82,6 +82,90 @@ function notifyControl() {
   if (pushSubscribed) return el('p', 'We’ll notify this device when your order is ready.', 'fine-print');
   if (Notification.permission === 'denied') return el('p', 'Notifications are blocked for this app. Turn them on in your phone’s settings to hear when your order is ready.', 'fine-print');
   return button('Notify me when it’s ready 🔔', enableNotifications, 'secondary-button');
+}
+// "Deals & news": marketing notifications the customer opts in to, by topic. Order-ready
+// alerts are separate. The choice is per account; devices are the ones set up for notifications.
+const TOPIC_LABELS = { new_arrivals: 'New arrivals & restocks', rewards: 'Rewards & points reminders', events: 'Events', specials: 'Specials' };
+const marketingOn = () => Boolean((demo || config.marketingEnabled) && user.linked && user.marketing);
+const marketingTopics = () => user.marketing?.topics || [];
+async function saveMarketing(body) {
+  const result = demo ? { marketing: { topics: body.topics || [], ask: false } } : await api('marketing', body);
+  user.marketing = result.marketing; renderAccount(); renderOrder(); renderRewards();
+}
+async function turnOnMarketing(source) {
+  if (!demo && !pushSubscribed) await enableNotifications();
+  if (!demo && !pushSubscribed) return; // Permission was declined; enableNotifications explained why.
+  await saveMarketing({ topics: Object.keys(TOPIC_LABELS), source });
+  message('Deals & news is on. You can choose topics or turn it off under Account anytime.');
+}
+const MARKETING_PROMISE = 'No more than 2 a week, never late at night, and kept discreet on your lock screen.';
+// Why this device can't show notifications, or '' when it can (or the demo pretends to).
+function deviceBlock() {
+  if (demo) return '';
+  if (iosBrowserTab() && !canPush()) return 'On iPhone, add My Treehouse to your Home Screen (Share → Add to Home Screen) and open it from there to get notifications.';
+  if (!canPush()) return 'This browser can’t show notifications. Open My Treehouse on your phone to turn them on.';
+  if (Notification.permission === 'denied') return 'Notifications are blocked for this app. Turn them on in your phone’s settings first.';
+  return '';
+}
+// One place for every notification setting: order updates (per device) and Deals & news (per account).
+function notificationsPanel() {
+  const orders = user.linked && (demo || Boolean(config.pushKey)), news = marketingOn();
+  if (!orders && !news) return null;
+  const panel = el('section', '', 'account-panel notifications-panel'), blocked = deviceBlock();
+  panel.append(el('h3', 'Notifications'));
+  if (orders) {
+    const row = el('div', '', 'setting-row');
+    row.append(el('h4', 'Order updates on this phone'));
+    if (pushSubscribed) row.append(el('p', 'On. We’ll let you know here when your order is ready for pickup.', 'fine-print'),
+      button('Turn off on this phone', async () => {
+        if (!demo) await disableNotifications(); pushSubscribed = false;
+        message(marketingTopics().length ? 'Notifications are off on this phone, including Deals & news.' : 'Order updates are off on this phone.');
+        renderAccount(); renderOrder();
+      }, 'text-button'));
+    else if (blocked) row.append(el('p', blocked, 'fine-print'));
+    else row.append(el('p', 'Get a notification when your order is ready for pickup.', 'fine-print'),
+      button('Turn on order updates', async () => { if (demo) { pushSubscribed = true; renderAccount(); renderOrder(); } else await enableNotifications(); }, 'secondary-button'));
+    panel.append(row);
+  }
+  if (news) {
+    const row = el('div', '', 'setting-row'), topics = marketingTopics();
+    row.append(el('h4', 'Deals & news'));
+    if (!topics.length) {
+      row.append(el('p', `Hear first about new arrivals, rewards you can use, and events. ${MARKETING_PROMISE}`, 'fine-print'));
+      if (blocked) row.append(el('p', blocked, 'fine-print'));
+      else row.append(button('Turn on Deals & news', () => turnOnMarketing('account'), 'secondary-button'));
+    } else {
+      row.append(el('p', `On. ${MARKETING_PROMISE} Choose what you’d like to hear about:`, 'fine-print'));
+      for (const [topic, text] of Object.entries(TOPIC_LABELS)) {
+        const label = el('label', '', 'topic-choice'), box = el('input'); box.type = 'checkbox'; box.checked = topics.includes(topic);
+        box.addEventListener('change', async () => {
+          const next = Object.keys(TOPIC_LABELS).filter(t => t === topic ? box.checked : topics.includes(t));
+          box.disabled = true;
+          try { await saveMarketing({ topics: next, source: 'account' }); if (!next.length) message('Deals & news is off.'); }
+          catch (error) { box.checked = !box.checked; box.disabled = false; message(error.message); }
+        });
+        label.append(box, document.createTextNode(` ${text}`)); row.append(label);
+      }
+      if (!pushSubscribed) row.append(el('p', blocked || 'Turn on order updates above to get Deals & news on this phone too.', 'fine-print'));
+      row.append(button('Turn off Deals & news', async () => {
+        await saveMarketing({ topics: [], source: 'account' }); message('Deals & news is off. Order updates aren’t affected.');
+      }, 'text-button'));
+    }
+    panel.append(row);
+  }
+  // Both kinds arrive through this phone's notification setting, so say so once.
+  if (orders && news) panel.append(el('p', 'Order updates are set for each phone. Deals & news follows your account to every phone with order updates on.', 'fine-print'));
+  return panel;
+}
+// Asked at a good moment (an order is ready or picked up, or on My points), once per 90 days at most.
+function marketingPrompt(dark = false) {
+  if (!marketingOn() || marketingTopics().length || !user.marketing.ask || !(demo || canPush()) || (!demo && globalThis.Notification?.permission === 'denied')) return null;
+  const card = el('div', '', `marketing-prompt${dark ? ' on-dark' : ''}`), row = el('div', '', 'action-row');
+  card.append(el('strong', 'Want first word on new arrivals?'),
+    el('p', `Turn on Deals & news for new arrivals, rewards you can use, and events. ${MARKETING_PROMISE}`, 'fine-print'));
+  row.append(button('Yes, turn it on', () => turnOnMarketing('prompt'), 'secondary-button'),
+    button('Not now', () => saveMarketing({ dismissed: true }), 'text-button'));
+  card.append(row); return card;
 }
 const canOrder = () => demo || Boolean(config.preorderEnabled && user.linked);
 const orderingOn = () => demo || Boolean(config.preorderEnabled);
@@ -181,6 +265,7 @@ function renderRewards() {
     panel.append(heading, el('p', demo ? 'For demonstration only.' : `Checked ${new Date(points.checkedAt).toLocaleTimeString([], { hour:'numeric', minute:'2-digit' })}.`));
   } else panel.append(el('h2', pointsLoading ? 'Checking your points…' : 'Your balance is unavailable.'), el('p', 'Your budtender can also check your balance.'));
   panel.append(button('Refresh balance ↻', refreshPoints, 'light-button')); target.append(panel);
+  const ask = marketingPrompt(); if (ask) target.append(ask);
   if (tiers) target.append(tiers);
 }
 async function refreshPoints() {
@@ -215,9 +300,6 @@ function renderAccount() {
     if (!demo) await api('license/forget', {});
     user.licenseHint = undefined; message('Your saved license number has been removed.'); renderAccount(); renderOrder();
   }, 'text-button'));
-  if (pushSubscribed) actions.append(button('Turn off order notifications on this device', async () => {
-    await disableNotifications(); message('Order notifications are off on this device.'); renderAccount(); renderOrder();
-  }, 'text-button'));
   panel.append(actions, el('p', 'Sign-in is remembered on this device for up to seven days. Only stay signed in on a device you trust.', 'fine-print'));
   const details = el('details'), summary = el('summary', 'Remove my rewards connection');
   details.append(summary, el('p', 'This removes your app connection and signs you out everywhere. Your in-store customer record and points remain. You’ll need a new code to reconnect.'));
@@ -229,6 +311,7 @@ function renderAccount() {
     cart = []; clearPrivate(); message('Your app connection has been removed.');
   }, 'secondary-button'));
   panel.append(details); target.append(panel);
+  const notifications = notificationsPanel(); if (notifications) target.append(notifications);
 }
 function productCard(product) {
   const card = $('product-template').content.firstElementChild.cloneNode(true);
@@ -317,6 +400,8 @@ function orderStatusPanel() {
     button('Refresh status ↻', () => refreshOrder(true), 'light-button'));
   const notify = order.open && order.status !== 'Fulfilled' ? notifyControl() : null;
   if (notify) { const row = el('div', '', 'notify-row'); row.append(notify); panel.append(row); }
+  const ask = ['Fulfilled', 'Completed'].includes(order.status) ? marketingPrompt(true) : null;
+  if (ask) { const row = el('div', '', 'notify-row'); row.append(ask); panel.append(row); }
   return panel;
 }
 // For customers who can't order yet: where they are in the three steps.
@@ -581,7 +666,7 @@ async function initialize() {
   const current = generation;
   if (demo) {
     const fixture = await import('./demo-data.js'); menu = fixture.demoMenu; config = { purchaseLimits: fixture.demoPurchaseLimits };
-    user = { signedIn:true, linked:true }; points = { points:750, checkedAt:Date.now() };
+    user = { signedIn:true, linked:true, marketing:{ topics:[], ask:true } }; points = { points:750, checkedAt:Date.now() };
     $('demo-banner').hidden = false;
   } else {
     try {
