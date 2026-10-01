@@ -102,7 +102,10 @@ async function overview(env, now) {
     COUNT(DISTINCT l.customer_id) AS customers FROM crm_lines l LEFT JOIN crm_brands b ON b.id = l.brand_id
     WHERE l.sold_at >= ? AND l.returned = 0 AND l.brand_id IS NOT NULL GROUP BY l.brand_id ORDER BY cents DESC LIMIT 10`).bind(ago(90)).run();
   const { results: sync = [] } = await db.prepare('SELECT source, since, caught_up_at, updated_at FROM crm_sync_state').bind().run();
-  return { totals, categories, brands, sync, now };
+  // What is actually stored, by sale date (the sync cursor follows GrowFlow's last-edited time instead).
+  const loaded = await db.prepare(`SELECT (SELECT COUNT(*) FROM crm_orders) AS orders, (SELECT COUNT(*) FROM crm_lines) AS lines,
+    (SELECT MAX(sold_at) FROM crm_lines) AS lines_through`).bind().first();
+  return { totals, categories, brands, sync, loaded, now };
 }
 
 export async function handleCrm({ request, env }, overrides = {}) {

@@ -62,10 +62,13 @@ async function loadOverview() {
     kpi('Online orders · 30 days', count.format(t.preorders_30 || 0)));
   bars($('categories'), o.categories || [], r => LABELS[r.grp] || r.grp);
   bars($('brands'), o.brands || [], r => r.name);
-  const orders = (o.sync || []).find(s => s.source === 'orders');
-  $('sync-status').textContent = !orders ? 'Waiting for the first sync from GrowFlow…'
-    : orders.caught_up_at ? `Up to date with GrowFlow · checked ${ago(orders.caught_up_at)}`
-    : `Loading history from GrowFlow · now at ${new Date(orders.since).toLocaleDateString()}`;
+  const sources = ['orders', 'lines'].map(name => (o.sync || []).find(s => s.source === name));
+  const loaded = o.loaded || {}, count = n => Number(n || 0).toLocaleString();
+  $('sync-status').textContent = sources.some(s => !s) ? 'Waiting for the first sync from GrowFlow…'
+    : sources.every(s => s.caught_up_at) ? `Up to date with GrowFlow · checked ${ago(Math.min(...sources.map(s => s.caught_up_at)))}`
+    : `Loading history from GrowFlow · ${count(loaded.orders)} orders and ${count(loaded.lines)} items so far`
+      + (loaded.lines_through ? `, items sold through ${new Date(loaded.lines_through).toLocaleDateString()}` : '')
+      + ' · totals grow until this finishes';
 }
 
 function value(id) { const v = $(id).value.trim(); return v === '' ? undefined : Number(v); }
