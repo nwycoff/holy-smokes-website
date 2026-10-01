@@ -7,7 +7,7 @@ import { handleCrm } from '../server/crm/index.mjs';
 import { runSync, purge } from '../server/crm/sync.mjs';
 import { validateDefinition, compile } from '../server/crm/segments.mjs';
 import { hash } from '../server/customer-app/http.mjs';
-import { sendCampaigns, validateCampaign } from '../server/crm/campaigns.mjs';
+import { linkTarget, sendCampaigns, validateCampaign } from '../server/crm/campaigns.mjs';
 
 class D1 {
   constructor(dir) {
@@ -408,4 +408,14 @@ test('"only once" automatic messages never repeat, and held-back people stay hel
   assert.equal(first.length, 32); assert.ok(first.some(r => r.state === 'holdout'));
   s.advance(400 * DAY); await s.deliver();
   assert.equal(s.db.prepare('SELECT COUNT(*) n FROM crm_campaigns WHERE automation_id = ?').get(id).n, 1);
+});
+
+test('campaigns can open the menu to one section or brand; the filter travels apart from the URL', () => {
+  assert.deepEqual(linkTarget('rewards'), { url: '/app/#rewards' });
+  assert.deepEqual(linkTarget('menu:category:Concentrates'), { url: '/app/#menu', filter: 'category=Concentrates' });
+  assert.deepEqual(linkTarget('menu:brand:Sample & Co'), { url: '/app/#menu', filter: 'brand=Sample%20%26%20Co' });
+  for (const bad of ['menu:color:x', 'menu:brand:', `menu:brand:${'x'.repeat(61)}`, 'menu:brand:a\nb', 'menu:brand: padded', 'https://example.test', null])
+    assert.equal(linkTarget(bad), null, String(bad));
+  const ok = validateCampaign({ name: 'X', topic: 'new_arrivals', body: 'New from a brand you love. Tap to see.', link: 'menu:brand:Sample Brand', holdoutPct: 0 }, {}, Date.now());
+  assert.equal(ok.link, 'menu:brand:Sample Brand');
 });

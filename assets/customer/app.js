@@ -2,6 +2,8 @@ const $ = id => document.getElementById(id);
 const demo = location.pathname === '/app/demo/' || location.pathname === '/app/demo/index.html';
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
 let config = {}, user = { signedIn: false, linked: false }, points = null, menu = null;
+// A section or brand to show when a notification opens the menu, applied once the menu is loaded.
+let menuLink = null;
 let category = 'All', menuError = '', generation = 0, pendingInstall = null, menuLoading = false, pointsLoading = false;
 // The cart holds only public menu choices, in memory. Order status is account data.
 const MAX_ITEMS = 10;
@@ -633,6 +635,16 @@ function renderMenu() {
   }
 }
 function clearFilters() { filters.types.clear(); filters.sizes.clear(); filters.brands.clear(); filters.price = ''; renderMenu(); }
+function applyMenuLink() {
+  if (!menuLink || !menu) return;
+  const wanted = menuLink; menuLink = null;
+  filters.types.clear(); filters.sizes.clear(); filters.brands.clear(); filters.price = ''; category = 'All';
+  if (wanted.category && (menu.categories || []).includes(wanted.category)) category = wanted.category;
+  else if (wanted.brand && menu.products.some(p => p.brand === wanted.brand)) filters.brands.add(wanted.brand);
+  else message(wanted.brand ? 'That brand isn’t on the menu right now, so here’s the full menu.' : 'That section isn’t on the menu right now, so here’s the full menu.');
+  history.replaceState(null, '', '#menu');
+  renderMenu();
+}
 function setFilterPanel(open) {
   $('filter-panel').hidden = !open; $('filter-button').setAttribute('aria-expanded', String(open));
   if (!open) $('menu-count').scrollIntoView({ block: 'start', behavior: 'smooth' });
@@ -645,10 +657,14 @@ async function refreshMenu() {
     reconcileCart();
   }
   catch { menu = null; menuError = 'We can’t refresh the menu right now. Please call the shop for availability.'; }
-  finally { menuLoading = false; renderMenu(); renderCartBar(); }
+  finally { menuLoading = false; renderMenu(); renderCartBar(); applyMenuLink(); }
 }
 function route() {
-  let view = location.hash.slice(1) || 'home';
+  let [view, query = ''] = (location.hash.slice(1) || 'home').split('?');
+  if (view === 'menu' && query) {
+    const wanted = new URLSearchParams(query);
+    menuLink = wanted.get('category') ? { category: wanted.get('category') } : wanted.get('brand') ? { brand: wanted.get('brand') } : null;
+  }
   if (view === 'verify-email') { view = 'account'; message('Please verify your email using the message from our sign-in service, then sign in again.'); }
   if (view === 'login-error') { view = 'account'; message('Sign-in could not finish. Please try again.'); }
   if (!['home', 'menu', 'rewards', 'account', 'order'].includes(view)) view = 'home';
@@ -657,7 +673,7 @@ function route() {
     if (a.getAttribute('href') === `#${view}`) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   }
   if (view === 'rewards') { renderRewards(); if (user.linked && (!points || Date.now() - points.checkedAt > 30000)) void refreshPoints(); }
-  if (view === 'menu') void refreshMenu();
+  if (view === 'menu') { applyMenuLink(); void refreshMenu(); }
   if (view === 'order') { rewardPointsTried = false; renderOrder(); void refreshOrder(); }
   renderCartBar();
   document.title = `${({ home:'My Treehouse',menu:'Menu',rewards:'My Points',account:'My Account',order:'Order online' })[view]} | Treehouse Pharmacy`;

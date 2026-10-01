@@ -21,7 +21,10 @@ self.addEventListener('push', event => {
   try { data = event.data?.json() || {}; } catch { /* Fall back to the default wording. */ }
   const title = typeof data.title === 'string' ? data.title.slice(0, 80) : 'Treehouse Pharmacy';
   const body = typeof data.body === 'string' ? data.body.slice(0, 160) : 'There’s an update on your order.';
-  const url = typeof data.url === 'string' && /^\/app\/(#[a-z-]{1,24})?$/.test(data.url) ? data.url : '/app/#order';
+  let url = typeof data.url === 'string' && /^\/app\/(#[a-z-]{1,24})?$/.test(data.url) ? data.url : '/app/#order';
+  // A campaign may open the menu filtered to one section or brand.
+  if (url === '/app/#menu' && typeof data.filter === 'string' && /^(category|brand)=[A-Za-z0-9%._~!*'()-]{1,200}$/.test(data.filter))
+    url += `?${data.filter}`;
   const tag = data.tag === 'treehouse-news' ? 'treehouse-news' : 'treehouse-order';
   event.waitUntil(self.registration.showNotification(title, { body, icon: '/images/img2.png', badge: '/app/icon.svg',
     tag, data: { url } }));

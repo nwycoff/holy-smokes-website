@@ -29,6 +29,7 @@ const AUTOMATION_IDEAS = [
   { name: 'Thanks for your first visit', definition: { newWithinDays: 7 }, topic: 'rewards', link: 'rewards', cooldown: 0,
     body: 'Thanks for choosing Treehouse! You earn points every visit. Check your balance in the app.' }
 ];
+const linkText = link => { const m = /^menu:(category|brand):(.+)$/.exec(link || ''); return m ? `Menu · ${m[2]}` : LINK_LABELS[link] || link; };
 const cooldownText = days => days ? `at most once every ${days} days` : 'only once';
 
 function el(tag, text = '', className = '') { const n = document.createElement(tag); n.textContent = text; if (className) n.className = className; return n; }
@@ -227,13 +228,24 @@ function readCampaign() {
     sendAt = new Date($('cp-at').value).getTime();
     if (!Number.isFinite(sendAt)) throw new Error('Pick a date and time to send.');
   }
-  return { name: $('cp-name').value, topic: $('cp-topic').value, body: $('cp-body').value, link: $('cp-link').value,
+  let link = $('cp-link').value;
+  if (link === 'menu:category' || link === 'menu:brand') {
+    if (!$('cp-link-value').value) throw new Error(`Pick a ${link === 'menu:brand' ? 'brand' : 'menu section'} for the menu to open to.`);
+    link = `${link}:${$('cp-link-value').value}`;
+  }
+  return { name: $('cp-name').value, topic: $('cp-topic').value, body: $('cp-body').value, link,
     definition, audienceLabel: who === 'builder' ? describeRules(definition).slice(0, 80) : label.replace(/^Saved: /, ''),
     holdoutPct: Number($('cp-holdout').value), sendAt };
 }
 function readAutomation() {
   const { sendAt, ...campaign } = readCampaign();
   return { ...campaign, cooldownDays: Number($('cp-cooldown').value) };
+}
+function setLinkValue() {
+  const kind = $('cp-link').value, values = kind === 'menu:category' ? campaignSetup.menuChoices.categories
+    : kind === 'menu:brand' ? campaignSetup.menuChoices.brands : null;
+  $('cp-link-value').hidden = !values;
+  if (values) $('cp-link-value').replaceChildren(...values.map(v => { const o = el('option', v); o.value = v; return o; }));
 }
 function setWhen() {
   const when = $('cp-when').value, auto = when === 'auto';
@@ -242,7 +254,7 @@ function setWhen() {
 }
 function useIdea(idea) {
   fillBuilder(idea.definition);
-  $('cp-name').value = idea.name; $('cp-audience').value = 'builder'; $('cp-topic').value = idea.topic; $('cp-link').value = idea.link;
+  $('cp-name').value = idea.name; $('cp-audience').value = 'builder'; $('cp-topic').value = idea.topic; $('cp-link').value = idea.link; setLinkValue();
   $('cp-body').value = idea.body; $('cp-body').dispatchEvent(new Event('input'));
   $('cp-when').value = 'auto'; $('cp-cooldown').value = String(idea.cooldown); setWhen();
   $('cp-result').textContent = 'Filled in from the idea, using the rules in “Find customers” above. Adjust anything, then Check audience.';
@@ -285,7 +297,10 @@ async function loadCampaigns() {
   if (first) {
     const option = (value, text) => { const o = el('option', text); o.value = value; return o; };
     $('cp-topic').replaceChildren(...data.topics.map(t => option(t, TOPIC_LABELS[t] || t)));
-    $('cp-link').replaceChildren(...data.links.map(l => option(l, LINK_LABELS[l] || l)));
+    $('cp-link').replaceChildren(...data.links.map(l => option(l, LINK_LABELS[l] || l)),
+      ...(data.menuChoices.categories.length ? [option('menu:category', 'Menu, opened to a section…')] : []),
+      ...(data.menuChoices.brands.length ? [option('menu:brand', 'Menu, filtered to a brand…')] : []));
+    $('cp-link').addEventListener('change', setLinkValue);
     $('cp-holdout').replaceChildren(...data.holdouts.map(h => option(String(h), h === 10 ? '10% (recommended)' : h ? `${h}%` : 'None')));
     $('cp-holdout').value = '10'; $('cp-link').value = 'menu'; fillAudiences();
     $('cp-cooldown').replaceChildren(...data.cooldowns.map(d => option(String(d), d ? `${d} days` : 'Only once, ever')));
@@ -304,7 +319,7 @@ async function loadCampaigns() {
     });
     title.append(el('strong', a.name), el('span', a.active ? 'On' : 'Paused', `status ${a.active ? 'sent' : 'paused'}`), toggle);
     const sent = a.results.sent?.people || 0, held = a.results.holdout?.people || 0;
-    row.append(title, el('p', `${TOPIC_LABELS[a.topic] || a.topic} · ${a.audience_label} · ${cooldownText(a.cooldown_days)} · opens ${LINK_LABELS[a.link] || a.link} · by ${a.created_by}`, 'muted'),
+    row.append(title, el('p', `${TOPIC_LABELS[a.topic] || a.topic} · ${a.audience_label} · ${cooldownText(a.cooldown_days)} · opens ${linkText(a.link)} · by ${a.created_by}`, 'muted'),
       el('p', `“${a.body}”`, 'result'),
       el('p', sent || held ? `${count.format(sent)} sent so far · ${count.format(held)} held back · last sent ${ago(a.last_sent_at)}` : 'Nobody has matched yet. It checks every day.', 'muted'));
     const result = resultText({ days: 7, ...a.results }); if (result) row.append(el('p', result.replace('In the 7 days since', 'Within 7 days of each send'), 'result'));
@@ -325,7 +340,7 @@ async function loadCampaigns() {
       ['failed', 'couldn’t be delivered']].filter(([k]) => counts[k]).map(([k, t]) => `${count.format(counts[k])} ${t}`);
     const waiting = (counts.pending || 0) + (counts.sending || 0);
     if (waiting) tally.push(`${count.format(waiting)} still to send`);
-    row.append(title, el('p', `${TOPIC_LABELS[c.topic] || c.topic} · ${c.audience_label} · opens ${LINK_LABELS[c.link] || c.link} · by ${c.created_by}`, 'muted'),
+    row.append(title, el('p', `${TOPIC_LABELS[c.topic] || c.topic} · ${c.audience_label} · opens ${linkText(c.link)} · by ${c.created_by}`, 'muted'),
       el('p', `“${c.body}”`, 'result'));
     if (tally.length) row.append(el('p', tally.join(' · '), 'muted'));
     const result = resultText(c.results); if (result) row.append(el('p', result, 'result'));
@@ -380,7 +395,7 @@ $('campaign').addEventListener('submit', async event => {
       if (!confirm(`Turn on “${automation.name}”? ${count.format(p.reach + p.heldBack)} ${p.reach + p.heldBack === 1 ? 'person matches' : 'people match'} today and will get it at the next daily check (${campaignSetup.automationHour} am Central), ${cooldownText(automation.cooldownDays)} each. People who match later get it then.`)) return;
       await api('automations/create', { automation });
       message(`“${automation.name}” is on. You can pause it anytime under Automatic messages.`);
-      $('campaign').reset(); setWhen(); $('cp-holdout').value = '10'; $('cp-link').value = 'menu'; $('cp-cooldown').value = '30';
+      $('campaign').reset(); setWhen(); $('cp-holdout').value = '10'; $('cp-link').value = 'menu'; setLinkValue(); $('cp-cooldown').value = '30';
       $('cp-result').textContent = ''; $('cp-preview').textContent = 'Your message appears here.'; $('cp-count').textContent = '';
       await loadCampaigns(); void loadAudit(); return;
     }
@@ -390,7 +405,7 @@ $('campaign').addEventListener('submit', async event => {
     if (!confirm(`Send “${campaign.name}” ${when} to about ${count.format(p.reach)} ${p.reach === 1 ? 'person' : 'people'}?`)) return;
     await api('campaigns/send', { campaign });
     message(campaign.sendAt ? 'Scheduled.' : 'Sending. It goes out within a minute or two.');
-    $('campaign').reset(); $('cp-at').hidden = true; $('cp-holdout').value = '10'; $('cp-link').value = 'menu'; $('cp-result').textContent = '';
+    $('campaign').reset(); $('cp-at').hidden = true; $('cp-holdout').value = '10'; $('cp-link').value = 'menu'; setLinkValue(); $('cp-result').textContent = '';
     $('cp-preview').textContent = 'Your message appears here.'; $('cp-count').textContent = '';
     await loadCampaigns(); void loadAudit();
   } catch (e) { message(e.message, true); }
