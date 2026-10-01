@@ -141,13 +141,18 @@ const GROUP_PATTERNS = [
   ['seed', /\bseeds?\b/], ['clone', /\bclones?\b|immature plant/],
   ['topical', /topical|lotion|balm|salve|transdermal|\bpatch/],
   ['edible', /edible|gumm|chocolate|candy|candies|beverage|drink|soda|baked|cookie|brownie|\bmints?\b|syrup|capsule/],
-  ['concentrate', /concentrate|extract|vape|vapor|cartridge|\bcarts?\b|\bpods?\b|wax|shatter|resin|rosin|badder|budder|crumble|distillate|\bdabs?\b|kief|hash|\brso\b|diamonds|sauce/],
-  ['flower', /flower|pre-?rolls?|joints?|blunts?|\bbuds?\b|shake|smalls|\btrim\b|usable/]
+  ['concentrate', /concentrate|extract|vape|vapor|cartridge|\bcarts?\b|\bpods?\b|wax|shatter|resin|rosin|badder|budder|crumble|distillate|\bdabs?\b|kief|hash|\brso\b|diamonds?|sauce|sugar|terp/],
+  ['flower', /flower|pre-?rolls?|joints?|blunts?|\bbuds?\b|shake|smalls|\btrim\b|usable|moon ?rocks?/]
 ];
 // GrowFlow's category Type decides when known; otherwise the category name.
+// Gear and non-cannabis items (e.g. "Dab Accessories", "Batteries / Pens") never count toward
+// a cannabis limit, even when their name mentions a product type.
+const NOT_CANNABIS = /accessor|\bpapers?\b|\bwraps?\b|\bpipes?\b|\bbongs?\b|\brigs?\b|torch|butane|banger|\bbowls?\b|carb cap|burner|apparel|nicotine|batter(y|ies)|grinder|lighter|rolling tray|\bmerch/;
 export function limitGroup(type, name) {
-  for (const text of [type, name].map(v => String(v || '').toLowerCase()).filter(Boolean))
+  for (const text of [type, name].map(v => String(v || '').toLowerCase()).filter(Boolean)) {
+    if (NOT_CANNABIS.test(text)) return null;
     for (const [group, pattern] of GROUP_PATTERNS) if (pattern.test(text)) return group;
+  }
   return null;
 }
 function limitUse(group, product, variant) {

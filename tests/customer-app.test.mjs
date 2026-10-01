@@ -811,7 +811,7 @@ test('products are grouped for purchase limits by GrowFlow category type, fallin
   assert.equal(limitGroup('','Vape Cartridges'),'concentrate');assert.equal(limitGroup('','Gummies'),'edible');
   assert.equal(limitGroup('Edible','Infused Pre-Roll'),'edible'); // Type wins over the name.
   assert.equal(limitGroup('','Drinks'),'edible');assert.equal(limitGroup('','Lotion'),'topical');
-  assert.equal(limitGroup('','Seeds'),'seed');assert.equal(limitGroup('','Clones'),'clone');assert.equal(limitGroup('','Accessories'),null);
+  assert.equal(limitGroup('','Seeds'),'seed');assert.equal(limitGroup('','Dab Accessories'),null);assert.equal(limitGroup('','Batteries / Pens'),null);assert.equal(limitGroup('','Papers / Wraps'),null);assert.equal(limitGroup('','Live Badder Buckets - 3.5'),'concentrate');assert.equal(limitGroup('','Infused Pre-Roll'),'flower');assert.equal(limitGroup('','Clones'),'clone');assert.equal(limitGroup('','Accessories'),null);
   const pkg={storageLocation:'Front',isSellable:true,inventoryQty:50,testResults:null};
   const menu=normalizeMenu({pricesIncludeTax:true,menuGroups:[{name:'Edibles and Pre-Rolls',products:[
     {id:'pr',name:'Pre-roll',category:'Pre-Rolls',categoryId:'c1',uom:'Each',unitWeight:1,unitWeightUOM:'Grams',variants:[{price:800}],packages:[pkg]},
