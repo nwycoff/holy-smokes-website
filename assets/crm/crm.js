@@ -63,10 +63,10 @@ async function loadOverview() {
   bars($('categories'), o.categories || [], r => LABELS[r.grp] || r.grp);
   bars($('brands'), o.brands || [], r => r.name);
   const sources = ['orders', 'lines'].map(name => (o.sync || []).find(s => s.source === name));
-  const loaded = o.loaded || {}, count = n => Number(n || 0).toLocaleString();
+  const loaded = o.loaded || {};
   $('sync-status').textContent = sources.some(s => !s) ? 'Waiting for the first sync from GrowFlow…'
     : sources.every(s => s.caught_up_at) ? `Up to date with GrowFlow · checked ${ago(Math.min(...sources.map(s => s.caught_up_at)))}`
-    : `Loading history from GrowFlow · ${count(loaded.orders)} orders and ${count(loaded.lines)} items so far`
+    : `Loading history from GrowFlow · ${count.format(loaded.orders || 0)} orders and ${count.format(loaded.lines || 0)} items so far`
       + (loaded.lines_through ? `, items sold through ${new Date(loaded.lines_through).toLocaleDateString()}` : '')
       + ' · totals grow until this finishes';
 }
