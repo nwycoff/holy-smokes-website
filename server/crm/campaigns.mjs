@@ -11,6 +11,15 @@ const DAY = 86400000;
 export const WEEKLY_CAP = 2;
 export const QUIET = { start: 9, end: 20, zone: 'America/Chicago' };
 export const LINKS = { home: '/app/', menu: '/app/#menu', rewards: '/app/#rewards', order: '/app/#order' };
+// "menu:category:<name>" or "menu:brand:<name>" opens the menu filtered to it. The filter travels
+// separately from the URL, so phones with an older app simply open the full menu.
+const FILTERED = /^menu:(category|brand):([^\u0000-\u001f\u007f]{1,60})$/;
+export function linkTarget(link) {
+  if (typeof link !== 'string') return null;
+  if (Object.hasOwn(LINKS, link)) return { url: LINKS[link] };
+  const match = FILTERED.exec(link);
+  return match && match[2].trim() === match[2] ? { url: LINKS.menu, filter: `${match[1]}=${encodeURIComponent(match[2])}` } : null;
+}
 export const HOLDOUTS = [0, 5, 10, 20];
 export const TITLE = 'Treehouse Pharmacy';
 // Automatic messages: checked once a day at this hour (Central). 0 days = only ever once.
@@ -47,7 +56,7 @@ export function validateCampaign(input, env, now) {
   if (body.length < 10 || body.length > 120) fail('CAMPAIGN_LENGTH');
   if (NOT_DISCREET.test(body)) fail('CAMPAIGN_DISCREET');
   if (HEALTH_CLAIM.test(body)) fail('CAMPAIGN_CLAIMS');
-  if (!Object.hasOwn(LINKS, input.link)) fail('INPUT');
+  if (!linkTarget(input.link)) fail('INPUT');
   if (!HOLDOUTS.includes(input.holdoutPct)) fail('INPUT');
   const definition = input.definition === null || input.definition === undefined ? null : validateDefinition(input.definition);
   const sendAt = input.sendAt === null || input.sendAt === undefined ? now : input.sendAt;
@@ -204,7 +213,7 @@ async function deliver(env, deps, c, customerId) {
     JOIN app_push_subscriptions s ON s.user_id = u.id WHERE u.customer_id = ?${test ? '' : ` AND EXISTS (SELECT 1 FROM
     app_marketing_prefs m, json_each(m.topics) t WHERE m.user_id = u.id AND t.value = ?)`}`).bind(customerId, ...(test ? [] : [c.topic])).run();
   if (!devices.length) return 'skipped';
-  const message = { title: TITLE, body: test ? `Test: ${c.body}` : c.body, url: LINKS[c.link] || '/app/', tag: 'treehouse-news' };
+  const message = { title: TITLE, body: test ? `Test: ${c.body}` : c.body, ...(linkTarget(c.link) || { url: '/app/' }), tag: 'treehouse-news' };
   let sent = false, failed = false;
   for (const device of devices) {
     const outcome = await sendPush(env, deps, device, message, c.id.slice(0, 32), { ttl: test ? 3600 : secondsUntilQuiet(now), urgency: 'normal' });

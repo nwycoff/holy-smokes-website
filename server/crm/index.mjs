@@ -5,6 +5,8 @@ import { GROUPS, members, preview, validateDefinition } from './segments.mjs';
 import { campaignsReady, cancelCampaign, createAutomation, createCampaign, listAutomations, listCampaigns, previewCampaign,
   setAutomationActive, validateAutomation, validateCampaign, AUTOMATION_HOUR, COOLDOWNS, HOLDOUTS, LINKS, QUIET, WEEKLY_CAP } from './campaigns.mjs';
 import { TOPICS } from '../customer-app/marketing.mjs';
+import { getMenu } from '../customer-app/growflow.mjs';
+import { menuReady } from '../customer-app/http.mjs';
 
 // Owner/manager CRM at /crm/, behind its own Cloudflare Access application. Every request is
 // re-verified here (signature, issuer, audience, approved email). Customer names are fetched
@@ -143,7 +145,16 @@ export async function handleCrm({ request, env }, overrides = {}) {
     if ((route.startsWith('campaigns') || route.startsWith('automations')) && !campaignsReady(env)) throw new AppError('CAMPAIGNS_CONFIG');
     const testCustomer = async () => (await db.prepare('SELECT test_customer_id FROM crm_settings WHERE email = ?')
       .bind(user.email).first())?.test_customer_id || null;
+    // Today's menu sections and brands, for campaigns that open the menu filtered to one.
+    const menuChoices = async () => {
+      if (!menuReady(env)) return { categories: [], brands: [] };
+      try {
+        const menu = await getMenu(env, { ...deps, report: () => {} });
+        return { categories: menu.categories || [], brands: [...new Set(menu.products.map(p => p.brand).filter(Boolean))].sort((a, b) => a.localeCompare(b)) };
+      } catch { return { categories: [], brands: [] }; }
+    };
     if (route === 'campaigns') return json(200, { campaigns: await listCampaigns(env, now), testPhone: Boolean(await testCustomer()),
+      menuChoices: await menuChoices(),
       topics: TOPICS, links: Object.keys(LINKS), holdouts: HOLDOUTS,
       weeklyCap: WEEKLY_CAP, quietHours: QUIET, automations: await listAutomations(env, now), cooldowns: COOLDOWNS,
       automationHour: AUTOMATION_HOUR });

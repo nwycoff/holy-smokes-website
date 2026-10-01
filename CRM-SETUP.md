@@ -36,6 +36,7 @@ The **Deals & news** section of the CRM writes campaigns; the order notifier Wor
 - **Only 9 am–8 pm Central.** Anything due outside those hours waits until 9 am, and each notification expires at 8 pm, so a phone that was offline never gets it late at night.
 - **Discreet, claim-free wording:** the title is always "Treehouse Pharmacy"; messages are 10–120 characters and refused if they name cannabis products, THC/CBD, strains or weights, or make health claims.
 - **Held-back group:** 0, 5, 10 (default) or 20% of each audience is kept back, chosen the same way every time per customer. Results compare visits and spend in the 7 days after sending for the people sent it vs. those held back.
+- **Tapping opens** the app home, menu, My points or Order ahead, or the menu opened to one section or filtered to one brand (from today's menu). The section or brand travels separately from the link, so a phone with an older app opens the full menu; if it is no longer on the menu, the customer sees the full menu with a short note.
 - **Test sends** go to the phones of the CRM user's own customer record (Show customers → "Use for my tests"), at any hour, prefixed "Test:".
 - Every send, test, cancel and test-phone choice is in Recent activity. Campaign records and who got them follow the 24-month retention; removing a customer removes their rows.
 
