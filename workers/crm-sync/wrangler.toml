@@ -1,0 +1,39 @@
+# Top level: the TEST CRM sync (test CRM database, test app database). [env.live]: the live one.
+# Secret on each (wrangler secret put CRM_GROWFLOW_TOKEN [--env live]): a read-only GrowFlow token
+# with Customers, Orders, Order items, Product categories and Brands.
+name = "treehouse-crm-test-sync"
+main = "index.mjs"
+compatibility_date = "2026-09-29"
+workers_dev = false
+
+[triggers]
+crons = ["*/2 * * * *"]
+
+[[d1_databases]]
+binding = "CRM_DB"
+database_name = "treehouse-crm-test"
+database_id = "REPLACE_WITH_TEST_CRM_DB_ID"
+
+[[d1_databases]]
+binding = "APP_DB"
+database_name = "treehouse-app-test-data"
+database_id = "0b4fd99e-935e-466f-a791-bdb31f8b0030"
+
+[vars]
+GROWFLOW_ORG = "holysmokesdispensary"
+
+[env.live]
+name = "treehouse-crm-live-sync"
+
+[[env.live.d1_databases]]
+binding = "CRM_DB"
+database_name = "treehouse-crm-live"
+database_id = "REPLACE_WITH_LIVE_CRM_DB_ID"
+
+[[env.live.d1_databases]]
+binding = "APP_DB"
+database_name = "treehouse-app-live-data"
+database_id = "5ac9edcb-7c27-4809-aebf-6bc14f4bbec0"
+
+[env.live.vars]
+GROWFLOW_ORG = "holysmokesdispensary"
