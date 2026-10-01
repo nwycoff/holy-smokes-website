@@ -1,4 +1,5 @@
-import { cp, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -15,6 +16,17 @@ for (const name of await readdir(root)) {
 await writeFile(path.join(out, '_routes.json'), JSON.stringify({
   version: 1, include: ['/api/rewards/*', '/api/app/*', '/api/staff/*', '/api/crm/*'], exclude: []
 }, null, 2));
+// Give each page's own script and stylesheet a content version (?v=hash), so a release reaches
+// phones at once instead of after the custom domain's browser cache expires.
+for (const page of ['app/index.html', 'staff/index.html', 'crm/index.html']) {
+  const file = path.join(out, page);
+  let html = await readFile(file, 'utf8');
+  for (const [ref] of html.matchAll(/\/assets\/(?:customer|staff|crm)\/[a-z-]+\.(?:js|css)(?=")/g)) {
+    const version = createHash('sha256').update(await readFile(path.join(out, ref))).digest('hex').slice(0, 12);
+    html = html.replace(`${ref}"`, `${ref}?v=${version}"`);
+  }
+  await writeFile(file, html);
+}
 // Same UI in a separately labelled, static demo. It never calls live APIs.
 await mkdir(path.join(out, 'app', 'demo'), { recursive: true });
 await cp(path.join(out, 'app', 'index.html'), path.join(out, 'app', 'demo', 'index.html'));

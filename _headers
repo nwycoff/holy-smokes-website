@@ -37,3 +37,9 @@
 
 /assets/crm/*
   Cache-Control: no-store, private
+
+/assets/customer/*
+  Cache-Control: no-cache
+
+/assets/staff/*
+  Cache-Control: no-cache
