@@ -25,7 +25,7 @@ export async function requestRun(env, user, kind, now) {
     .bind(randomToken(), kind, user, now).run();
   return { queued: true };
 }
-export async function assistantView(env, now) {
+export async function assistantView(env, now, user) {
   const db = env.CRM_DB;
   const { results: suggestions = [] } = await db.prepare(`SELECT id, kind, title, reasoning, payload, status, decided_by, decided_at, decision_note, created_at
     FROM crm_suggestions WHERE status = 'open' OR decided_at >= ? ORDER BY status = 'open' DESC, created_at DESC LIMIT 40`).bind(now - 30 * DAY).run();
@@ -33,7 +33,17 @@ export async function assistantView(env, now) {
     FROM crm_assistant_runs ORDER BY created_at DESC LIMIT 10`).bind().run();
   const { results: notes = [] } = await db.prepare('SELECT at, text FROM crm_assistant_notes ORDER BY id DESC LIMIT 30').bind().run();
   return { suggestions: suggestions.map(s => ({ ...s, payload: JSON.parse(s.payload) })), runs, notes,
-    spentCents: await spentCents(env, now), budgetCents: budgetCents(env), schedule: SCHEDULE };
+    spentCents: await spentCents(env, now), budgetCents: budgetCents(env), schedule: SCHEDULE,
+    me: await env.CRM_DB.prepare('SELECT test_customer_id IS NOT NULL AS testPhone, notify_assistant AS notify FROM crm_settings WHERE email = ?')
+      .bind(user).first().then(r => ({ testPhone: Boolean(r?.testPhone), notify: Boolean(r?.notify) })) };
+}
+// Whether this CRM user's phone (their own customer record) gets the assistant's updates.
+export async function setAssistantUpdates(env, user, on, now) {
+  if (typeof on !== 'boolean') throw new AppError('INPUT', 400);
+  const row = await env.CRM_DB.prepare('UPDATE crm_settings SET notify_assistant = ?, updated_at = ? WHERE email = ? AND test_customer_id IS NOT NULL RETURNING email')
+    .bind(on ? 1 : 0, now, user).first();
+  if (!row) throw new AppError('CAMPAIGN_TEST_PHONE', 400);
+  return { notify: on };
 }
 // Approving creates exactly what the suggestion describes, re-checked against today's rules.
 export async function decideSuggestion(env, user, input, now) {

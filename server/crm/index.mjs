@@ -3,7 +3,7 @@ import { AppError, bodyJSON, fetchSafe, hash, json, randomToken, sameOrigin } fr
 import { crmReady, forgetStatements } from './sync.mjs';
 import { GROUPS, members, preview, validateDefinition } from './segments.mjs';
 import { overview } from './insights.mjs';
-import { assistantReady, assistantView, decideSuggestion, requestRun } from './suggestions.mjs';
+import { assistantReady, assistantView, decideSuggestion, requestRun, setAssistantUpdates } from './suggestions.mjs';
 import { campaignsReady, cancelCampaign, createAutomation, createCampaign, listAutomations, listCampaigns, previewCampaign,
   setAutomationActive, validateAutomation, validateCampaign, AUTOMATION_HOUR, COOLDOWNS, HOLDOUTS, LINKS, QUIET, WEEKLY_CAP } from './campaigns.mjs';
 import { TOPICS } from '../customer-app/marketing.mjs';
@@ -92,7 +92,7 @@ export async function handleCrm({ request, env }, overrides = {}) {
     preview: 'POST', customers: 'POST', 'segments/save': 'POST', 'segments/delete': 'POST', forget: 'POST',
     campaigns: 'GET', 'campaigns/preview': 'POST', 'campaigns/send': 'POST', 'campaigns/test': 'POST', 'campaigns/cancel': 'POST',
     'settings/test-customer': 'POST', 'automations/create': 'POST', 'automations/active': 'POST',
-    assistant: 'GET', 'assistant/run': 'POST', 'assistant/decide': 'POST' };
+    assistant: 'GET', 'assistant/run': 'POST', 'assistant/decide': 'POST', 'settings/assistant-updates': 'POST' };
   if (!allowed[route]) return json(404, { error: 'Not found.' });
   if (allowed[route] !== request.method) return json(405, { error: 'Method not allowed.' }, { Allow: allowed[route] });
   try {
@@ -115,8 +115,8 @@ export async function handleCrm({ request, env }, overrides = {}) {
     }
     if ((route.startsWith('campaigns') || route.startsWith('automations') || route.startsWith('assistant')) && !campaignsReady(env))
       throw new AppError('CAMPAIGNS_CONFIG');
-    if (route.startsWith('assistant') && !assistantReady(env)) throw new AppError('ASSISTANT_CONFIG');
-    if (route === 'assistant') return json(200, await assistantView(env, now));
+    if ((route.startsWith('assistant') || route === 'settings/assistant-updates') && !assistantReady(env)) throw new AppError('ASSISTANT_CONFIG');
+    if (route === 'assistant') return json(200, await assistantView(env, now, user.email));
     const testCustomer = async () => (await db.prepare('SELECT test_customer_id FROM crm_settings WHERE email = ?')
       .bind(user.email).first())?.test_customer_id || null;
     // Today's menu sections and brands, for campaigns that open the menu filtered to one.
@@ -183,6 +183,11 @@ export async function handleCrm({ request, env }, overrides = {}) {
       await limit(env, deps, `crm-assistant:${user.email}`, 6, 3600000);
       const result = await requestRun(env, user.email, input.kind, now);
       if (!result.already) await audit(env, deps, user.email, 'assistant_run', { kind: input.kind });
+      return json(200, result);
+    }
+    if (route === 'settings/assistant-updates') {
+      const result = await setAssistantUpdates(env, user.email, input.on, now);
+      await audit(env, deps, user.email, input.on ? 'assistant_updates_on' : 'assistant_updates_off', null);
       return json(200, result);
     }
     if (route === 'assistant/decide') {

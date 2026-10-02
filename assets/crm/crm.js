@@ -155,7 +155,7 @@ async function showCustomers(sort = 'spend') {
       const mine = el('button', 'Use for my tests', 'link'); mine.type = 'button';
       mine.title = 'Your own record: test campaigns go to the phones on this customer’s app account';
       mine.addEventListener('click', async () => {
-        try { await api('settings/test-customer', { customerId: c.id }); campaignSetup.testPhone = true; message(`Test campaigns will go to ${c.name || 'this customer'}’s phones.`); }
+        try { await api('settings/test-customer', { customerId: c.id }); campaignSetup.testPhone = true; message(`Test campaigns will go to ${c.name || 'this customer'}’s phones.`); void loadAssistant().catch(() => {}); }
         catch (e) { message(e.message, true); }
       });
       cell.append(mine);
@@ -188,7 +188,7 @@ async function loadSaved() {
 async function loadAudit() {
   const { audit } = await api('audit');
   const names = { view_customers: 'viewed a customer list', save_segment: 'saved a segment', delete_segment: 'deleted a segment', forget_customer: 'removed a customer',
-    assistant_run: 'asked the assistant for a run', approve_suggestion: 'approved an assistant suggestion',
+    assistant_run: 'asked the assistant for a run', assistant_updates_on: 'turned on assistant updates', assistant_updates_off: 'turned off assistant updates', approve_suggestion: 'approved an assistant suggestion',
     edit_suggestion: 'edited and sent an assistant suggestion', dismiss_suggestion: 'dismissed an assistant suggestion',
     send_campaign: 'sent or scheduled a campaign', test_campaign: 'sent a test campaign', cancel_campaign: 'canceled a campaign', set_test_phone: 'chose their test phone',
     create_automation: 'turned on an automatic message', pause_automation: 'paused an automatic message', resume_automation: 'turned an automatic message back on' };
@@ -281,14 +281,18 @@ function statusText(c) {
   if (c.status === 'sent') return `Sent ${new Date(c.finished_at || c.started_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`;
   return 'Canceled';
 }
+// The funnel for people sent it, each step next to the held-back group where that applies.
 function resultText(r) {
   if (!r?.sent?.people) return '';
-  const pct = g => Math.round(g.visited / g.people * 100), each = g => money.format(g.cents / g.people / 100);
-  let text = `In the ${r.days >= 7 ? '7 days' : 'time'} since: ${pct(r.sent)}% of people sent it visited, ${each(r.sent)} spent per person`;
-  if (r.holdout?.people) {
-    text += `; held back: ${pct(r.holdout)}% visited, ${each(r.holdout)} per person.`;
-    if (r.holdout.people < 30) text += ' The held-back group is small, so treat the difference as a rough guide.';
-  } else text += '.';
+  const s = r.sent, h = r.holdout?.people ? r.holdout : null, pct = (n, g) => `${Math.round((n || 0) / g.people * 100)}%`;
+  const vs = (key, format = pct) => h ? ` (held back: ${format(h[key], h)})` : '';
+  const each = (cents, g) => money.format(cents / g.people / 100);
+  const parts = [`${pct(s.tapped, s)} tapped it`, `${pct(s.visited, s)} visited${vs('visited')}`];
+  if (r.featured) parts.push(`${pct(s.bought, s)} bought ${r.featured}${vs('bought')}`);
+  parts.push(`${pct(s.appOrders, s)} ordered ahead in the app${vs('appOrders')}`, `${each(s.cents, s)} spent per person${vs('cents', each)}`);
+  if (s.optedOut) parts.push(`${count.format(s.optedOut)} turned off Deals & news or this topic within 2 days`);
+  let text = `${r.days >= 7 ? 'In the 7 days after' : 'So far'}: ${parts.join(' · ')}.`;
+  if (h && h.people < 30) text += ' The held-back group is small, so treat differences as a rough guide.';
   if (r.days < 7) text += ' Results settle after 7 days.';
   return text;
 }
@@ -325,7 +329,7 @@ async function loadCampaigns() {
     row.append(title, el('p', `${TOPIC_LABELS[a.topic] || a.topic} · ${a.audience_label} · ${cooldownText(a.cooldown_days)} · opens ${linkText(a.link)} · by ${a.created_by}`, 'muted'),
       el('p', `“${a.body}”`, 'result'),
       el('p', sent || held ? `${count.format(sent)} sent so far · ${count.format(held)} held back · last sent ${ago(a.last_sent_at)}` : 'Nobody has matched yet. It checks every day.', 'muted'));
-    const result = resultText({ days: 7, ...a.results }); if (result) row.append(el('p', result.replace('In the 7 days since', 'Within 7 days of each send'), 'result'));
+    const result = resultText(a.results); if (result) row.append(el('p', result.replace(/^(In the 7 days after|So far)/, 'Within 7 days of each send'), 'result'));
     return row;
   }));
   $('campaigns').replaceChildren(...data.campaigns.map(c => {
@@ -424,6 +428,8 @@ async function loadAssistant() {
   $('as-status').textContent = `This month ${dollars(data.spentCents)} of ${dollars(data.budgetCents)}`
     + (busy ? ' · Working on it…' : latest ? ` · Last ${RUN_LABELS[latest.kind] || 'run'} ${when(latest.finished_at || latest.created_at)}` : '');
   $('as-weekly').disabled = $('as-daily').disabled = busy;
+  $('as-notify').checked = data.me.notify; $('as-notify').disabled = !data.me.testPhone;
+  $('as-notify').title = data.me.testPhone ? '' : 'First choose your own customer record: Show customers, find yourself, then “Use for my tests”.';
   const open = data.suggestions.filter(s => s.status === 'open'), done = data.suggestions.filter(s => s.status !== 'open').slice(0, 8);
   $('as-suggestions').replaceChildren(...(open.length ? open.map(suggestionCard) : [el('p', 'No suggestions waiting.', 'muted')]),
     ...(done.length ? [el('p', 'Recent decisions', 'eyebrow'), ...done.map(suggestionCard)] : []));
@@ -475,6 +481,11 @@ async function markEdited() {
   try { await api('assistant/decide', { id, decision: 'edited' }); await loadAssistant(); } catch { /* Already decided or expired. */ }
 }
 $('as-weekly').addEventListener('click', () => runAssistantNow('weekly'));
+$('as-notify').addEventListener('change', async () => {
+  const on = $('as-notify').checked;
+  try { await api('settings/assistant-updates', { on }); message(on ? 'Your phone will get the assistant’s updates.' : 'Assistant updates are off for your phone.'); void loadAudit(); }
+  catch (e) { $('as-notify').checked = !on; message(e.message, true); }
+});
 $('as-daily').addEventListener('click', () => runAssistantNow('daily'));
 $('cp-body').addEventListener('input', () => {
   const text = $('cp-body').value.trim(); $('cp-preview').textContent = text || 'Your message appears here.';

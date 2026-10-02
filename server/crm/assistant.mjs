@@ -69,6 +69,8 @@ export const TOOLS = [
   { name: 'suggest_automation', description: 'Propose a new automatic message (checked daily at 11 am Central) for the owners to approve.', input_schema: suggestion({ automation: automationSchema }) },
   { name: 'suggest_pause_automation', description: 'Propose pausing an automatic message that is not working or no longer fits.',
     input_schema: suggestion({ automationId: { type: 'string', description: 'The automatic message ID from list_automations.' } }) },
+  { name: 'alert_owners', description: 'Flag something that needs an owner\'s attention soon (for example a campaign or automatic message going badly, opt-outs jumping, or a sharp drop in visits). One short, discreet sentence; it is sent to the owners\' phones. Do not use it for routine news.',
+    input_schema: { type: 'object', properties: { message: { type: 'string' } }, required: ['message'], additionalProperties: false } },
   { name: 'add_note', description: 'Save one durable lesson for future runs (one specific sentence, with numbers when you have them).',
     input_schema: { type: 'object', properties: { note: { type: 'string' } }, required: ['note'], additionalProperties: false } }
 ];
@@ -149,6 +151,10 @@ async function runTool(env, ctx, name, input) {
         if (!row?.active) return { error: 'No automatic message with that ID is on.' };
         return await store(env, ctx, 'pause', input.title, input.reasoning, { automationId: row.id, name: row.name });
       }
+      case 'alert_owners': {
+        ctx.alert = String(input.message || '').replace(/\s+/g, ' ').trim().slice(0, 140);
+        return ctx.alert ? { saved: true, note: 'The owners will get this on their phones after the run.' } : { error: 'The message is empty.' };
+      }
       case 'add_note': {
         const note = String(input.note || '').replace(/\s+/g, ' ').trim().slice(0, 300);
         if (!note) return { error: 'The note is empty.' };
@@ -177,7 +183,8 @@ What good work looks like:
 - Messages are warm, short, specific and discreet, and say what is in it for the customer. For example: "New arrivals from a farm you love just landed. Tap to see what's new." Send the tap where the action is: a filtered menu for brand or section news, My points for rewards.
 - Size audiences with count_customers and check_campaign before suggesting. Use list_campaigns and list_automations to see what is already going out.
 - Judge results honestly. Each campaign holds back a share of its audience; results compare visits and spend over 7 days for people sent it vs held back. Groups at this store are small, so differences are noisy: only call something a win when both groups have at least about 30 people and the gap is large, and prefer patterns that repeat. Otherwise, say what you are watching.
-- Learn from history. Past decisions are feedback from the owners; a dismissal reason tells you what they do not want. Save durable lessons with add_note.
+- Read the whole funnel in results: tapped (people sent it who opened the notification), visited, spent, appOrders (ordered ahead in the app), bought (bought what the message featured, when it featured a brand, section or product group) and optedOut (turned off Deals & news or that topic within 2 days). Taps show whether the message caught attention; bought and visited against the held-back group show whether it changed behavior; opt-outs warn of fatigue.
+- Learn from history. Past decisions are feedback from the owners; a dismissal reason tells you what they do not want. Save durable lessons with add_note. Use alert_owners only for problems that should not wait for the next weekly plan.
 
 Write your final message as a short report for the owners in plain language, without IDs or jargon: how recent messages did against their held-back groups, anything notable in the numbers, and what you suggested and why. If nothing is worth suggesting, say so; that is a fine outcome.`;
 
@@ -201,7 +208,7 @@ async function brief(env, ctx) {
 export async function runAssistant(env, deps, run) {
   const db = env.CRM_DB, limits = LIMITS[run.kind];
   const client = deps.anthropic || new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
-  const ctx = { run, deps, suggestions: 0, menuSeen: null };
+  const ctx = { run, deps, suggestions: 0, menuSeen: null, alert: null };
   const messages = [{ role: 'user', content: await brief(env, ctx) }];
   let cost = 0, turns = 0, summary = '', status = 'done', error = null;
   const save = () => db.prepare('UPDATE crm_assistant_runs SET cost_micro = ?, turns = ? WHERE id = ?').bind(cost, turns, run.id).run();
@@ -239,6 +246,13 @@ export async function runAssistant(env, deps, run) {
     : status === 'limit' ? 'Stopped at this run\'s size limit before finishing its report.' : '';
   const statements = [db.prepare(`UPDATE crm_assistant_runs SET status = ?, summary = ?, error = ?, cost_micro = ?, turns = ?, finished_at = ?
     WHERE id = ?`).bind(status, summary.slice(0, 4000), error, cost, turns, deps.now(), run.id)];
+  // Scheduled runs tell the owners' phones: the weekly plan always, the daily check only when it
+  // has suggestions or flagged a problem.
+  const alert = status !== 'done' || run.trigger !== 'schedule' ? null
+    : run.kind === 'weekly' ? `Weekly plan ready: ${ctx.suggestions} ${ctx.suggestions === 1 ? 'suggestion' : 'suggestions'} to review.${ctx.alert ? ` ${ctx.alert}` : ''}`
+    : ctx.suggestions ? `Daily check: ${ctx.suggestions} new ${ctx.suggestions === 1 ? 'suggestion' : 'suggestions'} to review.${ctx.alert ? ` ${ctx.alert}` : ''}`
+    : ctx.alert ? `Daily check: ${ctx.alert}` : null;
+  if (alert) statements.push(db.prepare('INSERT INTO crm_owner_alerts(id, body, created_at) VALUES (?, ?, ?)').bind(randomToken(), alert.slice(0, 180), deps.now()));
   if (ctx.menuSeen && status === 'done') statements.push(db.prepare(`INSERT INTO crm_assistant_state(key, value, updated_at) VALUES ('menu_seen', ?, ?)
     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`).bind(JSON.stringify(ctx.menuSeen), deps.now()));
   await db.batch(statements);
@@ -261,6 +275,6 @@ export async function tickAssistant(env, deps) {
   const next = await db.prepare(`SELECT id, kind FROM crm_assistant_runs WHERE status = 'requested' ORDER BY created_at LIMIT 1`).bind().first();
   if (!next) return null;
   const run = await db.prepare(`UPDATE crm_assistant_runs SET status = 'running', started_at = ?, model = ? WHERE id = ? AND status = 'requested'
-    RETURNING id, kind, model`).bind(now, modelFor(env, next.kind), next.id).first();
+    RETURNING id, kind, model, trigger`).bind(now, modelFor(env, next.kind), next.id).first();
   return run ? runAssistant(env, deps, run) : null;
 }

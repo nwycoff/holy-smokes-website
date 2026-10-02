@@ -5,6 +5,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { handleApp } from '../server/customer-app/index.mjs';
 import { hash } from '../server/customer-app/http.mjs';
 import { normalizeMenu, publicMenu, limitGroup } from '../server/customer-app/growflow.mjs';
+import { tapToken } from '../server/crm/campaigns.mjs';
 import { encryptPayload, vapidAuthorization, readSubscription, notifyReadyOrders, b64url, fromB64url, READY_MESSAGE } from '../server/customer-app/push.mjs';
 
 // Every migration in order, so tests run against the same schema as a real APP_DB.
@@ -904,4 +905,14 @@ test('"Not now" stops the opt-in prompt for 90 days without recording consent', 
   assert.equal(s.env.APP_DB.db.prepare('SELECT count(*) n FROM app_marketing_consent_log').get().n,0);
   s.advance(89*86400000); assert.equal((await state()).ask,false);
   s.advance(2*86400000); assert.equal((await state()).ask,true);
+});
+
+test('a tapped Deals & news notification is counted without signing in, only with a valid code', async () => {
+  const s=setup(), updates=[];
+  s.env.CRM_DB={prepare:sql=>({bind:(...v)=>({run:async()=>{updates.push(v);return {success:true,results:[]};}})})};
+  const id='a'.repeat(64), token=await tapToken(s.env,id,'CustomerOne');
+  const tap=t=>s.run('tap',{method:'POST',body:{t}});
+  assert.equal((await tap(token)).status,200); assert.deepEqual(updates[0].slice(1),[id,'CustomerOne']);
+  assert.equal((await tap(token.replace(/.$/,c=>c==='0'?'1':'0'))).status,400);
+  assert.equal((await s.run('tap',{method:'POST',body:{t:token},headers:{'sec-fetch-site':'cross-site'}})).status,403);
 });

@@ -7,7 +7,7 @@ import { handleCrm } from '../server/crm/index.mjs';
 import { runSync, purge } from '../server/crm/sync.mjs';
 import { validateDefinition, compile } from '../server/crm/segments.mjs';
 import { hash } from '../server/customer-app/http.mjs';
-import { linkTarget, sendCampaigns, validateCampaign } from '../server/crm/campaigns.mjs';
+import { linkTarget, recordTap, sendCampaigns, sendOwnerAlerts, tapToken, validateCampaign } from '../server/crm/campaigns.mjs';
 import { tickAssistant, SYSTEM } from '../server/crm/assistant.mjs';
 
 class D1 {
@@ -513,4 +513,56 @@ test('assistant routes stay off until enabled, and the worker does nothing witho
   assert.equal((await s.call('assistant')).status, 200);
   assert.equal((await s.call('assistant/run', { kind: 'monthly' })).status, 400);
   assert.equal(await tickAssistant(s.env, { ...s.deps, anthropic: fakeClaude([]) }), null);
+});
+
+test('results follow the funnel: taps, visits, app orders, buying what was featured, and opt-outs', async () => {
+  const s = await campaigns();
+  s.env.APP_LIMIT_SECRET = 'synthetic-limit-secret-for-tap-codes-123';
+  for (let i = 0; i < 30; i++) await s.optIn(`P${i}`, ['events']);
+  const id = await s.send({ topic: 'events', holdoutPct: 20, link: 'menu:brand:Brand b1' });
+  await s.deliver();
+  const st = s.states(id), sent = Object.keys(st).filter(k => st[k] === 'sent'), held = Object.keys(st).filter(k => st[k] === 'holdout');
+  const [one, two] = sent;
+  // A tap is recorded once, and only with a valid code.
+  await recordTap(s.env, await tapToken(s.env, id, one), s.now() + 60000);
+  await recordTap(s.env, await tapToken(s.env, id, one), s.now() + 120000);
+  await assert.rejects(recordTap(s.env, `${id}.${two}.${'0'.repeat(64)}`, s.now()));
+  await assert.rejects(recordTap(s.env, 'nonsense', s.now()));
+  s.order('buy1', one, -1, 4000, { IsPreOrder: true }); s.line('buy1-l', one, -1, 4000, 'Concentrate', 'b1');
+  s.order('visit2', two, -2, 1500); s.line('visit2-l', two, -2, 1500, 'Flower', 'b2');
+  s.app.prepare("INSERT INTO app_marketing_consent_log(user_id, at, topics, source) VALUES (?, ?, '[]', 'account')").run(`user-${two}`, s.now() + 3600000);
+  if (held.length) s.app.prepare("INSERT INTO app_marketing_consent_log(user_id, at, topics, source) VALUES (?, ?, '[\"new_arrivals\"]', 'account')").run(`user-${held[0]}`, s.now() + 5 * DAY);
+  s.advance(3 * DAY); await s.sync();
+  const r = (await (await s.call('campaigns')).json()).campaigns[0].results;
+  assert.equal(r.featured, 'Brand b1');
+  assert.deepEqual({ ...r.sent, people: undefined }, { people: undefined, tapped: 1, visited: 2, cents: 5500, appOrders: 1, bought: 1, optedOut: 1 });
+  assert.equal(r.sent.people, sent.length); assert.equal(r.holdout.people, held.length);
+  assert.equal(r.holdout.optedOut, 0); // changed later than 2 days after the send
+  assert.equal(r.holdout.tapped, undefined);
+});
+
+test('scheduled assistant runs update owners who asked, on their own phones; manual runs and quiet days do not', async () => {
+  const s = await assistant(); // Thursday 10 am: the daily check is due
+  assert.equal((await s.call('settings/assistant-updates', { on: true })).status, 400); // no test phone yet
+  await s.call('settings/test-customer', { customerId: 'B' });
+  assert.equal((await s.call('settings/assistant-updates', { on: true })).status, 200);
+  assert.deepEqual((await (await s.call('assistant')).json()).me, { testPhone: true, notify: true });
+  const quiet = fakeClaude([{ stop_reason: 'end_turn', content: [{ type: 'text', text: 'All good, nothing to change.' }] }]);
+  await s.tick(quiet);
+  assert.equal(s.db.prepare('SELECT COUNT(*) n FROM crm_owner_alerts').get().n, 0);
+  await s.call('assistant/run', { kind: 'weekly' });
+  await s.tick(fakeClaude([{ stop_reason: 'end_turn', content: [{ type: 'text', text: 'Manual plan.' }] }]));
+  assert.equal(s.db.prepare('SELECT COUNT(*) n FROM crm_owner_alerts').get().n, 0); // asked for in the CRM: no ping
+  s.advance(DAY); // Friday's daily check flags a problem
+  await s.tick(fakeClaude([{ stop_reason: 'tool_use', content: [use('a1', 'alert_owners', { message: 'Opt-outs jumped after Tuesday’s message.' })] },
+    { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Watch opt-outs.' }] }]));
+  const before = s.pushes.length;
+  await sendOwnerAlerts(s.env, s.deps); // the notifier runs every minute
+  s.advance(3 * DAY - 3600000); // Monday 9 am weekly plan with one suggestion
+  await s.tick(fakeClaude([{ stop_reason: 'tool_use', content: [use('w1', 'suggest_campaign', { title: 'Brand alert', reasoning: 'Fans.', campaign: draft() })] },
+    { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Plan ready.' }] }]));
+  assert.deepEqual(s.db.prepare('SELECT body FROM crm_owner_alerts ORDER BY created_at').all().map(a => a.body),
+    ['Daily check: Opt-outs jumped after Tuesday’s message.', 'Weekly plan ready: 1 suggestion to review.']);
+  await sendOwnerAlerts(s.env, s.deps); await sendOwnerAlerts(s.env, s.deps); // each update goes once
+  assert.equal(s.pushes.length - before, 2); assert.ok(s.pushes.slice(before).every(p => p.url.endsWith('device-B')));
 });

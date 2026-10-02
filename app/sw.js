@@ -25,13 +25,20 @@ self.addEventListener('push', event => {
   // A campaign may open the menu filtered to one section or brand.
   if (url === '/app/#menu' && typeof data.filter === 'string' && /^(category|brand)=[A-Za-z0-9%._~!*'()-]{1,200}$/.test(data.filter))
     url += `?${data.filter}`;
-  const tag = data.tag === 'treehouse-news' ? 'treehouse-news' : 'treehouse-order';
+  // The CRM's own updates for owners open the CRM.
+  if (data.url === '/crm/' && data.tag === 'treehouse-crm') url = '/crm/';
+  const tag = ['treehouse-news', 'treehouse-crm'].includes(data.tag) ? data.tag : 'treehouse-order';
+  const tap = typeof data.tap === 'string' && /^[a-f0-9]{64}\.[A-Za-z0-9_-]{1,64}\.[a-f0-9]{64}$/.test(data.tap) ? data.tap : null;
   event.waitUntil(self.registration.showNotification(title, { body, icon: '/images/img2.png', badge: '/app/icon.svg',
-    tag, data: { url } }));
+    tag, data: { url, tap } }));
 });
 self.addEventListener('notificationclick', event => {
   event.notification.close();
-  const url = event.notification.data?.url || '/app/#order';
+  const url = event.notification.data?.url || '/app/#order', tap = event.notification.data?.tap;
+  // Count the tap for the campaign's results; never hold up opening the app.
+  if (tap) event.waitUntil(fetch('/api/app/tap', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ t: tap }) }).catch(() => {}));
+  if (url === '/crm/') { event.waitUntil(self.clients.openWindow(url)); return; }
   event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windows => {
     const open = windows.find(w => new URL(w.url).pathname.startsWith('/app/'));
     if (open) { open.navigate(url).catch(() => {}); return open.focus(); }

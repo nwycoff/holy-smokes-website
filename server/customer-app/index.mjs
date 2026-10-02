@@ -8,6 +8,7 @@ import { pushReady, subscribe, unsubscribe } from './push.mjs';
 import { normalizeEnrollmentCode, withEnrollmentCode } from './enrollment.mjs';
 import { licenseMemoryReady, forgetLicense } from './license.mjs';
 import { marketingReady, marketingState, setMarketing } from './marketing.mjs';
+import { recordTap } from '../crm/campaigns.mjs';
 
 async function limit(env, deps, subject, max, window = 900000) {
   if (!await consumeLimits(env.APP_DB, env.APP_LIMIT_SECRET, [{ subject, max, window }], deps.now()))
@@ -28,7 +29,7 @@ export async function handleApp(context, overrides = {}) {
   const allowed = { config: 'GET', menu: 'GET', rewards: 'GET', session: 'GET', points: 'GET', login: 'POST',
     callback: 'GET', enroll: 'POST', logout: 'POST', 'logout-all': 'POST', 'remove-link': 'POST', 'staff/enroll': 'POST',
     preorder: 'GET', 'preorder/place': 'POST', 'push/subscribe': 'POST', 'push/unsubscribe': 'POST', 'license/forget': 'POST',
-    marketing: 'POST' };
+    marketing: 'POST', tap: 'POST' };
   if (!allowed[route]) return json(404, { error: 'Not found.' });
   if (allowed[route] !== request.method) return json(405, { error: 'Method not allowed.' }, { Allow: allowed[route] });
   if (route !== 'callback' && url.search) return json(400, { error: 'Invalid request.' });
@@ -55,6 +56,14 @@ export async function handleApp(context, overrides = {}) {
       const response = route === 'login' ? await startLogin(request, env, deps) : await finishLogin(request, env, deps);
       context.waitUntil?.(cleanup(env, deps.now()).catch(() => deps.report('CLEANUP')));
       return response;
+    }
+    // A Deals & news notification was tapped. The signed code is all that's needed; no sign-in.
+    if (route === 'tap') {
+      await limit(env, deps, `tap:${ip}`, 30);
+      const input = await bodyJSON(request);
+      if (Object.keys(input).some(k => k !== 't')) throw new AppError('INPUT', 400);
+      await recordTap(env, input.t, deps.now());
+      return json(200, { ok: true });
     }
     if (route === 'rewards') {
       if (!rewardTiersReady(env)) throw new AppError('REWARDS_CONFIG');
