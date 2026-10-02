@@ -4,6 +4,7 @@ import { crmReady, forgetStatements } from './sync.mjs';
 import { GROUPS, members, preview, validateDefinition } from './segments.mjs';
 import { overview } from './insights.mjs';
 import { assistantReady, assistantView, decideSuggestion, requestRun, setAssistantUpdates } from './suggestions.mjs';
+import { saveWelcomeConfig, welcomeConfig, welcomeStats } from './welcome.mjs';
 import { campaignsReady, cancelCampaign, createAutomation, createCampaign, listAutomations, listCampaigns, previewCampaign,
   setAutomationActive, validateAutomation, validateCampaign, AUTOMATION_HOUR, COOLDOWNS, HOLDOUTS, LINKS, QUIET, WEEKLY_CAP } from './campaigns.mjs';
 import { TOPICS } from '../customer-app/marketing.mjs';
@@ -92,7 +93,7 @@ export async function handleCrm({ request, env }, overrides = {}) {
     preview: 'POST', customers: 'POST', 'segments/save': 'POST', 'segments/delete': 'POST', forget: 'POST',
     campaigns: 'GET', 'campaigns/preview': 'POST', 'campaigns/send': 'POST', 'campaigns/test': 'POST', 'campaigns/cancel': 'POST',
     'settings/test-customer': 'POST', 'automations/create': 'POST', 'automations/active': 'POST',
-    assistant: 'GET', 'assistant/run': 'POST', 'assistant/decide': 'POST', 'settings/assistant-updates': 'POST' };
+    assistant: 'GET', 'assistant/run': 'POST', 'assistant/decide': 'POST', 'settings/assistant-updates': 'POST', 'welcome/save': 'POST' };
   if (!allowed[route]) return json(404, { error: 'Not found.' });
   if (allowed[route] !== request.method) return json(405, { error: 'Method not allowed.' }, { Allow: allowed[route] });
   try {
@@ -113,7 +114,7 @@ export async function handleCrm({ request, env }, overrides = {}) {
       const { results = [] } = await db.prepare('SELECT id, name, definition, created_by, updated_at FROM crm_segments ORDER BY name').bind().run();
       return json(200, { segments: results.map(s => ({ ...s, definition: JSON.parse(s.definition) })) });
     }
-    if ((route.startsWith('campaigns') || route.startsWith('automations') || route.startsWith('assistant')) && !campaignsReady(env))
+    if ((route.startsWith('campaigns') || route.startsWith('automations') || route.startsWith('assistant') || route.startsWith('welcome')) && !campaignsReady(env))
       throw new AppError('CAMPAIGNS_CONFIG');
     if ((route.startsWith('assistant') || route === 'settings/assistant-updates') && !assistantReady(env)) throw new AppError('ASSISTANT_CONFIG');
     if (route === 'assistant') return json(200, await assistantView(env, now, user.email));
@@ -131,7 +132,7 @@ export async function handleCrm({ request, env }, overrides = {}) {
       menuChoices: await menuChoices(),
       topics: TOPICS, links: Object.keys(LINKS), holdouts: HOLDOUTS,
       weeklyCap: WEEKLY_CAP, quietHours: QUIET, automations: await listAutomations(env, now), cooldowns: COOLDOWNS,
-      automationHour: AUTOMATION_HOUR });
+      automationHour: AUTOMATION_HOUR, welcome: { ...await welcomeConfig(env), ...await welcomeStats(env) } });
     if (route === 'audit') {
       const { results = [] } = await db.prepare('SELECT at, actor, action, detail FROM crm_audit ORDER BY at DESC LIMIT 100').bind().run();
       return json(200, { audit: results });
@@ -208,6 +209,11 @@ export async function handleCrm({ request, env }, overrides = {}) {
       await audit(env, deps, user.email, input.active ? 'resume_automation' : 'pause_automation', null);
       return json(200, { active: input.active });
     }
+    if (route === 'welcome/save') {
+      const config = await saveWelcomeConfig(env, user.email, input.welcome, now);
+      await audit(env, deps, user.email, 'welcome_gift', { on: config.on, description: config.description, endsOn: config.endsOn });
+      return json(200, { welcome: { ...config, ...await welcomeStats(env) } });
+    }
     if (route === 'campaigns/cancel') {
       if (typeof input.id !== 'string' || !/^[a-f0-9]{64}$/.test(input.id)) throw new AppError('INPUT', 400);
       await cancelCampaign(env, input.id, now);
@@ -243,7 +249,9 @@ export async function handleCrm({ request, env }, overrides = {}) {
       SEGMENT_NAME: 'Please give the segment a name.', CRM_RATE_LIMITED: 'GrowFlow is busy. Please try again in a minute.',
       INPUT: 'Please check the information and try again.',
       CAMPAIGNS_CONFIG: 'Deals & news campaigns aren’t switched on yet.', ASSISTANT_CONFIG: 'The campaign assistant isn’t switched on yet.',
-      SUGGESTION_DONE: 'That suggestion was already decided or has expired.', CAMPAIGN_NAME: 'Please give the campaign a name.',
+      SUGGESTION_DONE: 'That suggestion was already decided or has expired.',
+      WELCOME_DESCRIPTION: 'Describe the gift (shown in the app), e.g. “a pre-roll for a penny”.',
+      WELCOME_CODE: 'The notification needs {code} where the customer’s code goes.', CAMPAIGN_NAME: 'Please give the campaign a name.',
       CAMPAIGN_LENGTH: 'The message needs to be 10 to 120 characters.',
       CAMPAIGN_DISCREET: 'Notifications show on lock screens, so please leave out cannabis words (product types, THC, strains, weights). Say it inside the app instead.',
       CAMPAIGN_CLAIMS: 'Please leave out health claims (pain, anxiety, relief, cures…). Oklahoma rules don’t allow them.',

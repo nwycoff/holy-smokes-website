@@ -98,8 +98,13 @@ export async function sendPush(env, deps, subscription, message, topic, { ttl = 
       ...(topic ? { Topic: topic } : {})
     }, body: await encryptPayload(subscription, JSON.stringify(message)) });
     if (res.status === 404 || res.status === 410) return 'gone';
+    if (!res.ok) {
+      // Push services answer with a short reason code (e.g. Apple's BadWebPushTopic); log only that.
+      const reason = /"reason"\s*:\s*"([A-Za-z]{1,40})"/.exec(await res.text().catch(() => ''))?.[1];
+      deps.report?.(`PUSH_HTTP_${res.status}${reason ? `_${reason}` : ''}`);
+    }
     return res.ok ? 'sent' : 'failed';
-  } catch { return 'failed'; }
+  } catch { deps.report?.('PUSH_NETWORK'); return 'failed'; }
 }
 
 export const READY_MESSAGE = { title: 'Your Treehouse order is ready', body: 'Come on by. Pay at pickup, and bring your ID and medical card.', url: '/app/#order' };

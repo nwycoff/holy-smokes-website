@@ -59,3 +59,13 @@ An AI assistant (Claude, via the Anthropic API) reviews the CRM and **suggests**
 - **Learning:** it saves short lessons ("What it has learned") and reads past decisions and dismissal reasons each run.
 
 Setup: run `crm-migrations/0005_crm_assistant.sql` and `0006_crm_measurement.sql` in `CRM_DB`; set `CRM_ASSISTANT_ENABLED=true` and `CRM_ASSISTANT_BUDGET_CENTS` on the Pages project; deploy `workers/crm-assistant` (`npx wrangler deploy [--env live]`) and give it the secret `ANTHROPIC_API_KEY` (`npx wrangler secret put ANTHROPIC_API_KEY [--env live]`). Also set a monthly spend limit on the Anthropic Console as a backstop.
+
+## Welcome gift for new subscribers
+
+In the CRM's Deals & news section, **Welcome gift for new subscribers** sets an offer for turning on Deals & news: on/off, what the gift is (shown inside the app only), the notification text (on the lock screen, so it passes the same discreet-wording and no-health-claims checks; `{code}` becomes the customer's code) and an optional last day.
+
+- When a connected customer has Deals & news on (any topic) and a phone set up, the notifier issues one code (`TH-` plus 4 characters, once per customer record, ever) and sends it within a minute, between 9 am and 8 pm Central. Turning Deals & news off and on again never issues another. These messages don't count toward the weekly limit.
+- The code also shows on **My points** in the app until the last day of the offer.
+- At checkout, staff check the customer's GrowFlow profile for an earlier gift note, give the gift, and add a note such as "App welcome gift given 10/2 – TH-7Q4K".
+- After using it, the customer can tap **I've used it – remove it**; the code leaves the app on all their devices and is never reissued. The CRM counts these as "marked used by the customer". Staff's GrowFlow note remains the record of who received a gift.
+- Removing a customer from the CRM deletes their code. Setup: run `crm-migrations/0007_crm_welcome_gifts.sql` and `0008_crm_welcome_dismissed.sql` in `CRM_DB` and redeploy the notifier.

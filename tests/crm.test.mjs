@@ -10,6 +10,7 @@ import { hash } from '../server/customer-app/http.mjs';
 import { linkTarget, recordTap, sendCampaigns, sendOwnerAlerts, tapToken, validateCampaign } from '../server/crm/campaigns.mjs';
 import { tickAssistant, SYSTEM } from '../server/crm/assistant.mjs';
 import { maybeVerify } from '../server/crm/verify.mjs';
+import { dismissWelcome, sendWelcomeGifts, welcomeForCustomer, welcomeStats } from '../server/crm/welcome.mjs';
 
 class D1 {
   constructor(dir) {
@@ -588,4 +589,57 @@ test('a one-time check re-reads customers, orders and items from GrowFlow and re
   assert.equal(y.expected, 6); assert.equal(y.crm, 5); assert.deepEqual(y.missingInCrm, ['missed']); assert.equal(y.differentDetails, 0);
   assert.equal(r.items.expected, 2); assert.equal(r.items.price.mismatch, 1); assert.equal(r.items.brand.match, 2);
   assert.ok(!/Never stored|5550100/.test(row.detail), 'no personal details');
+});
+
+test('the welcome gift: one code per customer when they turn on Deals & news, sent once, daytime only', async () => {
+  const s = await campaigns(); // A, B and C are opted in with phones; Thursday 10 am Central
+  const save = welcome => s.call('welcome/save', { welcome });
+  const offer = { on: true, description: 'a pre-roll for a penny', message: 'Thanks for turning on Deals & news! Your welcome gift code is {code}. Show it at checkout.', endsOn: null };
+  assert.deepEqual(await sendWelcomeGifts(s.env, s.deps), { sent: 0 }); // off until turned on
+  assert.equal((await save({ ...offer, message: 'Thanks! Show this at checkout.' })).status, 400); // no {code}
+  assert.equal((await save({ ...offer, message: 'Your free pre-roll code is {code}' })).status, 400); // lock screen wording
+  assert.equal((await save({ ...offer, description: 'relief for your pain' })).status, 400); // health claim
+  assert.equal((await save({ ...offer, description: '' })).status, 400);
+  assert.equal((await save(offer)).status, 200);
+  assert.equal((await sendWelcomeGifts(s.env, s.deps)).sent, 3);
+  const codes = s.db.prepare('SELECT customer_id, code FROM crm_welcome_gifts ORDER BY customer_id').all();
+  assert.deepEqual(codes.map(c => c.customer_id), ['A', 'B', 'C']);
+  assert.ok(codes.every(c => /^TH-[A-HJ-NP-Z2-9]{4}$/.test(c.code)));
+  assert.equal(new Set(codes.map(c => c.code)).size, 3);
+  assert.equal(s.pushes.length, 3);
+  assert.ok(s.pushes.every(p => /^[0-9a-f]{32}$/.test(p.headers.Topic)), 'topics in the form Apple accepts');
+  // Once per customer, ever: another run, or turning it off and on again, sends nothing new.
+  s.app.exec("UPDATE app_marketing_prefs SET topics = '[]' WHERE user_id = 'user-A'");
+  s.app.exec("UPDATE app_marketing_prefs SET topics = '[\"events\"]' WHERE user_id = 'user-A'");
+  assert.equal((await sendWelcomeGifts(s.env, s.deps)).sent, 0);
+  assert.equal((await welcomeForCustomer(s.env, 'A', s.now())).code, codes[0].code);
+  assert.equal((await welcomeForCustomer(s.env, 'A', s.now())).description, 'a pre-roll for a penny');
+  // A new subscriber after 8 pm waits for the morning.
+  await s.optIn('D', ['rewards']); s.advance(11 * 3600000); // 9 pm
+  assert.equal((await sendWelcomeGifts(s.env, s.deps)).sent, 0);
+  s.advance(12 * 3600000); // 9 am
+  assert.equal((await sendWelcomeGifts(s.env, s.deps)).sent, 1);
+  // After the last day, nothing more is sent and codes stop showing in the app.
+  await save({ ...offer, endsOn: '2026-10-02' });
+  await s.optIn('E', ['rewards']); s.advance(DAY);
+  assert.equal((await sendWelcomeGifts(s.env, s.deps)).sent, 0);
+  assert.equal(await welcomeForCustomer(s.env, 'A', s.now()), null);
+  assert.deepEqual(s.db.prepare("SELECT action FROM crm_audit WHERE action = 'welcome_gift'").all().length, 2);
+  await s.call('forget', { customerId: 'B' });
+  assert.equal(s.db.prepare("SELECT COUNT(*) n FROM crm_welcome_gifts WHERE customer_id = 'B'").get().n, 0);
+});
+
+test('a customer can remove their used welcome code; it never comes back or gets reissued', async () => {
+  const s = await campaigns();
+  await s.call('welcome/save', { welcome: { on: true, description: 'a pre-roll for a penny', message: 'Your welcome gift code is {code}.', endsOn: null } });
+  await sendWelcomeGifts(s.env, s.deps);
+  assert.ok(await welcomeForCustomer(s.env, 'A', s.now()));
+  await dismissWelcome(s.env, 'A', s.now()); await dismissWelcome(s.env, 'A', s.now() + 1000);
+  assert.equal(await welcomeForCustomer(s.env, 'A', s.now()), null);
+  assert.ok(await welcomeForCustomer(s.env, 'B', s.now()), 'only their own code');
+  s.app.exec("UPDATE app_marketing_prefs SET topics = '[]' WHERE user_id = 'user-A'");
+  s.app.exec("UPDATE app_marketing_prefs SET topics = '[\"events\"]' WHERE user_id = 'user-A'");
+  const before = s.pushes.length; await sendWelcomeGifts(s.env, s.deps);
+  assert.equal(s.pushes.length, before); assert.equal(await welcomeForCustomer(s.env, 'A', s.now()), null);
+  assert.deepEqual(await welcomeStats(s.env), { issued: 3, sent: 3, used: 1 });
 });

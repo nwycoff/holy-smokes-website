@@ -1,5 +1,6 @@
 import { notifyReadyOrders } from '../../server/customer-app/push.mjs';
 import { sendCampaigns, sendOwnerAlerts } from '../../server/crm/campaigns.mjs';
+import { sendWelcomeGifts } from '../../server/crm/welcome.mjs';
 
 // Scheduled Worker: GrowFlow has no webhooks, so this checks recent open app orders every
 // minute and sends "your order is ready" when one is marked Fulfilled. It also sends Deals &
@@ -10,6 +11,7 @@ export default {
       report: code => { try { console.warn(`TREEHOUSE_APP_FAILURE ${code}`); } catch { /* Never break a run. */ } } };
     ctx.waitUntil(Promise.all([notifyReadyOrders(env, deps).catch(() => deps.report('NOTIFIER_RUN')),
       sendCampaigns(env, deps).catch(() => deps.report('CAMPAIGN_RUN')),
-      sendOwnerAlerts(env, deps).catch(() => deps.report('OWNER_ALERTS'))]));
+      sendOwnerAlerts(env, deps).catch(() => deps.report('OWNER_ALERTS')),
+      sendWelcomeGifts(env, deps).catch(() => deps.report('WELCOME_GIFTS'))]));
   }
 };
