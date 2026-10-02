@@ -62,6 +62,15 @@
 
     <section aria-labelledby="campaigns-title" id="campaigns-section" hidden>
       <div class="heading"><h1 id="campaigns-title">Deals &amp; news</h1><p id="cp-rules" class="muted"></p></div>
+      <form id="welcome" class="card builder" autocomplete="off" hidden>
+        <div class="wide list-head"><h2>Welcome gift for new subscribers</h2><span id="wg-stats" class="muted"></span></div>
+        <p class="wide muted">When someone turns on Deals &amp; news with their phone set up, they get one code (once per customer, ever), on their phone and on My points in the app. Staff give the gift at checkout and note it on the customer’s GrowFlow profile, e.g. “App welcome gift given – TH-7Q4K”.</p>
+        <label class="wide checks"><input type="checkbox" id="wg-on"> The offer is on</label>
+        <label class="wide">What they get (shown inside the app) <input id="wg-description" maxlength="100" placeholder="e.g. a pre-roll for a penny"></label>
+        <label class="wide">Notification (shows on the lock screen, so keep it discreet; {code} becomes their code) <textarea id="wg-message" maxlength="160" rows="2"></textarea></label>
+        <label>Last day of the offer (optional) <input type="date" id="wg-ends"></label>
+        <div class="actions"><button type="submit">Save welcome gift</button></div>
+      </form>
       <div id="assistant" class="card" hidden>
         <div class="list-head"><h2>Campaign assistant</h2><span id="as-status" class="muted"></span></div>
         <p class="muted">It reviews the CRM every Monday (9 am) and day (10 am) and suggests campaigns. Nothing is sent until someone approves it.</p>

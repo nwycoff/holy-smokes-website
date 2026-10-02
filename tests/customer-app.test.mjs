@@ -920,3 +920,14 @@ test('a tapped Deals & news notification is counted without signing in, only wit
   assert.equal((await tap(token.replace(/.$/,c=>c==='0'?'1':'0'))).status,400);
   assert.equal((await s.run('tap',{method:'POST',body:{t:token},headers:{'sec-fetch-site':'cross-site'}})).status,403);
 });
+
+test('a linked customer sees their own welcome-gift code in the app', async () => {
+  const s=await withPush(); s.env.APP_MARKETING_ENABLED='true';
+  const asked=[];
+  s.env.CRM_DB={prepare:sql=>({bind:(...v)=>({first:async()=>{asked.push([sql,v]);
+    return /crm_welcome_gifts/.test(sql)?(v[0]==='CustomerOne'?{code:'TH-ABCD'}:null)
+      :{value:JSON.stringify({on:true,description:'a sample gift',message:'{code}',endsOn:null})};}})})};
+  const b=await s.linked();
+  assert.deepEqual((await (await s.run('session',{cookie:b.cookie})).json()).welcomeGift,{code:'TH-ABCD',description:'a sample gift',endsOn:null});
+  assert.ok(asked.some(([sql,v])=>/crm_welcome_gifts/.test(sql)&&v[0]==='CustomerOne'));
+});

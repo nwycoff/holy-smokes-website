@@ -28,6 +28,17 @@ function rewardBlock(tier, subtotalCents) {
   if (tier.amountCents !== null && tier.amountCents > subtotalCents) return `for orders of ${money.format(tier.amountCents / 100)} or more`;
   return '';
 }
+// The customer's welcome-gift code for turning on Deals & news, to show at checkout.
+function welcomeGiftPanel() {
+  const gift = user.linked ? user.welcomeGift : null;
+  if (!gift?.code) return null;
+  const panel = el('section', '', 'account-panel welcome-gift'), ends = gift.endsOn
+    ? ` Offer ends ${new Date(`${gift.endsOn}T12:00:00`).toLocaleDateString([], { month: 'long', day: 'numeric' })}.` : '';
+  panel.append(el('p', 'WELCOME GIFT', 'eyebrow'),
+    el('h3', gift.description ? `Thanks for turning on Deals & news: ${gift.description}` : 'Thanks for turning on Deals & news!'),
+    el('p', `Show this code at checkout. One per customer.${ends}`, 'fine-print'), el('strong', gift.code, 'gift-code'));
+  return panel;
+}
 function rewardTiersPanel() {
   if (!rewardTiers?.length) return null;
   const panel = el('section', '', 'account-panel reward-tiers'), list = el('ul', '', 'tier-list');
@@ -267,6 +278,7 @@ function renderRewards() {
     panel.append(heading, el('p', demo ? 'For demonstration only.' : `Checked ${new Date(points.checkedAt).toLocaleTimeString([], { hour:'numeric', minute:'2-digit' })}.`));
   } else panel.append(el('h2', pointsLoading ? 'Checking your points…' : 'Your balance is unavailable.'), el('p', 'Your budtender can also check your balance.'));
   panel.append(button('Refresh balance ↻', refreshPoints, 'light-button')); target.append(panel);
+  const gift = welcomeGiftPanel(); if (gift) target.append(gift);
   const ask = marketingPrompt(); if (ask) target.append(ask);
   if (tiers) target.append(tiers);
 }
@@ -696,7 +708,7 @@ async function initialize() {
   const current = generation;
   if (demo) {
     const fixture = await import('./demo-data.js'); menu = fixture.demoMenu; config = { purchaseLimits: fixture.demoPurchaseLimits };
-    user = { signedIn:true, linked:true, marketing:{ topics:[], ask:true } }; points = { points:750, checkedAt:Date.now() };
+    user = { signedIn:true, linked:true, marketing:{ topics:[], ask:true }, welcomeGift:{ code:'TH-DEMO', description:'a sample gift', endsOn:null } }; points = { points:750, checkedAt:Date.now() };
     $('demo-banner').hidden = false;
   } else {
     try {

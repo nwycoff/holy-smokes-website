@@ -60,6 +60,8 @@ label.wide, .wide { grid-column: 1 / -1; }
 textarea { font: inherit; width: 100%; padding: 8px 10px; border: 1px solid #b7c0ac; border-radius: 7px; background: white; color: var(--ink); resize: vertical; }
 #campaign label input:not([type]), #campaign label select { display: block; width: 100%; margin-top: 4px; }
 #campaign label input[type=datetime-local] { display: block; margin-top: 6px; }
+#welcome label input:not([type]), #welcome label input[type=date] { display: block; width: 100%; margin-top: 4px; }
+#welcome label input[type=date] { width: auto; }
 .lockscreen .notification { display: flex; flex-direction: column; gap: 2px; max-width: 380px; background: #2b2f2c; color: #f4f4f1;
   border-radius: 16px; padding: 12px 14px; font-size: 14px; }
 .lockscreen .notification span { color: #dcdcd6; }

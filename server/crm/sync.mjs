@@ -135,7 +135,7 @@ async function apply(env, source, nodes, now) {
 }
 
 export function forgetStatements(db, customerId) {
-  return ['crm_lines', 'crm_orders', 'crm_campaign_recipients'].map(table => db.prepare(`DELETE FROM ${table} WHERE customer_id = ?`).bind(customerId))
+  return ['crm_lines', 'crm_orders', 'crm_campaign_recipients', 'crm_welcome_gifts'].map(table => db.prepare(`DELETE FROM ${table} WHERE customer_id = ?`).bind(customerId))
     .concat(db.prepare('DELETE FROM crm_customers WHERE id = ?').bind(customerId),
       db.prepare('UPDATE crm_settings SET test_customer_id = NULL WHERE test_customer_id = ?').bind(customerId));
 }

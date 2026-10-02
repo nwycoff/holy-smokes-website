@@ -9,6 +9,7 @@ import { normalizeEnrollmentCode, withEnrollmentCode } from './enrollment.mjs';
 import { licenseMemoryReady, forgetLicense } from './license.mjs';
 import { marketingReady, marketingState, setMarketing } from './marketing.mjs';
 import { recordTap } from '../crm/campaigns.mjs';
+import { welcomeForCustomer } from '../crm/welcome.mjs';
 
 async function limit(env, deps, subject, max, window = 900000) {
   if (!await consumeLimits(env.APP_DB, env.APP_LIMIT_SECRET, [{ subject, max, window }], deps.now()))
@@ -101,7 +102,8 @@ export async function handleApp(context, overrides = {}) {
     // Only the last four characters of a saved license ever leave the server.
     if (route === 'session') return json(200, s ? { signedIn: true, linked: Boolean(s.customer_id), csrf: s.csrf,
       ...(s.license_hint && licenseMemoryReady(env) ? { licenseHint: s.license_hint } : {}),
-      ...(s.customer_id && marketingReady(env) ? { marketing: await marketingState(env, deps, s.id) } : {}) }
+      ...(s.customer_id && marketingReady(env) ? { marketing: await marketingState(env, deps, s.id) } : {}),
+      ...(s.customer_id && marketingReady(env) ? { welcomeGift: await welcomeForCustomer(env, s.customer_id, deps.now()) } : {}) }
       : { signedIn: false, linked: false });
     if (!s) throw new AppError('SIGN_IN', 401);
     if (request.method === 'POST' && request.headers.get('x-treehouse-csrf') !== s.csrf) throw new AppError('CSRF', 403);

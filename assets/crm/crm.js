@@ -188,7 +188,7 @@ async function loadSaved() {
 async function loadAudit() {
   const { audit } = await api('audit');
   const names = { view_customers: 'viewed a customer list', save_segment: 'saved a segment', delete_segment: 'deleted a segment', forget_customer: 'removed a customer',
-    data_check: 'checked the CRM against GrowFlow', data_check_running: 'is checking the CRM against GrowFlow',
+    data_check: 'checked the CRM against GrowFlow', welcome_gift: 'updated the welcome gift', data_check_running: 'is checking the CRM against GrowFlow',
     assistant_run: 'asked the assistant for a run', assistant_updates_on: 'turned on assistant updates', assistant_updates_off: 'turned off assistant updates', approve_suggestion: 'approved an assistant suggestion',
     edit_suggestion: 'edited and sent an assistant suggestion', dismiss_suggestion: 'dismissed an assistant suggestion',
     send_campaign: 'sent or scheduled a campaign', test_campaign: 'sent a test campaign', cancel_campaign: 'canceled a campaign', set_test_phone: 'chose their test phone',
@@ -297,6 +297,11 @@ function resultText(r) {
   if (r.days < 7) text += ' Results settle after 7 days.';
   return text;
 }
+function fillWelcome(w) {
+  $('welcome').hidden = false;
+  $('wg-on').checked = w.on; $('wg-description').value = w.description || ''; $('wg-message').value = w.message || ''; $('wg-ends').value = w.endsOn || '';
+  $('wg-stats').textContent = `${count.format(w.issued)} ${w.issued === 1 ? 'code' : 'codes'} issued · ${count.format(w.sent)} sent${w.updatedBy ? ` · last changed by ${w.updatedBy}` : ''}`;
+}
 async function loadCampaigns() {
   let data;
   try { data = await api('campaigns'); }
@@ -317,6 +322,7 @@ async function loadCampaigns() {
     $('cp-ideas').replaceChildren(...AUTOMATION_IDEAS.map(idea => { const b = el('button', idea.name, 'chip'); b.type = 'button';
       b.addEventListener('click', () => useIdea(idea)); return b; }));
     $('cp-rules').textContent = `Customers get at most ${data.weeklyCap} a week, only 9 am–8 pm Central, and only topics they chose.`;
+    fillWelcome(data.welcome);
   }
   const autos = $('automations'); autos.hidden = !data.automations.length;
   autos.replaceChildren(el('h2', 'Automatic messages'), ...data.automations.map(a => {
@@ -481,6 +487,13 @@ async function markEdited() {
   const id = editingSuggestion; editingSuggestion = null;
   try { await api('assistant/decide', { id, decision: 'edited' }); await loadAssistant(); } catch { /* Already decided or expired. */ }
 }
+$('welcome').addEventListener('submit', async event => {
+  event.preventDefault();
+  const welcome = { on: $('wg-on').checked, description: $('wg-description').value, message: $('wg-message').value, endsOn: $('wg-ends').value || null };
+  if (welcome.on && !confirm('Turn on the welcome gift? Everyone already on Deals & news, and everyone who turns it on from now, gets one code on their phone (between 9 am and 8 pm).')) return;
+  try { const result = await api('welcome/save', { welcome }); fillWelcome(result.welcome); message(welcome.on ? 'Welcome gift is on.' : 'Welcome gift saved (off).'); void loadAudit(); }
+  catch (e) { message(e.message, true); }
+});
 $('as-weekly').addEventListener('click', () => runAssistantNow('weekly'));
 $('as-notify').addEventListener('change', async () => {
   const on = $('as-notify').checked;

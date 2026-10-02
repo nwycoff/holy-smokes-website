@@ -38,13 +38,18 @@ export function localHour(ms) {
 export const quietAt = ms => { const h = localHour(ms); return h < QUIET.start || h >= QUIET.end; };
 export const localDay = ms => new Intl.DateTimeFormat('en-CA', { timeZone: QUIET.zone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(ms);
 // Seconds left before quiet hours, so a phone that is offline never receives it late at night.
-function secondsUntilQuiet(ms) {
+export function secondsUntilQuiet(ms) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: QUIET.zone, hour: 'numeric', minute: 'numeric',
     hourCycle: 'h23' }).formatToParts(ms).map(p => [p.type, p.value]));
   return Math.max(600, ((QUIET.end - Number(parts.hour)) * 60 - Number(parts.minute)) * 60);
 }
 const clean = (text, max) => typeof text === 'string' ? text.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max) : '';
 
+// Lock-screen text must not reveal cannabis or make health claims.
+export function checkWording(text, { lockScreen = true } = {}) {
+  if (lockScreen && NOT_DISCREET.test(text)) throw new AppError('CAMPAIGN_DISCREET', 400);
+  if (HEALTH_CLAIM.test(text)) throw new AppError('CAMPAIGN_CLAIMS', 400);
+}
 // Checks a campaign the CRM is about to preview, test or send. Returns the stored form.
 export function validateCampaign(input, env, now) {
   const fail = code => { throw new AppError(code, 400); };
@@ -54,8 +59,7 @@ export function validateCampaign(input, env, now) {
   if (!name) fail('CAMPAIGN_NAME');
   if (!TOPICS.includes(input.topic)) fail('INPUT');
   if (body.length < 10 || body.length > 120) fail('CAMPAIGN_LENGTH');
-  if (NOT_DISCREET.test(body)) fail('CAMPAIGN_DISCREET');
-  if (HEALTH_CLAIM.test(body)) fail('CAMPAIGN_CLAIMS');
+  checkWording(body);
   if (!linkTarget(input.link)) fail('INPUT');
   if (!HOLDOUTS.includes(input.holdoutPct)) fail('INPUT');
   const definition = input.definition === null || input.definition === undefined ? null : validateDefinition(input.definition);

@@ -1550,3 +1550,19 @@ select,
 textarea {
   font-size: max(16px, 1em) !important;
 }
+
+/* Welcome gift */
+.welcome-gift h3 {
+  margin: 0 0 6px;
+}
+.welcome-gift .gift-code {
+  display: block;
+  margin-top: 10px;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--soft);
+  color: var(--forest);
+  font-size: 28px;
+  letter-spacing: 3px;
+  text-align: center;
+}
