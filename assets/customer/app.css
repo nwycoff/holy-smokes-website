@@ -1555,6 +1555,9 @@ textarea {
 .welcome-gift h3 {
   margin: 0 0 6px;
 }
+.welcome-gift .text-button {
+  margin-top: 10px;
+}
 .welcome-gift .gift-code {
   display: block;
   margin-top: 10px;

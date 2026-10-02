@@ -10,7 +10,7 @@ import { hash } from '../server/customer-app/http.mjs';
 import { linkTarget, recordTap, sendCampaigns, sendOwnerAlerts, tapToken, validateCampaign } from '../server/crm/campaigns.mjs';
 import { tickAssistant, SYSTEM } from '../server/crm/assistant.mjs';
 import { maybeVerify } from '../server/crm/verify.mjs';
-import { sendWelcomeGifts, welcomeForCustomer } from '../server/crm/welcome.mjs';
+import { dismissWelcome, sendWelcomeGifts, welcomeForCustomer, welcomeStats } from '../server/crm/welcome.mjs';
 
 class D1 {
   constructor(dir) {
@@ -627,4 +627,19 @@ test('the welcome gift: one code per customer when they turn on Deals & news, se
   assert.deepEqual(s.db.prepare("SELECT action FROM crm_audit WHERE action = 'welcome_gift'").all().length, 2);
   await s.call('forget', { customerId: 'B' });
   assert.equal(s.db.prepare("SELECT COUNT(*) n FROM crm_welcome_gifts WHERE customer_id = 'B'").get().n, 0);
+});
+
+test('a customer can remove their used welcome code; it never comes back or gets reissued', async () => {
+  const s = await campaigns();
+  await s.call('welcome/save', { welcome: { on: true, description: 'a pre-roll for a penny', message: 'Your welcome gift code is {code}.', endsOn: null } });
+  await sendWelcomeGifts(s.env, s.deps);
+  assert.ok(await welcomeForCustomer(s.env, 'A', s.now()));
+  await dismissWelcome(s.env, 'A', s.now()); await dismissWelcome(s.env, 'A', s.now() + 1000);
+  assert.equal(await welcomeForCustomer(s.env, 'A', s.now()), null);
+  assert.ok(await welcomeForCustomer(s.env, 'B', s.now()), 'only their own code');
+  s.app.exec("UPDATE app_marketing_prefs SET topics = '[]' WHERE user_id = 'user-A'");
+  s.app.exec("UPDATE app_marketing_prefs SET topics = '[\"events\"]' WHERE user_id = 'user-A'");
+  const before = s.pushes.length; await sendWelcomeGifts(s.env, s.deps);
+  assert.equal(s.pushes.length, before); assert.equal(await welcomeForCustomer(s.env, 'A', s.now()), null);
+  assert.deepEqual(await welcomeStats(s.env), { issued: 3, sent: 3, used: 1 });
 });

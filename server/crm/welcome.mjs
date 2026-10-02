@@ -39,15 +39,17 @@ export async function saveWelcomeConfig(env, user, input, now) {
   return config;
 }
 export async function welcomeStats(env) {
-  const row = await env.CRM_DB.prepare('SELECT COUNT(*) AS issued, COUNT(sent_at) AS sent FROM crm_welcome_gifts').bind().first().catch(() => null);
-  return { issued: row?.issued || 0, sent: row?.sent || 0 };
+  const row = await env.CRM_DB.prepare('SELECT COUNT(*) AS issued, COUNT(sent_at) AS sent, COUNT(dismissed_at) AS used FROM crm_welcome_gifts')
+    .bind().first().catch(() => null);
+  return { issued: row?.issued || 0, sent: row?.sent || 0, used: row?.used || 0 };
 }
 
-// The customer's own code, for the app (null if they have none or the offer has ended).
+// The customer's own code, for the app (null if they have none, removed it after using it, or
+// the offer has ended).
 export async function welcomeForCustomer(env, customerId, now) {
   if (!env.CRM_DB || !customerId) return null;
   try {
-    const gift = await env.CRM_DB.prepare('SELECT code FROM crm_welcome_gifts WHERE customer_id = ?').bind(customerId).first();
+    const gift = await env.CRM_DB.prepare('SELECT code FROM crm_welcome_gifts WHERE customer_id = ? AND dismissed_at IS NULL').bind(customerId).first();
     if (!gift) return null;
     const config = await welcomeConfig(env);
     return ended(config, now) ? null : { code: gift.code, description: config.description, endsOn: config.endsOn };
@@ -58,6 +60,12 @@ export async function welcomeForCustomer(env, customerId, now) {
 async function topicFor(code) {
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`welcome:${code}`)));
   return Array.from(digest.slice(0, 16), b => b.toString(16).padStart(2, '0')).join('');
+}
+// The customer says they've used their code: it leaves the app on every device. Staff's note on
+// the GrowFlow profile stays the record of who received a gift.
+export async function dismissWelcome(env, customerId, now) {
+  if (!env.CRM_DB) throw new AppError('INPUT', 400);
+  await env.CRM_DB.prepare('UPDATE crm_welcome_gifts SET dismissed_at = COALESCE(dismissed_at, ?) WHERE customer_id = ?').bind(now, customerId).run();
 }
 function newCode() {
   const bytes = crypto.getRandomValues(new Uint8Array(4));

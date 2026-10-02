@@ -36,7 +36,12 @@ function welcomeGiftPanel() {
     ? ` Offer ends ${new Date(`${gift.endsOn}T12:00:00`).toLocaleDateString([], { month: 'long', day: 'numeric' })}.` : '';
   panel.append(el('p', 'WELCOME GIFT', 'eyebrow'),
     el('h3', gift.description ? `Thanks for turning on Deals & news: ${gift.description}` : 'Thanks for turning on Deals & news!'),
-    el('p', `Show this code at checkout. One per customer.${ends}`, 'fine-print'), el('strong', gift.code, 'gift-code'));
+    el('p', `Show this code at checkout. One per customer.${ends}`, 'fine-print'), el('strong', gift.code, 'gift-code'),
+    button('I’ve used it – remove it', async () => {
+      if (!confirm('Remove your welcome gift code? Only do this after you’ve received your gift. It can’t be brought back.')) return;
+      if (!demo) await api('welcome/dismiss', {});
+      user.welcomeGift = null; message('Your welcome gift code has been removed.'); renderRewards();
+    }, 'text-button'));
   return panel;
 }
 function rewardTiersPanel() {

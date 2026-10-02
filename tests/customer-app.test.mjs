@@ -931,3 +931,14 @@ test('a linked customer sees their own welcome-gift code in the app', async () =
   assert.deepEqual((await (await s.run('session',{cookie:b.cookie})).json()).welcomeGift,{code:'TH-ABCD',description:'a sample gift',endsOn:null});
   assert.ok(asked.some(([sql,v])=>/crm_welcome_gifts/.test(sql)&&v[0]==='CustomerOne'));
 });
+
+test('customers remove only their own welcome code, signed in and with CSRF', async () => {
+  const s=await withPush(), updates=[];
+  s.env.CRM_DB={prepare:sql=>({bind:(...v)=>({run:async()=>{updates.push([sql,v]);return {success:true,results:[]};},first:async()=>null})})};
+  const b=await s.linked(), dismiss=(headers={'x-treehouse-csrf':b.csrf})=>s.run('welcome/dismiss',{method:'POST',cookie:b.cookie,body:{},headers});
+  assert.equal((await dismiss({})).status,403);
+  assert.equal((await dismiss()).status,200);
+  assert.equal(updates.length,1); assert.equal(updates[0][1][1],'CustomerOne');
+  const a=await s.login('auth0|someone-else'), csrfA=(await (await s.run('session',{cookie:a.cookie})).json()).csrf;
+  assert.equal((await s.run('welcome/dismiss',{method:'POST',cookie:a.cookie,body:{},headers:{'x-treehouse-csrf':csrfA}})).status,403);
+});

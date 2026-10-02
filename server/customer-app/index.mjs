@@ -9,7 +9,7 @@ import { normalizeEnrollmentCode, withEnrollmentCode } from './enrollment.mjs';
 import { licenseMemoryReady, forgetLicense } from './license.mjs';
 import { marketingReady, marketingState, setMarketing } from './marketing.mjs';
 import { recordTap } from '../crm/campaigns.mjs';
-import { welcomeForCustomer } from '../crm/welcome.mjs';
+import { dismissWelcome, welcomeForCustomer } from '../crm/welcome.mjs';
 
 async function limit(env, deps, subject, max, window = 900000) {
   if (!await consumeLimits(env.APP_DB, env.APP_LIMIT_SECRET, [{ subject, max, window }], deps.now()))
@@ -30,7 +30,7 @@ export async function handleApp(context, overrides = {}) {
   const allowed = { config: 'GET', menu: 'GET', rewards: 'GET', session: 'GET', points: 'GET', login: 'POST',
     callback: 'GET', enroll: 'POST', logout: 'POST', 'logout-all': 'POST', 'remove-link': 'POST', 'staff/enroll': 'POST',
     preorder: 'GET', 'preorder/place': 'POST', 'push/subscribe': 'POST', 'push/unsubscribe': 'POST', 'license/forget': 'POST',
-    marketing: 'POST', tap: 'POST' };
+    marketing: 'POST', tap: 'POST', 'welcome/dismiss': 'POST' };
   if (!allowed[route]) return json(404, { error: 'Not found.' });
   if (allowed[route] !== request.method) return json(405, { error: 'Method not allowed.' }, { Allow: allowed[route] });
   if (route !== 'callback' && url.search) return json(400, { error: 'Invalid request.' });
@@ -148,6 +148,12 @@ export async function handleApp(context, overrides = {}) {
       return json(200, { points: customer.CurrentPoints, checkedAt: deps.now() });
     }
     if (route === 'license/forget') { await forgetLicense(env, s.id); return json(200, { licenseHint: null }); }
+    if (route === 'welcome/dismiss') {
+      if (!s.customer_id) throw new AppError('LINK_REQUIRED', 403);
+      await limit(env, deps, `welcome:${s.id}`, 10);
+      await dismissWelcome(env, s.customer_id, deps.now());
+      return json(200, { welcomeGift: null });
+    }
     if (route === 'marketing') {
       if (!s.customer_id) throw new AppError('LINK_REQUIRED', 403);
       if (!marketingReady(env)) throw new AppError('MARKETING_CONFIG');

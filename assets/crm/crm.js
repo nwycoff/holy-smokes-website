@@ -300,7 +300,7 @@ function resultText(r) {
 function fillWelcome(w) {
   $('welcome').hidden = false;
   $('wg-on').checked = w.on; $('wg-description').value = w.description || ''; $('wg-message').value = w.message || ''; $('wg-ends').value = w.endsOn || '';
-  $('wg-stats').textContent = `${count.format(w.issued)} ${w.issued === 1 ? 'code' : 'codes'} issued · ${count.format(w.sent)} sent${w.updatedBy ? ` · last changed by ${w.updatedBy}` : ''}`;
+  $('wg-stats').textContent = `${count.format(w.issued)} ${w.issued === 1 ? 'code' : 'codes'} issued · ${count.format(w.sent)} sent · ${count.format(w.used || 0)} marked used by the customer${w.updatedBy ? ` · last changed by ${w.updatedBy}` : ''}`;
 }
 async function loadCampaigns() {
   let data;

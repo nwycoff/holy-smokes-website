@@ -67,4 +67,5 @@ In the CRM's Deals & news section, **Welcome gift for new subscribers** sets an 
 - When a connected customer has Deals & news on (any topic) and a phone set up, the notifier issues one code (`TH-` plus 4 characters, once per customer record, ever) and sends it within a minute, between 9 am and 8 pm Central. Turning Deals & news off and on again never issues another. These messages don't count toward the weekly limit.
 - The code also shows on **My points** in the app until the last day of the offer.
 - At checkout, staff check the customer's GrowFlow profile for an earlier gift note, give the gift, and add a note such as "App welcome gift given 10/2 – TH-7Q4K".
-- Removing a customer from the CRM deletes their code. Setup: run `crm-migrations/0007_crm_welcome_gifts.sql` in `CRM_DB` and redeploy the notifier.
+- After using it, the customer can tap **I've used it – remove it**; the code leaves the app on all their devices and is never reissued. The CRM counts these as "marked used by the customer". Staff's GrowFlow note remains the record of who received a gift.
+- Removing a customer from the CRM deletes their code. Setup: run `crm-migrations/0007_crm_welcome_gifts.sql` and `0008_crm_welcome_dismissed.sql` in `CRM_DB` and redeploy the notifier.
