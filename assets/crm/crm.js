@@ -188,6 +188,7 @@ async function loadSaved() {
 async function loadAudit() {
   const { audit } = await api('audit');
   const names = { view_customers: 'viewed a customer list', save_segment: 'saved a segment', delete_segment: 'deleted a segment', forget_customer: 'removed a customer',
+    data_check: 'checked the CRM against GrowFlow', data_check_running: 'is checking the CRM against GrowFlow',
     assistant_run: 'asked the assistant for a run', assistant_updates_on: 'turned on assistant updates', assistant_updates_off: 'turned off assistant updates', approve_suggestion: 'approved an assistant suggestion',
     edit_suggestion: 'edited and sent an assistant suggestion', dismiss_suggestion: 'dismissed an assistant suggestion',
     send_campaign: 'sent or scheduled a campaign', test_campaign: 'sent a test campaign', cancel_campaign: 'canceled a campaign', set_test_phone: 'chose their test phone',

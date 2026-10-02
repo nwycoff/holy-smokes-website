@@ -9,6 +9,7 @@ import { validateDefinition, compile } from '../server/crm/segments.mjs';
 import { hash } from '../server/customer-app/http.mjs';
 import { linkTarget, recordTap, sendCampaigns, sendOwnerAlerts, tapToken, validateCampaign } from '../server/crm/campaigns.mjs';
 import { tickAssistant, SYSTEM } from '../server/crm/assistant.mjs';
+import { maybeVerify } from '../server/crm/verify.mjs';
 
 class D1 {
   constructor(dir) {
@@ -49,8 +50,8 @@ function growflow(now) {
     const test = (r, w) => w.AND ? w.AND.every(x => test(r, x)) : Object.entries(w).every(([k, c]) => {
       const v = k === 'CompletedAt' || k === 'SoldAt' ? r[k] : r[k];
       return Object.entries(c).every(([op, x]) => op === 'equalTo' ? v === x : op === 'greaterThan' ? v > x
-        : op === 'greaterThanOrEqualTo' ? v >= x : false); });
-    const keys = variables.order.map(o => o.replace('_ASC', ''));
+        : op === 'greaterThanOrEqualTo' ? v >= x : op === 'lessThan' ? v < x : op === 'in' ? x.includes(v) : false); });
+    const keys = (variables.order || ['objectId_ASC']).map(o => o.replace('_ASC', ''));
     const all = store[root[field]].filter(r => test(r, variables.where))
       .sort((a, b) => keys.reduce((n, k) => n || String(a[k]).localeCompare(String(b[k])), 0));
     if (failNext.count > 0 && variables.first > 25) { failNext.count--; return new Response('busy', { status: 503 }); }
@@ -565,4 +566,26 @@ test('scheduled assistant runs update owners who asked, on their own phones; man
     ['Daily check: Opt-outs jumped after Tuesday’s message.', 'Weekly plan ready: 1 suggestion to review.']);
   await sendOwnerAlerts(s.env, s.deps); await sendOwnerAlerts(s.env, s.deps); // each update goes once
   assert.equal(s.pushes.length - before, 2); assert.ok(s.pushes.slice(before).every(p => p.url.endsWith('device-B')));
+});
+
+test('a one-time check re-reads customers, orders and items from GrowFlow and records how well they match', async () => {
+  const s = await setup(); seed(s); // Thursday 10 am Central
+  for (let i = 0; i < 5; i++) s.order(`y${i}`, 'A', 1, 1000 + i); // yesterday
+  s.line('yl1', 'B', 1, 2500, 'Edible', 'b3'); s.line('yl2', 'C', 1, 900, 'Flower', 'b2');
+  await s.sync();
+  assert.equal(await maybeVerify(s.env, s.deps), false); // off unless labelled
+  // Drift that the check should catch: a missed order, a changed price, and points changed after the sync.
+  s.order('missed', 'B', 1, 7777); s.db.exec("UPDATE crm_lines SET net_cents = 1 WHERE id = 'yl2'");
+  s.env.CRM_VERIFY_ONCE = 'october';
+  assert.equal(await maybeVerify(s.env, s.deps), true);
+  assert.equal(await maybeVerify(s.env, s.deps), false); // once per label
+  const row = s.db.prepare("SELECT action, actor, detail FROM crm_audit WHERE id = 'verify:october'").get();
+  assert.equal(row.action, 'data_check'); assert.equal(row.actor, 'system');
+  const r = JSON.parse(row.detail);
+  assert.equal(r.customers.checked, 2); assert.equal(r.customers.found, 2); // visited in the last 90 days: A and C
+  assert.equal(r.customers.birthMonth.match, 2); assert.equal(r.customers.type.match, 2); assert.equal(r.customers.points.match, 2);
+  const y = r.orderDays[0];
+  assert.equal(y.expected, 6); assert.equal(y.crm, 5); assert.deepEqual(y.missingInCrm, ['missed']); assert.equal(y.differentDetails, 0);
+  assert.equal(r.items.expected, 2); assert.equal(r.items.price.mismatch, 1); assert.equal(r.items.brand.match, 2);
+  assert.ok(!/Never stored|5550100/.test(row.detail), 'no personal details');
 });
