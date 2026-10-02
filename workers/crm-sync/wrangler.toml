@@ -6,8 +6,9 @@ main = "index.mjs"
 compatibility_date = "2026-09-29"
 workers_dev = false
 
+# Test runs every 15 minutes; the live CRM ([env.live]) runs every minute.
 [triggers]
-crons = ["* * * * *"]
+crons = ["*/15 * * * *"]
 
 [[d1_databases]]
 binding = "CRM_DB"
@@ -24,6 +25,7 @@ GROWFLOW_ORG = "holysmokesdispensary"
 
 [env.live]
 name = "treehouse-crm-live-sync"
+triggers = { crons = ["* * * * *"] }
 
 [[env.live.d1_databases]]
 binding = "CRM_DB"
