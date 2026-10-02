@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>My Treehouse app flyer</title>
+<style>
+  @page { size: 8.5in 11in; margin: 0; }
+  :root { --forest: #213b2c; --deep: #192e22; --cream: #f6f3eb; --paper: #fffcf6; --gold: #bd8d4a;
+    --green: #547442; --lime: #8cc63f; --soft: #e8ecde; --ink: #26382b; --muted: #5f6b60; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 8.5in; height: 11in; }
+  body { background: #fff; color: var(--ink); font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .page { width: 8.5in; height: 11in; padding: 0.35in; display: flex; flex-direction: column; gap: 0.18in; }
+
+  .hero { background: var(--forest); color: var(--cream); border-radius: 0.22in; padding: 0.24in 0.32in;
+    display: flex; align-items: center; gap: 0.3in; }
+  .hero img { width: 1.2in; height: 1.2in; border-radius: 50%; flex-shrink: 0; }
+  .eyebrow { font-size: 10.5pt; letter-spacing: 2.5pt; font-weight: 700; color: var(--lime); }
+  .hero h1 { font-family: Georgia, "Times New Roman", serif; font-weight: 400; font-size: 30pt; line-height: 1.05; margin: 5pt 0 6pt; }
+  .hero h1 em { color: #cfe3a7; }
+  .hero p { font-size: 12pt; line-height: 1.4; color: #e9eadf; }
+
+  .offer { border: 3px dashed var(--gold); border-radius: 0.2in; background: #fbf5e9; padding: 0.13in 0.26in;
+    display: flex; align-items: center; gap: 0.28in; }
+  .offer .amount { font-family: Georgia, serif; font-size: 44pt; line-height: 0.9; color: var(--forest); white-space: nowrap; }
+  .offer .amount small { display: block; font-family: -apple-system, Helvetica, Arial, sans-serif; font-size: 13pt; letter-spacing: 3pt;
+    font-weight: 800; color: var(--gold); margin-top: 6pt; text-align: center; }
+  .offer h2 { font-size: 17pt; color: var(--forest); margin-bottom: 4pt; }
+  .offer p { font-size: 11.5pt; line-height: 1.4; color: var(--ink); }
+
+  .middle { display: flex; gap: 0.25in; }
+  .benefits { flex: 1; display: flex; flex-direction: column; gap: 0.13in; }
+  .benefits h3, .steps h3 { font-family: Georgia, serif; font-weight: 400; font-size: 19pt; color: var(--forest); }
+  .benefit { display: flex; gap: 0.14in; align-items: flex-start; }
+  .icon { width: 0.42in; height: 0.42in; border-radius: 50%; background: var(--soft); flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; }
+  .icon svg { width: 0.25in; height: 0.25in; stroke: var(--forest); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .benefit strong { display: block; font-size: 12.5pt; color: var(--forest); margin-bottom: 1pt; }
+  .benefit span { font-size: 10.5pt; line-height: 1.38; color: var(--muted); }
+  .benefit .tag { display: inline-block; font-size: 8pt; font-weight: 800; letter-spacing: 1pt; color: #fff; background: var(--green);
+    border-radius: 6pt; padding: 1.5pt 5pt; margin-left: 4pt; vertical-align: 1.5pt; }
+
+  .qr { width: 2.7in; background: var(--paper); border: 1.5px solid var(--soft); border-radius: 0.2in; padding: 0.2in;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 8pt; }
+  .qr .label { font-size: 10pt; letter-spacing: 2pt; font-weight: 800; color: var(--green); }
+  .qr img { width: 2.2in; height: 2.2in; }
+  .qr .url { font-family: Georgia, serif; font-size: 13pt; color: var(--forest); }
+  .qr .hint { font-size: 9pt; color: var(--muted); line-height: 1.35; }
+
+  .steps { background: var(--soft); border-radius: 0.2in; padding: 0.15in 0.26in; }
+  .steps ol { list-style: none; display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.2in; margin-top: 6pt; }
+  .steps li { font-size: 10pt; line-height: 1.38; color: var(--ink); }
+  .steps li b { display: flex; align-items: center; gap: 6pt; font-size: 11.5pt; color: var(--forest); margin-bottom: 3pt; }
+  .steps li b i { font-style: normal; width: 18pt; height: 18pt; border-radius: 50%; background: var(--forest); color: var(--cream);
+    display: inline-flex; align-items: center; justify-content: center; font-size: 10pt; }
+
+  .footer { margin-top: auto; display: flex; justify-content: space-between; align-items: flex-end; gap: 0.3in; font-size: 8pt; color: var(--muted); line-height: 1.4; }
+  .footer .store { text-align: right; font-size: 9.5pt; color: var(--forest); white-space: nowrap; }
+  .footer .store b { font-family: Georgia, serif; font-size: 12pt; font-weight: 400; }
+</style>
+</head>
+<body>
+<div class="page">
+  <section class="hero">
+    <img src="treehouse-logo.png" alt="Treehouse Pharmacy">
+    <div>
+      <p class="eyebrow">THE MY TREEHOUSE APP</p>
+      <h1>Your Treehouse,<br><em>right on your phone.</em></h1>
+      <p>Order ahead, check your points, and be the first to hear about new arrivals and app-only deals.</p>
+    </div>
+  </section>
+
+  <section class="offer">
+    <div class="amount">$5<small>OFF</small></div>
+    <div>
+      <h2>$5 off your next order, just for subscribing</h2>
+      <p>Turn on <b>Deals &amp; news</b> in the app and we’ll send a welcome code straight to your phone. Show it at checkout for $5 off your next order.</p>
+    </div>
+  </section>
+
+  <section class="middle">
+    <div class="benefits">
+      <h3>Why get the app</h3>
+      <div class="benefit"><div class="icon"><svg viewBox="0 0 24 24"><path d="M5 8h14l-1.2 12H6.2z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg></div>
+        <div><strong>Order ahead for pickup</strong><span>Browse today’s menu, order from your phone and skip the wait. We hold your order until close. Pay in store.</span></div></div>
+      <div class="benefit"><div class="icon"><svg viewBox="0 0 24 24"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg></div>
+        <div><strong>Your points, anytime</strong><span>See your balance and the rewards you can redeem, like 225 points for $10 off.</span></div></div>
+      <div class="benefit"><div class="icon"><svg viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="9" rx="1.5"/><path d="M3 8h18v3H3zM12 8v12M12 8c-1.5-3-5-3.5-5-1.2C7 8 9.5 8 12 8zm0 0c1.5-3 5-3.5 5-1.2C17 8 14.5 8 12 8z"/></svg></div>
+        <div><strong>Birthday deals</strong><span>Celebrate with us. A special treat during your birthday month.</span></div></div>
+      <div class="benefit"><div class="icon"><svg viewBox="0 0 24 24"><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.4"/></svg></div>
+        <div><strong>App-only deals <em class="tag">MEMBERS</em></strong><span>Specials and first word on new arrivals you won’t find anywhere else.</span></div></div>
+      <div class="benefit"><div class="icon"><svg viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg></div>
+        <div><strong>Ready-for-pickup alerts</strong><span>Get a notification the moment your order is ready.</span></div></div>
+    </div>
+    <aside class="qr">
+      <p class="label">SCAN TO GET THE APP</p>
+      <img src="app-qr.svg" alt="QR code for treehousepharmacy.com/app">
+      <p class="url">treehousepharmacy.com/app</p>
+      <p class="hint">No app store needed. Free.</p>
+    </aside>
+  </section>
+
+  <section class="steps">
+    <h3>Get set up in 3 steps</h3>
+    <ol>
+      <li><b><i>1</i> Scan &amp; save it</b>Open the link, then add it to your Home Screen. iPhone: Share → Add to Home Screen. Android: tap Install.</li>
+      <li><b><i>2</i> Connect your account</b>Create your account, then ask your budtender for your 8-digit connection code.</li>
+      <li><b><i>3</i> Turn on Deals &amp; news</b>Go to Account → Notifications and switch it on. Your $5-off code arrives on your phone.</li>
+    </ol>
+  </section>
+
+  <footer class="footer">
+    <p>For registered medical marijuana patients. One welcome offer per customer; show your code at checkout. Deals and offers may change.
+      Deals &amp; news: no more than 2 messages a week, never late at night; turn it off anytime.</p>
+    <p class="store"><b>Treehouse Pharmacy</b><br>1801 N Union St, Ponca City · (580) 716-6720</p>
+  </footer>
+</div>
+</body>
+</html>
