@@ -1542,3 +1542,11 @@ body.cart-bar-showing .toast {
 .marketing-prompt.on-dark .text-button {
   color: var(--paper);
 }
+
+/* iPhones zoom in when a text field under 16px is tapped, and a Home Screen app can stay zoomed
+   afterwards. Keep every field at 16px or larger (pinch-zoom stays available). */
+input:not([type="checkbox"]):not([type="radio"]),
+select,
+textarea {
+  font-size: max(16px, 1em) !important;
+}
