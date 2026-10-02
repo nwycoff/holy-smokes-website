@@ -392,13 +392,27 @@ function renderCartBar() {
   document.body.classList.toggle('cart-bar-showing', !bar.hidden && location.hash === '#menu');
   bar.replaceChildren(el('span', `${count} ${count === 1 ? 'item' : 'items'} · ${money.format(cartTotal() / 100)}`), el('strong', 'Review order →'));
 }
+// Store closing times (Central), the same as the website. Orders are held until closing on the
+// day they're placed; an order placed after closing is held until closing the next day.
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const CLOSES = { Sun: 20, Mon: 22, Tue: 22, Wed: 22, Thu: 22, Fri: 22, Sat: 21 };
+const centralParts = ms => Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', weekday: 'short',
+  year: 'numeric', month: '2-digit', day: '2-digit', hour: 'numeric', hourCycle: 'h23' }).formatToParts(ms).map(p => [p.type, p.value]));
+function holdMessage(placedMs, nowMs = Date.now()) {
+  const placed = centralParts(placedMs), late = Number(placed.hour) >= CLOSES[placed.weekday];
+  const holdMs = placedMs + (late ? 86400000 : 0), hold = centralParts(holdMs), close = CLOSES[hold.weekday];
+  const date = p => `${p.year}-${p.month}-${p.day}`, now = centralParts(nowMs), tomorrow = centralParts(nowMs + 86400000);
+  const day = date(hold) === date(now) ? 'today' : date(hold) === date(tomorrow) ? 'tomorrow'
+    : new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', weekday: 'long' }).format(holdMs);
+  return `We’ll hold your order until we close ${day} at ${close > 12 ? close - 12 : close} pm.`;
+}
 function orderStatusPanel() {
   const panel = el('section', '', 'points-card account-panel order-status');
   panel.append(el('p', demo ? 'SAMPLE ORDER' : order.orderNumber ? `ORDER #${order.orderNumber}` : 'YOUR ORDER', 'eyebrow'),
     el('h2', ORDER_STATUS[order.status] || 'Received. Please call the shop with any questions.'),
     el('p', `${order.itemCount} ${order.itemCount === 1 ? 'item' : 'items'} · ${money.format(order.totalCents / 100)} · placed ${new Date(order.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`));
   if (order.rewardName) panel.append(el('p', `Reward requested: ${order.rewardName}. Your budtender applies it at pickup.`));
-  if (order.open) panel.append(el('p', 'Pay in store when you pick up. Bring your ID and medical card.'),
+  if (order.open) panel.append(el('p', `${holdMessage(order.createdAt)} Pay in store when you pick up. Bring your ID and medical card.`),
     button('Refresh status ↻', () => refreshOrder(true), 'light-button'));
   const notify = order.open && order.status !== 'Fulfilled' ? notifyControl() : null;
   if (notify) { const row = el('div', '', 'notify-row'); row.append(notify); panel.append(row); }
@@ -468,7 +482,7 @@ function renderOrder() {
   panel.append(list, total, ...(usage.length ? [el('p', `Purchase limits this order: ${usage.join(' · ')}`, 'fine-print limit-usage')] : []),
     el('p', menu?.pricesIncludeTax === false ? 'Prices do not include tax.' : 'Prices include tax.', 'fine-print'),
     ...rewardRow, ...licenseParts, label, note, submit,
-    el('p', 'Pay in store when you pick up. Bring your ID and medical card. Availability and final price are confirmed at the counter.', 'fine-print'));
+    el('p', 'We hold orders until we close the day you order (until close tomorrow if you order after hours). Pay in store when you pick up. Bring your ID and medical card. Availability and final price are confirmed at the counter.', 'fine-print'));
   target.append(panel);
 }
 // Saved license ("on file, ending ABCD" + Change), or the field plus an opt-in "remember" box.
