@@ -1,0 +1,46 @@
+# Top level: the TEST campaign assistant (treehouse-app-test CRM). [env.live]: the live one
+# (deploy with --env live). Secret: ANTHROPIC_API_KEY (wrangler secret put ANTHROPIC_API_KEY [--env live]).
+name = "treehouse-crm-test-assistant"
+main = "index.mjs"
+compatibility_date = "2026-09-29"
+workers_dev = false
+
+[triggers]
+crons = ["*/5 * * * *"]
+
+[[d1_databases]]
+binding = "CRM_DB"
+database_name = "treehouse-crm-test"
+database_id = "7507ae5b-1cdd-4f6c-8149-023e769dfcf2"
+
+[[d1_databases]]
+binding = "APP_DB"
+database_name = "treehouse-app-test-data"
+database_id = "0b4fd99e-935e-466f-a791-bdb31f8b0030"
+
+[vars]
+CRM_ASSISTANT_ENABLED = "true"
+# Monthly AI spending cap in cents (also set on the Pages project so the CRM can show it).
+CRM_ASSISTANT_BUDGET_CENTS = "2500"
+CRM_ASSISTANT_WEEKLY_MODEL = "claude-opus-5-5"
+CRM_ASSISTANT_DAILY_MODEL = "claude-sonnet-5-5"
+
+[env.live]
+name = "treehouse-crm-live-assistant"
+triggers = { crons = ["*/5 * * * *"] }
+
+[[env.live.d1_databases]]
+binding = "CRM_DB"
+database_name = "treehouse-crm-live"
+database_id = "67df24f3-d508-466b-944f-cb7f9f05e3b5"
+
+[[env.live.d1_databases]]
+binding = "APP_DB"
+database_name = "treehouse-app-live-data"
+database_id = "5ac9edcb-7c27-4809-aebf-6bc14f4bbec0"
+
+[env.live.vars]
+CRM_ASSISTANT_ENABLED = "true"
+CRM_ASSISTANT_BUDGET_CENTS = "2500"
+CRM_ASSISTANT_WEEKLY_MODEL = "claude-opus-5-5"
+CRM_ASSISTANT_DAILY_MODEL = "claude-sonnet-5-5"

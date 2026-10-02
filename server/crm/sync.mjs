@@ -7,7 +7,7 @@ import { limitGroup } from '../customer-app/growflow.mjs';
 const DAY = 86400000;
 export const RETENTION = { lineDays: 730, customerDays: 1095 };
 const PAGE = 100, SMALL_PAGE = 25;
-const FIELDS = {
+export const FIELDS = {
   orders: 'objectId updatedAt CompletedAt VoidedAt Status Total IsPreOrder Customer { objectId }',
   lines: `objectId updatedAt SoldAt ReturnedAt Status NetPrice Customer { objectId }
         Brand { objectId Name } ProductCategory { objectId Name Type }`,
@@ -29,7 +29,7 @@ function recency(source, now) {
 }
 
 const iso = value => typeof value === 'string' ? value : typeof value?.iso === 'string' ? value.iso : null;
-const time = value => { const t = Date.parse(iso(value) || ''); return Number.isFinite(t) ? t : null; };
+export const time = value => { const t = Date.parse(iso(value) || ''); return Number.isFinite(t) ? t : null; };
 const id = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(value) ? value : null;
 const text = value => typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, 120) : '';
 // GrowFlow stores money as whole cents (menu prices, discounts, preorder totals). Set
@@ -43,7 +43,7 @@ export function crmReady(env) {
 
 // The CRM's own GrowFlow budget, separate from the app's. GrowFlow allows 120 requests a
 // minute per token; the sync stays well under that and stops early when GrowFlow says so.
-async function growflow(env, deps, query, variables) {
+export async function growflow(env, deps, query, variables) {
   const res = await fetchSafe(deps, `https://retail.growflow.com/c/${env.GROWFLOW_ORG}/graphql`, {
     method: 'POST', headers: { Authorization: `Bearer ${env.CRM_GROWFLOW_TOKEN}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ query, variables })
@@ -56,14 +56,14 @@ async function growflow(env, deps, query, variables) {
   return { data: payload.data, slowDown: Number.isFinite(remaining) && remaining <= 20 };
 }
 
-function orderRow(env, node, now) {
+export function orderRow(env, node, now) {
   const orderId = id(node?.objectId), customerId = id(node?.Customer?.objectId);
   const completed = time(node?.CompletedAt);
   if (!orderId) return null;
   const status = node.VoidedAt ? 'Voided' : text(node.Status) || 'Unknown';
   return { id: orderId, customerId, completed, status, totalCents: cents(env, node.Total), preorder: node.IsPreOrder ? 1 : 0, now };
 }
-function lineRow(env, node, now) {
+export function lineRow(env, node, now) {
   const lineId = id(node?.objectId), customerId = id(node?.Customer?.objectId), sold = time(node?.SoldAt);
   if (!lineId) return null;
   const category = node.ProductCategory || {};
@@ -217,6 +217,8 @@ export async function purge(env, now) {
     env.CRM_DB.prepare('DELETE FROM crm_audit WHERE at < ?').bind(customerCutoff),
     env.CRM_DB.prepare('DELETE FROM crm_campaign_recipients WHERE campaign_id IN (SELECT id FROM crm_campaigns WHERE created_at < ?)').bind(lineCutoff),
     env.CRM_DB.prepare('DELETE FROM crm_campaigns WHERE created_at < ?').bind(lineCutoff),
+    env.CRM_DB.prepare('DELETE FROM crm_suggestions WHERE created_at < ?').bind(lineCutoff),
+    env.CRM_DB.prepare('DELETE FROM crm_assistant_runs WHERE created_at < ?').bind(lineCutoff),
     env.CRM_DB.prepare('DELETE FROM crm_limits WHERE expires_at < ?').bind(now)
   ]);
 }

@@ -119,12 +119,14 @@ async function preorderCustomer(env, deps, customerId, license) {
     throw new AppError('PREORDER_PROFILE', 409);
   if (type === 'Medical' && !license) throw new AppError('LICENSE_REQUIRED', 400);
   // GrowFlow also requires the license expiry with a license number, as a DateTime (midnight UTC
-  // of the expiry date; a bare YYYY-MM-DD fails GraphQL validation). Taken from
-  // the record's state license expiration, falling back to its license end date.
+  // of the expiry date; a bare YYYY-MM-DD fails GraphQL validation). A record can hold two dates
+  // (state license expiration and license end date), and after a renewal one of them may still
+  // carry the old card's date, so the later of the two is used, as GrowFlow does. The POS still
+  // checks the card at checkout.
   let medicalLicenseExpires;
   if (license) {
     const expires = [customer.CustomerStateLicenseExpiration, customer.LicenseEffectiveEndDate]
-      .map(dateValue).find(date => Number.isFinite(date.getTime()));
+      .map(dateValue).filter(date => Number.isFinite(date.getTime())).sort((a, b) => b - a)[0];
     if (!expires) throw new AppError('LICENSE_EXPIRY_MISSING', 409);
     const day = expires.toISOString().slice(0, 10);
     if (day < new Date(deps.now()).toISOString().slice(0, 10)) throw new AppError('LICENSE_EXPIRED', 409);

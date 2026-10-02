@@ -5,6 +5,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { handleApp } from '../server/customer-app/index.mjs';
 import { hash } from '../server/customer-app/http.mjs';
 import { normalizeMenu, publicMenu, limitGroup } from '../server/customer-app/growflow.mjs';
+import { tapToken } from '../server/crm/campaigns.mjs';
 import { encryptPayload, vapidAuthorization, readSubscription, notifyReadyOrders, b64url, fromB64url, READY_MESSAGE } from '../server/customer-app/push.mjs';
 
 // Every migration in order, so tests run against the same schema as a real APP_DB.
@@ -467,9 +468,13 @@ test('medical preorders need the customer’s own license number, checked by Gro
   assert.equal(s.env.APP_DB.db.prepare('SELECT count(*) n FROM app_preorders').get().n,1);
   assert.ok(!JSON.stringify(s.env.APP_DB.db.prepare('SELECT * FROM app_preorders').all()).includes('PAAA'));
 });
-test('license expiry comes from the record; missing or expired licenses cannot order', async () => {
+test('license expiry comes from the record (the later of its two dates); missing or expired licenses cannot order', async () => {
   for (const [customer,status,expires] of [[{CustomerStateLicenseExpiration:null,LicenseEffectiveEndDate:{__type:'Date',iso:'2098-01-15T05:00:00.000Z'}},200,'2098-01-15T00:00:00.000Z'],
-    [{CustomerStateLicenseExpiration:null},409],[{CustomerStateLicenseExpiration:'2001-01-01T00:00:00.000Z'},409]]) {
+    [{CustomerStateLicenseExpiration:null},409],[{CustomerStateLicenseExpiration:'2001-01-01T00:00:00.000Z'},409],
+    // Renewed card: one date still holds the old card's expiry. The later date counts, either way round.
+    [{CustomerStateLicenseExpiration:'2001-01-01T00:00:00.000Z',LicenseEffectiveEndDate:{__type:'Date',iso:'2098-03-01T06:00:00.000Z'}},200,'2098-03-01T00:00:00.000Z'],
+    [{CustomerStateLicenseExpiration:'2098-04-01T05:00:00.000Z',LicenseEffectiveEndDate:{__type:'Date',iso:'2001-01-01T06:00:00.000Z'}},200,'2098-04-01T00:00:00.000Z'],
+    [{CustomerStateLicenseExpiration:'2001-01-01T00:00:00.000Z',LicenseEffectiveEndDate:'2002-01-01T00:00:00.000Z'},409]]) {
     const s=preorders({customer}), a=await s.linked(), res=await a.place(flower(1));
     assert.equal(res.status,status);
     if (expires) assert.equal(s.mutations()[0].variables.preorder.customer.medicalLicenseExpires,expires);
@@ -904,4 +909,14 @@ test('"Not now" stops the opt-in prompt for 90 days without recording consent', 
   assert.equal(s.env.APP_DB.db.prepare('SELECT count(*) n FROM app_marketing_consent_log').get().n,0);
   s.advance(89*86400000); assert.equal((await state()).ask,false);
   s.advance(2*86400000); assert.equal((await state()).ask,true);
+});
+
+test('a tapped Deals & news notification is counted without signing in, only with a valid code', async () => {
+  const s=setup(), updates=[];
+  s.env.CRM_DB={prepare:sql=>({bind:(...v)=>({run:async()=>{updates.push(v);return {success:true,results:[]};}})})};
+  const id='a'.repeat(64), token=await tapToken(s.env,id,'CustomerOne');
+  const tap=t=>s.run('tap',{method:'POST',body:{t}});
+  assert.equal((await tap(token)).status,200); assert.deepEqual(updates[0].slice(1),[id,'CustomerOne']);
+  assert.equal((await tap(token.replace(/.$/,c=>c==='0'?'1':'0'))).status,400);
+  assert.equal((await s.run('tap',{method:'POST',body:{t:token},headers:{'sec-fetch-site':'cross-site'}})).status,403);
 });

@@ -15,7 +15,7 @@ const TEMPLATES = [
   ['New customers (30 days)', { newWithinDays: 30 }],
   ['Deals & news subscribers', { app: 'marketing' }]
 ];
-let session = null, current = null, currentName = '', savedSegments = [], campaignSetup = null;
+let session = null, current = null, currentName = '', savedSegments = [], campaignSetup = null, editingSuggestion = null, assistantTimer = null;
 const TOPIC_LABELS = { new_arrivals: 'New arrivals & restocks', rewards: 'Rewards & points reminders', events: 'Events', specials: 'Specials' };
 const LINK_LABELS = { home: 'App home', menu: 'Menu', rewards: 'My points', order: 'Order ahead' };
 // One-click starting points for automatic messages. Everything stays editable before turning it on.
@@ -155,7 +155,7 @@ async function showCustomers(sort = 'spend') {
       const mine = el('button', 'Use for my tests', 'link'); mine.type = 'button';
       mine.title = 'Your own record: test campaigns go to the phones on this customer’s app account';
       mine.addEventListener('click', async () => {
-        try { await api('settings/test-customer', { customerId: c.id }); campaignSetup.testPhone = true; message(`Test campaigns will go to ${c.name || 'this customer'}’s phones.`); }
+        try { await api('settings/test-customer', { customerId: c.id }); campaignSetup.testPhone = true; message(`Test campaigns will go to ${c.name || 'this customer'}’s phones.`); void loadAssistant().catch(() => {}); }
         catch (e) { message(e.message, true); }
       });
       cell.append(mine);
@@ -188,6 +188,9 @@ async function loadSaved() {
 async function loadAudit() {
   const { audit } = await api('audit');
   const names = { view_customers: 'viewed a customer list', save_segment: 'saved a segment', delete_segment: 'deleted a segment', forget_customer: 'removed a customer',
+    data_check: 'checked the CRM against GrowFlow', data_check_running: 'is checking the CRM against GrowFlow',
+    assistant_run: 'asked the assistant for a run', assistant_updates_on: 'turned on assistant updates', assistant_updates_off: 'turned off assistant updates', approve_suggestion: 'approved an assistant suggestion',
+    edit_suggestion: 'edited and sent an assistant suggestion', dismiss_suggestion: 'dismissed an assistant suggestion',
     send_campaign: 'sent or scheduled a campaign', test_campaign: 'sent a test campaign', cancel_campaign: 'canceled a campaign', set_test_phone: 'chose their test phone',
     create_automation: 'turned on an automatic message', pause_automation: 'paused an automatic message', resume_automation: 'turned an automatic message back on' };
   $('audit').replaceChildren(...audit.map(a => el('p', `${new Date(a.at).toLocaleString()} · ${a.actor} ${names[a.action] || a.action}`)));
@@ -253,6 +256,7 @@ function setWhen() {
   $('campaign').querySelector('button[type=submit]').textContent = auto ? 'Turn on' : 'Send';
 }
 function useIdea(idea) {
+  editingSuggestion = null;
   fillBuilder(idea.definition);
   $('cp-name').value = idea.name; $('cp-audience').value = 'builder'; $('cp-topic').value = idea.topic; $('cp-link').value = idea.link; setLinkValue();
   $('cp-body').value = idea.body; $('cp-body').dispatchEvent(new Event('input'));
@@ -278,14 +282,18 @@ function statusText(c) {
   if (c.status === 'sent') return `Sent ${new Date(c.finished_at || c.started_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`;
   return 'Canceled';
 }
+// The funnel for people sent it, each step next to the held-back group where that applies.
 function resultText(r) {
   if (!r?.sent?.people) return '';
-  const pct = g => Math.round(g.visited / g.people * 100), each = g => money.format(g.cents / g.people / 100);
-  let text = `In the ${r.days >= 7 ? '7 days' : 'time'} since: ${pct(r.sent)}% of people sent it visited, ${each(r.sent)} spent per person`;
-  if (r.holdout?.people) {
-    text += `; held back: ${pct(r.holdout)}% visited, ${each(r.holdout)} per person.`;
-    if (r.holdout.people < 30) text += ' The held-back group is small, so treat the difference as a rough guide.';
-  } else text += '.';
+  const s = r.sent, h = r.holdout?.people ? r.holdout : null, pct = (n, g) => `${Math.round((n || 0) / g.people * 100)}%`;
+  const vs = (key, format = pct) => h ? ` (held back: ${format(h[key], h)})` : '';
+  const each = (cents, g) => money.format(cents / g.people / 100);
+  const parts = [`${pct(s.tapped, s)} tapped it`, `${pct(s.visited, s)} visited${vs('visited')}`];
+  if (r.featured) parts.push(`${pct(s.bought, s)} bought ${r.featured}${vs('bought')}`);
+  parts.push(`${pct(s.appOrders, s)} ordered ahead in the app${vs('appOrders')}`, `${each(s.cents, s)} spent per person${vs('cents', each)}`);
+  if (s.optedOut) parts.push(`${count.format(s.optedOut)} turned off Deals & news or this topic within 2 days`);
+  let text = `${r.days >= 7 ? 'In the 7 days after' : 'So far'}: ${parts.join(' · ')}.`;
+  if (h && h.people < 30) text += ' The held-back group is small, so treat differences as a rough guide.';
   if (r.days < 7) text += ' Results settle after 7 days.';
   return text;
 }
@@ -322,7 +330,7 @@ async function loadCampaigns() {
     row.append(title, el('p', `${TOPIC_LABELS[a.topic] || a.topic} · ${a.audience_label} · ${cooldownText(a.cooldown_days)} · opens ${linkText(a.link)} · by ${a.created_by}`, 'muted'),
       el('p', `“${a.body}”`, 'result'),
       el('p', sent || held ? `${count.format(sent)} sent so far · ${count.format(held)} held back · last sent ${ago(a.last_sent_at)}` : 'Nobody has matched yet. It checks every day.', 'muted'));
-    const result = resultText({ days: 7, ...a.results }); if (result) row.append(el('p', result.replace('In the 7 days since', 'Within 7 days of each send'), 'result'));
+    const result = resultText(a.results); if (result) row.append(el('p', result.replace(/^(In the 7 days after|So far)/, 'Within 7 days of each send'), 'result'));
     return row;
   }));
   $('campaigns').replaceChildren(...data.campaigns.map(c => {
@@ -349,6 +357,100 @@ async function loadCampaigns() {
   if (!data.campaigns.length) $('campaigns').append(el('p', 'No campaigns yet. Write one above; send yourself a test first.', 'muted'));
 }
 
+// --- Campaign assistant ---
+const KIND_LABELS = { campaign: 'Campaign', automation: 'Automatic message', pause: 'Pause an automatic message' };
+const RUN_LABELS = { weekly: 'weekly plan', daily: 'daily check' };
+const dollars = cents => `$${(cents / 100).toFixed(2)}`;
+const when = ms => new Date(ms).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+function suggestionDetails(s) {
+  const p = s.payload;
+  if (s.kind === 'pause') return [`Pause “${p.name}”.`];
+  return [`${TOPIC_LABELS[p.topic] || p.topic} · ${p.audienceLabel} · opens ${linkText(p.link)} · ${p.holdoutPct}% held back`,
+    `“${p.body}”`,
+    s.kind === 'automation' ? `Automatic: ${cooldownText(p.cooldownDays)} per person, checked daily at 11 am.`
+      : p.sendAt && p.sendAt > Date.now() + 120000 ? `Send ${when(p.sendAt)}.` : 'Send as soon as approved.',
+    ...(p.reachWhenSuggested !== undefined ? [`Would reach about ${count.format(p.reachWhenSuggested)} ${p.reachWhenSuggested === 1 ? 'person' : 'people'} when suggested.`] : [])];
+}
+function editSuggestion(s) {
+  const p = s.payload;
+  if (p.definition) {
+    const id = p.definition.brands?.ids?.[0];
+    if (id && ![...$('brand').options].some(o => o.value === id)) { const o = el('option', 'Brand from the suggestion'); o.value = id; $('brand').append(o); }
+    fillBuilder(p.definition); $('cp-audience').value = 'builder';
+  } else $('cp-audience').value = 'all';
+  $('cp-name').value = p.name; $('cp-topic').value = p.topic; $('cp-body').value = p.body; $('cp-body').dispatchEvent(new Event('input'));
+  const m = /^menu:(category|brand):(.+)$/.exec(p.link);
+  $('cp-link').value = m ? `menu:${m[1]}` : p.link; setLinkValue(); if (m) $('cp-link-value').value = m[2];
+  $('cp-holdout').value = String(p.holdoutPct);
+  if (s.kind === 'automation') { $('cp-when').value = 'auto'; $('cp-cooldown').value = String(p.cooldownDays); }
+  else if (p.sendAt && p.sendAt > Date.now() + 120000) {
+    const d = new Date(p.sendAt); $('cp-when').value = 'later';
+    $('cp-at').value = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  } else $('cp-when').value = 'now';
+  setWhen(); editingSuggestion = s.id;
+  $('cp-result').textContent = 'Loaded from the assistant’s suggestion. Adjust anything, then Send or Turn on.';
+  $('campaign').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+async function decide(s, decision, note) {
+  await api('assistant/decide', { id: s.id, decision, ...(note ? { note } : {}) });
+  message(decision === 'approved' ? (s.kind === 'pause' ? 'Paused.' : s.kind === 'automation' ? 'Approved and turned on.' : 'Approved. It goes out as planned.')
+    : 'Dismissed. The assistant will see your reason next time.');
+  await Promise.all([loadAssistant(), loadCampaigns()]); void loadAudit();
+}
+function suggestionCard(s) {
+  const card = el('div', '', 'suggestion'), title = el('div', '', 'title');
+  title.append(el('strong', s.title), el('span', KIND_LABELS[s.kind] || s.kind, 'status'));
+  card.append(title, el('p', s.reasoning), ...suggestionDetails(s).map(t => el('p', t, 'muted')));
+  if (s.status === 'open') {
+    const actions = el('div', '', 'actions'), ok = el('button', s.kind === 'pause' ? 'Approve pause' : 'Approve'), change = el('button', 'Edit', 'secondary'),
+      no = el('button', 'Dismiss', 'link');
+    ok.type = change.type = no.type = 'button';
+    ok.addEventListener('click', async () => {
+      const summary = s.kind === 'pause' ? `Pause “${s.payload.name}”?` : `Approve “${s.payload.name}”? ${s.kind === 'automation' ? 'It turns on and checks daily at 11 am.' : 'It will be sent as described.'}`;
+      if (!confirm(summary)) return;
+      try { await decide(s, 'approved'); } catch (e) { message(e.message, true); }
+    });
+    change.addEventListener('click', () => editSuggestion(s));
+    no.addEventListener('click', async () => {
+      const note = prompt('Why not? (optional; the assistant learns from this)', '');
+      if (note === null) return;
+      try { await decide(s, 'dismissed', note.trim()); } catch (e) { message(e.message, true); }
+    });
+    actions.append(ok, ...(s.kind === 'pause' ? [] : [change]), no); card.append(actions);
+  } else card.append(el('p', `${{ approved: 'Approved', edited: 'Edited and sent', dismissed: 'Dismissed', expired: 'Expired' }[s.status] || s.status}${s.decided_by ? ` by ${s.decided_by}` : ''}${s.decision_note ? `: “${s.decision_note}”` : ''}`, 'muted'));
+  return card;
+}
+async function loadAssistant() {
+  let data;
+  try { data = await api('assistant'); }
+  catch (e) { if (/switched on/.test(e.message)) { $('assistant').hidden = true; return; } throw e; }
+  $('assistant').hidden = false;
+  const latest = data.runs[0], busy = data.runs.some(r => ['requested', 'running'].includes(r.status));
+  $('as-status').textContent = `This month ${dollars(data.spentCents)} of ${dollars(data.budgetCents)}`
+    + (busy ? ' · Working on it…' : latest ? ` · Last ${RUN_LABELS[latest.kind] || 'run'} ${when(latest.finished_at || latest.created_at)}` : '');
+  $('as-weekly').disabled = $('as-daily').disabled = busy;
+  $('as-notify').checked = data.me.notify; $('as-notify').disabled = !data.me.testPhone;
+  $('as-notify').title = data.me.testPhone ? '' : 'First choose your own customer record: Show customers, find yourself, then “Use for my tests”.';
+  const open = data.suggestions.filter(s => s.status === 'open'), done = data.suggestions.filter(s => s.status !== 'open').slice(0, 8);
+  $('as-suggestions').replaceChildren(...(open.length ? open.map(suggestionCard) : [el('p', 'No suggestions waiting.', 'muted')]),
+    ...(done.length ? [el('p', 'Recent decisions', 'eyebrow'), ...done.map(suggestionCard)] : []));
+  const report = data.runs.find(r => !['requested', 'running'].includes(r.status));
+  $('as-report').replaceChildren(...(report ? [el('p', `${RUN_LABELS[report.kind] || 'Run'} · ${when(report.finished_at || report.created_at)} · ${dollars(report.cost_micro / 10000)}${report.error ? ` · ${report.error}` : ''}`, 'muted'),
+    el('div', report.summary || 'No report.', 'report')] : [el('p', 'No reports yet.', 'muted')]));
+  if (report && Date.now() - (report.finished_at || 0) < 2 * 86400000) $('as-report-box').open = true;
+  $('as-notes').replaceChildren(...(data.notes.length ? data.notes.map(n => el('p', `${new Date(n.at).toLocaleDateString()} · ${n.text}`, 'muted'))
+    : [el('p', 'Nothing yet. It saves lessons as results come in.', 'muted')]));
+  clearTimeout(assistantTimer);
+  if (busy) assistantTimer = setTimeout(() => loadAssistant().catch(() => {}), 20000);
+}
+async function runAssistantNow(kind) {
+  try {
+    const result = await api('assistant/run', { kind });
+    message(result.already ? 'The assistant is already working on a run.' : `Starting a ${RUN_LABELS[kind]}. It usually takes a few minutes; suggestions appear here.`);
+    await loadAssistant(); void loadAudit();
+  } catch (e) { message(e.message, true); }
+}
+
 async function start() {
   try {
     session = await api('session');
@@ -362,7 +464,7 @@ async function start() {
     }));
   } catch (e) { message(e.message, true); return; }
   // Each part loads on its own, so one slow part never blanks the whole page.
-  const parts = [loadOverview(), loadSaved(), loadAudit(), loadCampaigns(),
+  const parts = [loadOverview(), loadSaved(), loadAudit(), loadCampaigns().then(loadAssistant),
     api('brands').then(({ brands }) => $('brand').append(...brands.map(b => { const o = el('option', b.name); o.value = b.id; return o; })))];
   const failed = (await Promise.allSettled(parts)).find(r => r.status === 'rejected');
   if (failed) message(failed.reason?.message || 'Part of the page could not load. Reload to try again.', true);
@@ -374,6 +476,18 @@ $('show').addEventListener('click', async () => { const d = readBuilder();
   if (!Object.keys(d).length) { message('Add at least one rule.', true); return; }
   try { await countSegment(d); await showCustomers(); } catch (e) { message(e.message, true); } });
 $('clear').addEventListener('click', () => { fillBuilder({}); $('preview').hidden = true; $('list').hidden = true; current = null; });
+async function markEdited() {
+  if (!editingSuggestion) return;
+  const id = editingSuggestion; editingSuggestion = null;
+  try { await api('assistant/decide', { id, decision: 'edited' }); await loadAssistant(); } catch { /* Already decided or expired. */ }
+}
+$('as-weekly').addEventListener('click', () => runAssistantNow('weekly'));
+$('as-notify').addEventListener('change', async () => {
+  const on = $('as-notify').checked;
+  try { await api('settings/assistant-updates', { on }); message(on ? 'Your phone will get the assistant’s updates.' : 'Assistant updates are off for your phone.'); void loadAudit(); }
+  catch (e) { $('as-notify').checked = !on; message(e.message, true); }
+});
+$('as-daily').addEventListener('click', () => runAssistantNow('daily'));
 $('cp-body').addEventListener('input', () => {
   const text = $('cp-body').value.trim(); $('cp-preview').textContent = text || 'Your message appears here.';
   $('cp-count').textContent = `${text.length} of 120 characters`;
@@ -393,7 +507,7 @@ $('campaign').addEventListener('submit', async event => {
     if ($('cp-when').value === 'auto') {
       const automation = readAutomation(), p = await checkCampaign();
       if (!confirm(`Turn on “${automation.name}”? ${count.format(p.reach + p.heldBack)} ${p.reach + p.heldBack === 1 ? 'person matches' : 'people match'} today and will get it at the next daily check (${campaignSetup.automationHour} am Central), ${cooldownText(automation.cooldownDays)} each. People who match later get it then.`)) return;
-      await api('automations/create', { automation });
+      await api('automations/create', { automation }); await markEdited();
       message(`“${automation.name}” is on. You can pause it anytime under Automatic messages.`);
       $('campaign').reset(); setWhen(); $('cp-holdout').value = '10'; $('cp-link').value = 'menu'; setLinkValue(); $('cp-cooldown').value = '30';
       $('cp-result').textContent = ''; $('cp-preview').textContent = 'Your message appears here.'; $('cp-count').textContent = '';
@@ -403,7 +517,7 @@ $('campaign').addEventListener('submit', async event => {
     if (!p.reach) { message('Nobody in this audience can get it right now.', true); return; }
     const when = campaign.sendAt ? `at ${new Date(campaign.sendAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}` : 'now';
     if (!confirm(`Send “${campaign.name}” ${when} to about ${count.format(p.reach)} ${p.reach === 1 ? 'person' : 'people'}?`)) return;
-    await api('campaigns/send', { campaign });
+    await api('campaigns/send', { campaign }); await markEdited();
     message(campaign.sendAt ? 'Scheduled.' : 'Sending. It goes out within a minute or two.');
     $('campaign').reset(); $('cp-at').hidden = true; $('cp-holdout').value = '10'; $('cp-link').value = 'menu'; setLinkValue(); $('cp-result').textContent = '';
     $('cp-preview').textContent = 'Your message appears here.'; $('cp-count').textContent = '';
