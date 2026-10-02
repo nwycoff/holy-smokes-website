@@ -54,6 +54,11 @@ export async function welcomeForCustomer(env, customerId, now) {
   } catch { return null; }
 }
 
+// Push topics must look like the others Apple accepts (32 lowercase hex characters).
+async function topicFor(code) {
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`welcome:${code}`)));
+  return Array.from(digest.slice(0, 16), b => b.toString(16).padStart(2, '0')).join('');
+}
 function newCode() {
   const bytes = crypto.getRandomValues(new Uint8Array(4));
   return `TH-${Array.from(bytes, b => ALPHABET[b % ALPHABET.length]).join('')}`;
@@ -89,6 +94,7 @@ export async function sendWelcomeGifts(env, deps) {
   let sent = 0;
   const { results: due = [] } = await env.CRM_DB.prepare(`SELECT customer_id FROM crm_welcome_gifts WHERE sent_at IS NULL AND created_at > ?
     AND customer_id IN (SELECT value FROM json_each(?)) LIMIT 20`).bind(now - 2 * DAY, JSON.stringify(subscribers.map(r => r.customer_id))).run();
+  if (!due.length) deps.report?.('WELCOME_NONE_DUE');
   for (const { customer_id: id } of due) {
     // Claim before sending so two runs can't both send it.
     const claim = await env.CRM_DB.prepare('UPDATE crm_welcome_gifts SET sent_at = ? WHERE customer_id = ? AND sent_at IS NULL RETURNING code')
@@ -99,10 +105,11 @@ export async function sendWelcomeGifts(env, deps) {
     let reached = false;
     for (const device of devices) {
       const outcome = await sendPush(env, deps, device, { title: TITLE, body: config.message.replace('{code}', claim.code),
-        url: '/app/#rewards', tag: 'treehouse-news' }, `welcome${claim.code.replace(/\W/g, '')}`, { ttl: secondsUntilQuiet(now), urgency: 'normal' });
+        url: '/app/#rewards', tag: 'treehouse-news' }, await topicFor(claim.code), { ttl: secondsUntilQuiet(now), urgency: 'normal' });
       if (outcome === 'sent') reached = true;
       else if (outcome === 'gone') await env.APP_DB.prepare('DELETE FROM app_push_subscriptions WHERE endpoint = ?').bind(device.endpoint).run();
     }
+    if (!devices.length) deps.report?.('WELCOME_NO_PHONE');
     if (reached) sent++;
     else await env.CRM_DB.prepare('UPDATE crm_welcome_gifts SET sent_at = NULL WHERE customer_id = ?').bind(id).run();
   }

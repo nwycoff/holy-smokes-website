@@ -607,6 +607,7 @@ test('the welcome gift: one code per customer when they turn on Deals & news, se
   assert.ok(codes.every(c => /^TH-[A-HJ-NP-Z2-9]{4}$/.test(c.code)));
   assert.equal(new Set(codes.map(c => c.code)).size, 3);
   assert.equal(s.pushes.length, 3);
+  assert.ok(s.pushes.every(p => /^[0-9a-f]{32}$/.test(p.headers.Topic)), 'topics in the form Apple accepts');
   // Once per customer, ever: another run, or turning it off and on again, sends nothing new.
   s.app.exec("UPDATE app_marketing_prefs SET topics = '[]' WHERE user_id = 'user-A'");
   s.app.exec("UPDATE app_marketing_prefs SET topics = '[\"events\"]' WHERE user_id = 'user-A'");
