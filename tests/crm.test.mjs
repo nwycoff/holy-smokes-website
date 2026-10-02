@@ -8,6 +8,7 @@ import { runSync, purge } from '../server/crm/sync.mjs';
 import { validateDefinition, compile } from '../server/crm/segments.mjs';
 import { hash } from '../server/customer-app/http.mjs';
 import { linkTarget, sendCampaigns, validateCampaign } from '../server/crm/campaigns.mjs';
+import { tickAssistant, SYSTEM } from '../server/crm/assistant.mjs';
 
 class D1 {
   constructor(dir) {
@@ -418,4 +419,98 @@ test('campaigns can open the menu to one section or brand; the filter travels ap
     assert.equal(linkTarget(bad), null, String(bad));
   const ok = validateCampaign({ name: 'X', topic: 'new_arrivals', body: 'New from a brand you love. Tap to see.', link: 'menu:brand:Sample Brand', holdoutPct: 0 }, {}, Date.now());
   assert.equal(ok.link, 'menu:brand:Sample Brand');
+});
+
+// --- Campaign assistant (Claude is replaced by a scripted stand-in) ---
+function fakeClaude(script) {
+  const calls = [];
+  return { calls, beta: { messages: { create: async params => {
+    calls.push(JSON.parse(JSON.stringify(params)));
+    const step = script[calls.length - 1];
+    if (!step) throw new Error('unexpected extra call');
+    return { model: params.model, usage: { input_tokens: 20000, output_tokens: 1500, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }, ...step };
+  } } } };
+}
+const use = (id, name, input = {}) => ({ type: 'tool_use', id, name, input });
+async function assistant(extraEnv = {}) {
+  const s = await campaigns();
+  Object.assign(s.env, { CRM_ASSISTANT_ENABLED: 'true', ANTHROPIC_API_KEY: 'test-key-not-real', ...extraEnv });
+  s.app.prepare("INSERT INTO app_cache(key, value, updated_at) VALUES ('menu:summary', ?, 1)").run(JSON.stringify({ updatedAt: s.now(), categories: ['Flower', 'Concentrates'],
+    products: [{ id: 'p1', name: 'Sample Haze', brand: 'Brand b2', category: 'Flower' }, { id: 'p2', name: 'Live Sauce', brand: 'Brand b1', category: 'Concentrates' }] }));
+  const tick = claude => tickAssistant(s.env, { ...s.deps, anthropic: claude });
+  return { ...s, tick };
+}
+const draft = (extra = {}) => ({ name: 'Brand b1 drop', topic: 'new_arrivals', body: 'New from a brand you love just landed. Tap to see what’s new.',
+  link: 'menu:brand:Brand b1', definition: { brands: { ids: ['b1'], days: 180 } }, audienceLabel: 'Brand b1 buyers', holdoutPct: 10, sendAt: null, ...extra });
+
+test('the assistant reviews totals through tools and leaves suggestions for people to approve', async () => {
+  const s = await assistant();
+  assert.equal((await s.call('assistant/run', { kind: 'weekly' })).status, 200);
+  const claude = fakeClaude([
+    { stop_reason: 'tool_use', content: [use('t1', 'get_shop_overview'), use('t2', 'get_menu'), use('t3', 'list_campaigns'), use('t4', 'list_brands')] },
+    { stop_reason: 'tool_use', content: [use('t5', 'check_campaign', draft({ body: 'Fresh THC carts from Brand b1 just landed' }))] },
+    { stop_reason: 'tool_use', content: [use('t6', 'suggest_campaign', { title: 'Tell Brand b1 fans about the new drop', reasoning: 'They buy it often.', campaign: draft() }),
+      use('t7', 'add_note', { note: 'Brand b1 fans are the biggest brand audience (1 opted in).' })] },
+    { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Quiet week. I suggested one brand alert.' }] }
+  ]);
+  const result = await s.tick(claude);
+  assert.equal(result.status, 'done'); assert.equal(result.suggestions, 1); assert.equal(claude.calls.length, 4);
+  const first = claude.calls[0];
+  assert.equal(first.model, 'claude-opus-5-5'); assert.equal(first.fallbacks, 'default'); assert.deepEqual(first.betas, ['server-side-fallback-2026-07-01']);
+  assert.equal(first.system, SYSTEM); assert.match(first.messages[0].content, /weekly plan/);
+  const results = claude.calls.slice(1).flatMap(c => c.messages.at(-1).content);
+  assert.ok(!/customer_?id|user-A|identity/i.test(JSON.stringify(results)), 'tools return totals only');
+  const checked = claude.calls[2].messages.at(-1).content[0];
+  assert.equal(checked.is_error, true); assert.match(checked.content, /lock screen/);
+  assert.deepEqual(JSON.parse(results.find(r => r.tool_use_id === 't2').content).sections.map(x => x.name).sort(), ['Concentrates', 'Flower']);
+  const run = s.db.prepare("SELECT status, summary, cost_micro, model FROM crm_assistant_runs").get();
+  assert.equal(run.status, 'done'); assert.match(run.summary, /Quiet week/); assert.equal(run.cost_micro, 4 * (4 * 20000 + 20 * 1500));
+  const view = await (await s.call('assistant')).json();
+  assert.equal(view.suggestions.length, 1); assert.equal(view.notes.length, 1); assert.equal(view.spentCents, 44);
+  // Approving creates exactly that campaign; nothing was sent before.
+  assert.equal(s.db.prepare('SELECT COUNT(*) n FROM crm_campaigns').get().n, 0);
+  assert.equal((await s.call('assistant/decide', { id: view.suggestions[0].id, decision: 'approved' })).status, 200);
+  const made = s.db.prepare('SELECT name, link, created_by, status FROM crm_campaigns').get();
+  assert.deepEqual({ ...made }, { name: 'Brand b1 drop', link: 'menu:brand:Brand b1', created_by: 'owner@example.test (from assistant)', status: 'scheduled' });
+  assert.equal((await s.call('assistant/decide', { id: view.suggestions[0].id, decision: 'dismissed' })).status, 409);
+  assert.deepEqual(s.db.prepare("SELECT action FROM crm_audit WHERE action LIKE '%assistant%' OR action LIKE '%suggestion%' ORDER BY at").all().map(a => a.action),
+    ['assistant_run', 'approve_suggestion']);
+});
+
+test('the assistant runs on schedule, learns from dismissals, and stops at its limits and budget', async () => {
+  const s = await assistant(); // Thursday 10 am Central
+  const daily = fakeClaude([
+    { stop_reason: 'tool_use', content: [1, 2, 3].map(i => use(`s${i}`, 'suggest_campaign', { title: `Idea ${i}`, reasoning: 'Because.', campaign: draft({ name: `Idea ${i}` }) })) },
+    { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Two ideas.' }] }]);
+  assert.equal((await s.tick(daily)).suggestions, 2); // daily limit
+  assert.equal(daily.calls[0].model, 'claude-sonnet-5-5');
+  assert.equal(await s.tick(fakeClaude([])), null); // once per day
+  const view = await (await s.call('assistant')).json();
+  await s.call('assistant/decide', { id: view.suggestions[0].id, decision: 'dismissed', note: 'Too soon after the last brand alert' });
+  s.advance(3 * DAY + 23 * 3600000); // Monday 9 am
+  const weekly = fakeClaude([{ stop_reason: 'end_turn', content: [{ type: 'text', text: 'Report.' }] }]);
+  await s.tick(weekly);
+  assert.match(weekly.calls[0].messages[0].content, /Too soon after the last brand alert/);
+  assert.match(weekly.calls[0].messages[0].content, /weekly plan/);
+  s.advance(17 * 3600000); assert.equal(await s.tick(fakeClaude([])), null); // 2 am: nothing scheduled
+  // Budget: once this month's spending reaches the cap, runs stop before calling Claude.
+  s.env.CRM_ASSISTANT_BUDGET_CENTS = '20'; // earlier runs this month spent 22 cents
+  await s.call('assistant/run', { kind: 'daily' });
+  const none = fakeClaude([]);
+  assert.equal((await s.tick(none)).status, 'budget'); assert.equal(none.calls.length, 0);
+  // A run that keeps calling tools stops at its size limit.
+  s.env.CRM_ASSISTANT_BUDGET_CENTS = '100000';
+  await s.call('assistant/run', { kind: 'daily' });
+  const loop = fakeClaude(Array.from({ length: 30 }, (_, i) => ({ stop_reason: 'tool_use', content: [use(`l${i}`, 'get_shop_overview')] })));
+  const stopped = await s.tick(loop);
+  assert.equal(stopped.status, 'limit'); assert.ok(loop.calls.length <= 12);
+});
+
+test('assistant routes stay off until enabled, and the worker does nothing without its key', async () => {
+  const s = await campaigns();
+  assert.equal((await s.call('assistant')).status, 503);
+  s.env.CRM_ASSISTANT_ENABLED = 'true';
+  assert.equal((await s.call('assistant')).status, 200);
+  assert.equal((await s.call('assistant/run', { kind: 'monthly' })).status, 400);
+  assert.equal(await tickAssistant(s.env, { ...s.deps, anthropic: fakeClaude([]) }), null);
 });

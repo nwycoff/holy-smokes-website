@@ -333,9 +333,12 @@ export async function getMenu(env, deps) {
     const result = await queryGrowflow(env, deps, MENU_QUERY, { menuKey: env.APP_MENU_KEY }, env.APP_GROWFLOW_TOKEN, 25000);
     const types = purchaseLimits(env) ? await getCategoryTypes(env, deps) : new Map();
     const menu = normalizeMenu(result.findMenus, env.APP_FRONT_LOCATION, deps.now(), types);
-    await env.APP_DB.prepare(`INSERT INTO app_cache(key, value, updated_at) VALUES (?, ?, ?)
-      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`)
-      .bind(key, JSON.stringify(menu), deps.now()).run();
+    // A small public summary (no stock levels or prices) for the CRM's campaign assistant.
+    const summary = { updatedAt: menu.updatedAt, categories: menu.categories,
+      products: menu.products.map(p => ({ id: p.id, name: p.name, brand: p.brand, category: p.category })) };
+    const save = (k, v) => env.APP_DB.prepare(`INSERT INTO app_cache(key, value, updated_at) VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`).bind(k, JSON.stringify(v), deps.now());
+    await env.APP_DB.batch([save(key, menu), save('menu:summary', summary)]);
     return menu;
   } catch (error) {
     deps.report(`MENU_REFRESH_${error?.code || 'ERROR'}${error?.category ? `_${error.category}` : ''}`);

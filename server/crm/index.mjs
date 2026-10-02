@@ -2,6 +2,8 @@ import { createRemoteJWKSet, customFetch, jwtVerify } from 'jose';
 import { AppError, bodyJSON, fetchSafe, hash, json, randomToken, sameOrigin } from '../customer-app/http.mjs';
 import { crmReady, forgetStatements } from './sync.mjs';
 import { GROUPS, members, preview, validateDefinition } from './segments.mjs';
+import { overview } from './insights.mjs';
+import { assistantReady, assistantView, decideSuggestion, requestRun } from './suggestions.mjs';
 import { campaignsReady, cancelCampaign, createAutomation, createCampaign, listAutomations, listCampaigns, previewCampaign,
   setAutomationActive, validateAutomation, validateCampaign, AUTOMATION_HOUR, COOLDOWNS, HOLDOUTS, LINKS, QUIET, WEEKLY_CAP } from './campaigns.mjs';
 import { TOPICS } from '../customer-app/marketing.mjs';
@@ -82,38 +84,6 @@ async function names(env, deps, ids) {
   return out;
 }
 
-async function overview(env, now) {
-  const db = env.CRM_DB, ago = d => now - d * DAY;
-  const totals = await db.prepare(`SELECT
-      (SELECT COUNT(*) FROM crm_customers WHERE last_visit >= ?) AS active_30,
-      (SELECT COUNT(*) FROM crm_customers WHERE last_visit >= ?) AS active_90,
-      (SELECT COUNT(*) FROM crm_customers WHERE last_visit >= ?) AS active_365,
-      (SELECT COUNT(*) FROM crm_customers WHERE last_visit < ? AND last_visit >= ?) AS lapsed_60_180,
-      (SELECT COUNT(*) FROM crm_customers WHERE first_seen >= ? AND last_visit IS NOT NULL) AS new_30,
-      (SELECT COUNT(*) FROM crm_customers WHERE birth_month = ? AND last_visit >= ?) AS birthdays_month,
-      (SELECT COUNT(*) FROM crm_customers WHERE app_linked = 1) AS app_linked,
-      (SELECT COUNT(*) FROM crm_customers WHERE app_push = 1) AS app_push,
-      (SELECT COUNT(*) FROM crm_customers WHERE app_marketing = 1) AS app_marketing,
-      (SELECT COUNT(*) FROM crm_customers WHERE points >= 225 AND last_visit >= ?) AS can_redeem,
-      (SELECT COUNT(*) FROM crm_orders WHERE completed_at >= ?) AS visits_30,
-      (SELECT COALESCE(SUM(total_cents), 0) FROM crm_orders WHERE completed_at >= ?) AS revenue_30_cents,
-      (SELECT COUNT(*) FROM crm_orders WHERE completed_at >= ? AND completed_at < ?) AS visits_prev_30,
-      (SELECT COALESCE(SUM(total_cents), 0) FROM crm_orders WHERE completed_at >= ? AND completed_at < ?) AS revenue_prev_30_cents,
-      (SELECT COUNT(*) FROM crm_orders WHERE completed_at >= ? AND is_preorder = 1) AS preorders_30`)
-    .bind(ago(30), ago(90), ago(365), ago(60), ago(180), ago(30), new Date(now).getMonth() + 1, ago(365), ago(365),
-      ago(30), ago(30), ago(60), ago(30), ago(60), ago(30), ago(30)).first();
-  const { results: categories = [] } = await db.prepare(`SELECT category_group AS grp, SUM(net_cents) AS cents, COUNT(DISTINCT customer_id) AS customers
-    FROM crm_lines WHERE sold_at >= ? AND returned = 0 GROUP BY category_group ORDER BY cents DESC`).bind(ago(90)).run();
-  const { results: brands = [] } = await db.prepare(`SELECT l.brand_id AS id, COALESCE(b.name, 'Unknown') AS name, SUM(l.net_cents) AS cents,
-    COUNT(DISTINCT l.customer_id) AS customers FROM crm_lines l LEFT JOIN crm_brands b ON b.id = l.brand_id
-    WHERE l.sold_at >= ? AND l.returned = 0 AND l.brand_id IS NOT NULL GROUP BY l.brand_id ORDER BY cents DESC LIMIT 10`).bind(ago(90)).run();
-  const { results: sync = [] } = await db.prepare('SELECT source, since, caught_up_at, updated_at FROM crm_sync_state').bind().run();
-  // What is actually stored, by sale date (the sync cursor follows GrowFlow's last-edited time instead).
-  const loaded = await db.prepare(`SELECT (SELECT COUNT(*) FROM crm_orders) AS orders, (SELECT COUNT(*) FROM crm_lines) AS lines,
-    (SELECT MAX(sold_at) FROM crm_lines) AS lines_through`).bind().first();
-  return { totals, categories, brands, sync, loaded, now };
-}
-
 export async function handleCrm({ request, env }, overrides = {}) {
   const deps = { fetch: (url, init) => globalThis.fetch(url, init), now: Date.now,
     report: code => console.warn(`TREEHOUSE_CRM_FAILURE ${code}`), ...overrides };
@@ -121,7 +91,8 @@ export async function handleCrm({ request, env }, overrides = {}) {
   const allowed = { session: 'GET', overview: 'GET', brands: 'GET', segments: 'GET', audit: 'GET',
     preview: 'POST', customers: 'POST', 'segments/save': 'POST', 'segments/delete': 'POST', forget: 'POST',
     campaigns: 'GET', 'campaigns/preview': 'POST', 'campaigns/send': 'POST', 'campaigns/test': 'POST', 'campaigns/cancel': 'POST',
-    'settings/test-customer': 'POST', 'automations/create': 'POST', 'automations/active': 'POST' };
+    'settings/test-customer': 'POST', 'automations/create': 'POST', 'automations/active': 'POST',
+    assistant: 'GET', 'assistant/run': 'POST', 'assistant/decide': 'POST' };
   if (!allowed[route]) return json(404, { error: 'Not found.' });
   if (allowed[route] !== request.method) return json(405, { error: 'Method not allowed.' }, { Allow: allowed[route] });
   try {
@@ -142,7 +113,10 @@ export async function handleCrm({ request, env }, overrides = {}) {
       const { results = [] } = await db.prepare('SELECT id, name, definition, created_by, updated_at FROM crm_segments ORDER BY name').bind().run();
       return json(200, { segments: results.map(s => ({ ...s, definition: JSON.parse(s.definition) })) });
     }
-    if ((route.startsWith('campaigns') || route.startsWith('automations')) && !campaignsReady(env)) throw new AppError('CAMPAIGNS_CONFIG');
+    if ((route.startsWith('campaigns') || route.startsWith('automations') || route.startsWith('assistant')) && !campaignsReady(env))
+      throw new AppError('CAMPAIGNS_CONFIG');
+    if (route.startsWith('assistant') && !assistantReady(env)) throw new AppError('ASSISTANT_CONFIG');
+    if (route === 'assistant') return json(200, await assistantView(env, now));
     const testCustomer = async () => (await db.prepare('SELECT test_customer_id FROM crm_settings WHERE email = ?')
       .bind(user.email).first())?.test_customer_id || null;
     // Today's menu sections and brands, for campaigns that open the menu filtered to one.
@@ -205,6 +179,17 @@ export async function handleCrm({ request, env }, overrides = {}) {
       await audit(env, deps, user.email, 'test_campaign', null);
       return json(200, { queued: true });
     }
+    if (route === 'assistant/run') {
+      await limit(env, deps, `crm-assistant:${user.email}`, 6, 3600000);
+      const result = await requestRun(env, user.email, input.kind, now);
+      if (!result.already) await audit(env, deps, user.email, 'assistant_run', { kind: input.kind });
+      return json(200, result);
+    }
+    if (route === 'assistant/decide') {
+      const result = await decideSuggestion(env, user.email, input, now);
+      await audit(env, deps, user.email, `${result.decision === 'approved' ? 'approve' : result.decision === 'edited' ? 'edit' : 'dismiss'}_suggestion`, null);
+      return json(200, result);
+    }
     if (route === 'automations/create') {
       await limit(env, deps, `crm-send:${user.email}`, 10, 3600000);
       const automation = validateAutomation(input.automation, env, now), id = await createAutomation(env, user.email, automation, now);
@@ -252,7 +237,8 @@ export async function handleCrm({ request, env }, overrides = {}) {
       CRM_CSRF: 'Please reload the page and try again.', SEGMENT_RULES: 'Please check the segment rules.',
       SEGMENT_NAME: 'Please give the segment a name.', CRM_RATE_LIMITED: 'GrowFlow is busy. Please try again in a minute.',
       INPUT: 'Please check the information and try again.',
-      CAMPAIGNS_CONFIG: 'Deals & news campaigns aren’t switched on yet.', CAMPAIGN_NAME: 'Please give the campaign a name.',
+      CAMPAIGNS_CONFIG: 'Deals & news campaigns aren’t switched on yet.', ASSISTANT_CONFIG: 'The campaign assistant isn’t switched on yet.',
+      SUGGESTION_DONE: 'That suggestion was already decided or has expired.', CAMPAIGN_NAME: 'Please give the campaign a name.',
       CAMPAIGN_LENGTH: 'The message needs to be 10 to 120 characters.',
       CAMPAIGN_DISCREET: 'Notifications show on lock screens, so please leave out cannabis words (product types, THC, strains, weights). Say it inside the app instead.',
       CAMPAIGN_CLAIMS: 'Please leave out health claims (pain, anxiety, relief, cures…). Oklahoma rules don’t allow them.',

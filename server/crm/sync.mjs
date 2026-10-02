@@ -217,6 +217,8 @@ export async function purge(env, now) {
     env.CRM_DB.prepare('DELETE FROM crm_audit WHERE at < ?').bind(customerCutoff),
     env.CRM_DB.prepare('DELETE FROM crm_campaign_recipients WHERE campaign_id IN (SELECT id FROM crm_campaigns WHERE created_at < ?)').bind(lineCutoff),
     env.CRM_DB.prepare('DELETE FROM crm_campaigns WHERE created_at < ?').bind(lineCutoff),
+    env.CRM_DB.prepare('DELETE FROM crm_suggestions WHERE created_at < ?').bind(lineCutoff),
+    env.CRM_DB.prepare('DELETE FROM crm_assistant_runs WHERE created_at < ?').bind(lineCutoff),
     env.CRM_DB.prepare('DELETE FROM crm_limits WHERE expires_at < ?').bind(now)
   ]);
 }

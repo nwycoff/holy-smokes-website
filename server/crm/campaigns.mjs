@@ -32,11 +32,11 @@ const LEASE = 120000, RETRY = 300000, MAX_ATTEMPTS = 3, BATCH = 25;
 
 export const campaignsReady = env => env.CRM_CAMPAIGNS_ENABLED === 'true' && Boolean(env.CRM_DB && env.APP_DB);
 
-function localHour(ms) {
+export function localHour(ms) {
   return Number(new Intl.DateTimeFormat('en-US', { timeZone: QUIET.zone, hour: 'numeric', hourCycle: 'h23' }).format(ms));
 }
 export const quietAt = ms => { const h = localHour(ms); return h < QUIET.start || h >= QUIET.end; };
-const localDay = ms => new Intl.DateTimeFormat('en-CA', { timeZone: QUIET.zone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(ms);
+export const localDay = ms => new Intl.DateTimeFormat('en-CA', { timeZone: QUIET.zone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(ms);
 // Seconds left before quiet hours, so a phone that is offline never receives it late at night.
 function secondsUntilQuiet(ms) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: QUIET.zone, hour: 'numeric', minute: 'numeric',

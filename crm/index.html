@@ -62,6 +62,15 @@
 
     <section aria-labelledby="campaigns-title" id="campaigns-section" hidden>
       <div class="heading"><h1 id="campaigns-title">Deals &amp; news</h1><p id="cp-rules" class="muted"></p></div>
+      <div id="assistant" class="card" hidden>
+        <div class="list-head"><h2>Campaign assistant</h2><span id="as-status" class="muted"></span></div>
+        <p class="muted">It reviews the CRM every Monday (9 am) and day (10 am) and suggests campaigns. Nothing is sent until someone approves it.</p>
+        <div class="actions"><button type="button" id="as-weekly" class="secondary">Run a weekly plan now</button>
+          <button type="button" id="as-daily" class="secondary">Run a daily check now</button></div>
+        <div id="as-suggestions"></div>
+        <details id="as-report-box"><summary>Latest report</summary><div id="as-report"></div></details>
+        <details><summary>What it has learned</summary><div id="as-notes"></div></details>
+      </div>
       <div class="ideas"><span class="muted">Automatic message ideas:</span> <span id="cp-ideas" class="chips"></span></div>
       <form id="campaign" class="card builder" autocomplete="off">
         <label class="wide">Campaign name <input id="cp-name" maxlength="60" placeholder="e.g. October new arrivals" required></label>
