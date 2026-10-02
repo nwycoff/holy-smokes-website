@@ -468,9 +468,13 @@ test('medical preorders need the customer’s own license number, checked by Gro
   assert.equal(s.env.APP_DB.db.prepare('SELECT count(*) n FROM app_preorders').get().n,1);
   assert.ok(!JSON.stringify(s.env.APP_DB.db.prepare('SELECT * FROM app_preorders').all()).includes('PAAA'));
 });
-test('license expiry comes from the record; missing or expired licenses cannot order', async () => {
+test('license expiry comes from the record (the later of its two dates); missing or expired licenses cannot order', async () => {
   for (const [customer,status,expires] of [[{CustomerStateLicenseExpiration:null,LicenseEffectiveEndDate:{__type:'Date',iso:'2098-01-15T05:00:00.000Z'}},200,'2098-01-15T00:00:00.000Z'],
-    [{CustomerStateLicenseExpiration:null},409],[{CustomerStateLicenseExpiration:'2001-01-01T00:00:00.000Z'},409]]) {
+    [{CustomerStateLicenseExpiration:null},409],[{CustomerStateLicenseExpiration:'2001-01-01T00:00:00.000Z'},409],
+    // Renewed card: one date still holds the old card's expiry. The later date counts, either way round.
+    [{CustomerStateLicenseExpiration:'2001-01-01T00:00:00.000Z',LicenseEffectiveEndDate:{__type:'Date',iso:'2098-03-01T06:00:00.000Z'}},200,'2098-03-01T00:00:00.000Z'],
+    [{CustomerStateLicenseExpiration:'2098-04-01T05:00:00.000Z',LicenseEffectiveEndDate:{__type:'Date',iso:'2001-01-01T06:00:00.000Z'}},200,'2098-04-01T00:00:00.000Z'],
+    [{CustomerStateLicenseExpiration:'2001-01-01T00:00:00.000Z',LicenseEffectiveEndDate:'2002-01-01T00:00:00.000Z'},409]]) {
     const s=preorders({customer}), a=await s.linked(), res=await a.place(flower(1));
     assert.equal(res.status,status);
     if (expires) assert.equal(s.mutations()[0].variables.preorder.customer.medicalLicenseExpires,expires);
