@@ -69,3 +69,13 @@ In the CRM's Deals & news section, **Welcome gift for new subscribers** sets an 
 - At checkout, staff check the customer's GrowFlow profile for an earlier gift note, give the gift, and add a note such as "App welcome gift given 10/2 – TH-7Q4K".
 - After using it, the customer can tap **I've used it – remove it**; the code leaves the app on all their devices and is never reissued. The CRM counts these as "marked used by the customer". Staff's GrowFlow note remains the record of who received a gift.
 - Removing a customer from the CRM deletes their code. Setup: run `crm-migrations/0007_crm_welcome_gifts.sql` and `0008_crm_welcome_dismissed.sql` in `CRM_DB` and redeploy the notifier.
+
+## Visit ratings
+
+App users are asked how a visit went, sparingly: a card on the app's Home screen after a completed visit (in store or ahead), at most once every 60 days ("Not now" waits 60 days, "Don't ask me again" stops it), plus one notification ever, the day after their first order-ahead pickup (11 am–5 pm). "Rate a recent visit" on My points works any time within 30 days.
+
+- **Everyone who rates is invited to review the shop on Google**, whatever the rating. Asking only happy customers ("review gating") is against Google's rules. After someone goes to Google, it isn't suggested again for 6 months.
+- **1–3 stars** also opens a private message to a manager (with "Please have a manager contact me") and alerts the people who turned on **Low-rating alerts**.
+- The CRM's **Visit ratings** section shows averages, ratings with customer names (live from GrowFlow; viewing is logged), messages, and **Mark followed up** with a note. The campaign assistant sees the averages.
+- **Phone alerts** in the CRM lists everyone on the CRM's allowed list with switches for assistant updates and low-rating alerts; anyone can change them. Each person first chooses their own record with "Use for my tests". People removed from the allowed list stop getting alerts.
+- Setup: run `crm-migrations/0009_crm_feedback.sql` in `CRM_DB`; set `FEEDBACK_ENABLED=true` and `FEEDBACK_REVIEW_URL` (the Google Business Profile review link) on the Pages project and `FEEDBACK_ENABLED` on the notifier; redeploy both.

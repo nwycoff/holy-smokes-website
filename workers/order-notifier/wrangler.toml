@@ -25,6 +25,8 @@ APP_PREORDER_ENABLED = "true"
 APP_PUSH_ENABLED = "true"
 APP_PUSH_SUBJECT = "https://treehouse-app-test.pages.dev/app/"
 CRM_CAMPAIGNS_ENABLED = "true"
+# Visit ratings: one "how was your visit?" notification after a first order-ahead pickup.
+FEEDBACK_ENABLED = "true"
 # Public half of the notification key pair; the same value is set on the Pages project.
 APP_VAPID_PUBLIC_KEY = "BCaIcMble8bm3eUqMhTkHu0XM6GD4z_sSpq3GEprpfhdiogokZfXv1yplsfJ-2UN1LbJtMJKkZ9sv9YEwc0a92w"
 # Secrets (wrangler secret put): APP_VAPID_PRIVATE_JWK, APP_PREORDER_TOKEN, APP_LIMIT_SECRET.
@@ -50,4 +52,5 @@ APP_PREORDER_ENABLED = "true"
 APP_PUSH_ENABLED = "true"
 APP_PUSH_SUBJECT = "https://www.treehousepharmacy.com/app/"
 CRM_CAMPAIGNS_ENABLED = "true"
+FEEDBACK_ENABLED = "true"
 APP_VAPID_PUBLIC_KEY = "BHazL4tq1uQC2fmLIWKq4y7GWIbxwh5PVFqwrpYIg5OguzsyWFlU1XYdqBDj1aR-UEis0xmoFWzw--MuuTyWX5Q"

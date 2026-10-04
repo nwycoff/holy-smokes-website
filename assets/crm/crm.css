@@ -75,6 +75,15 @@ textarea { font: inherit; width: 100%; padding: 8px 10px; border: 1px solid #b7c
 .suggestion .title { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
 .suggestion p { margin: 0; font-size: 14px; }
 .report { white-space: pre-wrap; font-size: 14px; margin: 8px 0; }
+.feedback-item { padding: 12px 0; border-bottom: 1px solid var(--line); display: grid; gap: 4px; }
+.feedback-item:last-child { border-bottom: 0; }
+.feedback-item .title { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.rating-stars { color: var(--gold); letter-spacing: 1px; font-size: 16px; }
+.feedback-item .comment { white-space: pre-wrap; font-size: 14px; margin: 0; }
+.status.waiting { background: #f6e6d0; color: #7a4b12; }
+.person-row { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.person-row:last-child { border-bottom: 0; }
+.person-row strong { min-width: 240px; }
 .ideas { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .status.paused { background: #f3ecdf; color: #7a5a22; }
 footer { text-align: center; color: var(--muted); font-size: 12px; padding: 20px 28px 40px; }
