@@ -725,3 +725,12 @@ test('one rating notification ever: the day after a first order-ahead pickup, 11
   s.env.FEEDBACK_ENABLED = 'false';
   assert.deepEqual(await sendRatingRequests(s.env, s.deps), { sent: 0 });
 });
+
+test('a requested assistant run that never starts stops looking busy after 20 minutes', async () => {
+  const s = await campaigns(); s.env.CRM_ASSISTANT_ENABLED = 'true'; // no API key on the Worker
+  await s.call('assistant/run', { kind: 'weekly' });
+  assert.equal((await (await s.call('assistant')).json()).runs[0].status, 'requested');
+  s.advance(21 * 60000);
+  const run = (await (await s.call('assistant')).json()).runs[0];
+  assert.equal(run.status, 'failed'); assert.match(run.error, /API key/);
+});
