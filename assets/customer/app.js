@@ -28,6 +28,71 @@ function rewardBlock(tier, subtotalCents) {
   if (tier.amountCents !== null && tier.amountCents > subtotalCents) return `for orders of ${money.format(tier.amountCents / 100)} or more`;
   return '';
 }
+// Visit ratings: a card on Home after a visit (at most every 60 days, decided by the server), and
+// "Rate a recent visit" on My points any time. Everyone is invited to review the shop on Google;
+// 1-3 stars also offers a private message to a manager.
+let rating = null, forceRate = false;
+const visitDay = ms => new Date(ms).toLocaleDateString([], { weekday: 'long' });
+function stars(onPick) {
+  const row = el('div', '', 'stars');
+  for (let n = 1; n <= 5; n++) {
+    const b = el('button', '★', 'star'); b.type = 'button'; b.setAttribute('aria-label', `${n} star${n > 1 ? 's' : ''}`);
+    b.addEventListener('click', () => onPick(n).catch(error => message(error.message))); row.append(b);
+  }
+  return row;
+}
+function googleLink(text, id) {
+  const a = link(text, rating?.google || '#', 'secondary-button'); a.target = '_blank'; a.rel = 'noopener';
+  a.addEventListener('click', () => { if (!demo) void api('feedback/google', { id }).catch(() => {}); });
+  return a;
+}
+function feedbackCard() {
+  const visit = user.linked ? user.feedback?.visit : null;
+  if (!visit && !rating) return null;
+  const card = el('section', '', 'account-panel feedback-card');
+  if (!rating) {
+    card.append(el('p', 'HOW DID WE DO?', 'eyebrow'), el('h3', `How was your visit on ${visitDay(visit.at)}?`),
+      stars(async n => {
+        const result = demo ? { id: 'demo', low: n <= 3, google: 'https://g.page/' } : await api('feedback/rate', { orderId: visit.id, rating: n });
+        rating = { ...result, stars: n, sent: false }; user.feedback = { visit: null, ask: false }; renderFeedback();
+      }));
+    const later = el('div', '', 'action-row');
+    later.append(button('Not now', () => postponeRating('later'), 'text-button'), button('Don’t ask me again', () => postponeRating('never'), 'text-button'));
+    card.append(later);
+  } else if (!rating.low) {
+    card.append(el('p', 'THANK YOU', 'eyebrow'), el('h3', 'Thanks! We’re so glad you had a good visit.'));
+    if (rating.google) card.append(el('p', 'Would you share it on Google? It really helps a local shop.', 'fine-print'), googleLink('Review us on Google ↗', rating.id));
+    card.append(button('Done', () => { rating = null; renderFeedback(); }, 'text-button'));
+  } else if (!rating.sent) {
+    const text = el('textarea'); text.rows = 4; text.maxLength = 1000; text.placeholder = 'What happened? Add the best way to reach you if you’d like a call.';
+    const contact = el('label', '', 'remember-license'), box = el('input'); box.type = 'checkbox';
+    contact.append(box, document.createTextNode(' Please have a manager contact me'));
+    card.append(el('p', 'WE’RE SORRY', 'eyebrow'), el('h3', 'Tell us what happened, and a manager will make it right.'), text, contact,
+      button('Send to the manager', async () => {
+        if (!text.value.trim() && !box.checked) { message('Write a few words or tick “Please have a manager contact me”.'); return; }
+        if (!demo) await api('feedback/message', { id: rating.id, comment: text.value, contact: box.checked });
+        rating.sent = true; renderFeedback();
+      }));
+    if (rating.google) card.append(el('p', 'You can also leave a review on Google.', 'fine-print'), googleLink('Review us on Google ↗', rating.id));
+  } else {
+    card.append(el('p', 'THANK YOU', 'eyebrow'), el('h3', 'Thanks for telling us. A manager will look at this soon.'),
+      button('Done', () => { rating = null; renderFeedback(); }, 'text-button'));
+  }
+  return card;
+}
+async function postponeRating(mode) {
+  if (!demo) await api('feedback/later', { mode });
+  user.feedback = { ...user.feedback, ask: false }; forceRate = false;
+  message(mode === 'never' ? 'We won’t ask about visits again. You can still rate one from My points.' : 'No problem. We’ll ask another time.'); renderFeedback();
+}
+// Home shows the card when the server says it's time (or after "Rate a recent visit" / a rating
+// notification); My points always offers a link while a recent visit is unrated.
+function renderFeedback() {
+  const card = rating || user.feedback?.ask || forceRate ? feedbackCard() : null;
+  $('home-feedback').replaceChildren(...(card ? [card] : []));
+  renderRewards();
+}
+
 // The customer's welcome-gift code for turning on Deals & news, to show at checkout.
 function welcomeGiftPanel() {
   const gift = user.linked ? user.welcomeGift : null;
@@ -284,6 +349,8 @@ function renderRewards() {
   } else panel.append(el('h2', pointsLoading ? 'Checking your points…' : 'Your balance is unavailable.'), el('p', 'Your budtender can also check your balance.'));
   panel.append(button('Refresh balance ↻', refreshPoints, 'light-button')); target.append(panel);
   const gift = welcomeGiftPanel(); if (gift) target.append(gift);
+  if (user.feedback?.visit && !rating && !user.feedback.ask && !forceRate) target.append(button('Rate a recent visit', () => {
+    forceRate = true; renderFeedback(); location.hash = 'home'; }, 'text-button'));
   const ask = marketingPrompt(); if (ask) target.append(ask);
   if (tiers) target.append(tiers);
 }
@@ -298,7 +365,7 @@ async function refreshPoints() {
   finally { pointsLoading = false; if (current === generation) { renderHomePoints(); renderRewards(); } }
 }
 function clearPrivate() {
-  generation++; points = null; order = null; orderLicense = ''; selectedReward = ''; rememberLicense = false; changingLicense = false;
+  generation++; points = null; order = null; rating = null; forceRate = false; orderLicense = ''; selectedReward = ''; rememberLicense = false; changingLicense = false;
   user = { signedIn: false, linked: false };
   const input = $('connection-code'); if (input) input.value = '';
   renderHomePoints(); renderAccount(); renderRewards(); renderOrder(); renderCartBar();
@@ -697,6 +764,7 @@ function route() {
     menuLink = wanted.get('category') ? { category: wanted.get('category') } : wanted.get('brand') ? { brand: wanted.get('brand') } : null;
   }
   if (view === 'verify-email') { view = 'account'; message('Please verify your email using the message from our sign-in service, then sign in again.'); }
+  if (view === 'rate') { view = 'home'; forceRate = true; renderFeedback(); history.replaceState(null, '', '#home'); }
   if (view === 'login-error') { view = 'account'; message('Sign-in could not finish. Please try again.'); }
   if (!['home', 'menu', 'rewards', 'account', 'order'].includes(view)) view = 'home';
   for (const section of document.querySelectorAll('.view')) section.hidden = section.id !== `view-${view}`;
@@ -713,7 +781,8 @@ async function initialize() {
   const current = generation;
   if (demo) {
     const fixture = await import('./demo-data.js'); menu = fixture.demoMenu; config = { purchaseLimits: fixture.demoPurchaseLimits };
-    user = { signedIn:true, linked:true, marketing:{ topics:[], ask:true }, welcomeGift:{ code:'TH-DEMO', description:'a sample gift', endsOn:null } }; points = { points:750, checkedAt:Date.now() };
+    user = { signedIn:true, linked:true, marketing:{ topics:[], ask:true }, welcomeGift:{ code:'TH-DEMO', description:'a sample gift', endsOn:null },
+      feedback:{ visit:{ id:'demo', at:Date.now() - 86400000 }, ask:true } }; points = { points:750, checkedAt:Date.now() };
     $('demo-banner').hidden = false;
   } else {
     try {
@@ -725,7 +794,7 @@ async function initialize() {
     } catch { message('You’re offline or the app is temporarily unavailable. Reconnect to check your menu and points.'); }
   }
   if (current !== generation) return;
-  renderHomePoints(); renderAccount(); renderMenu(); renderCartBar(); route(); void loadRewards();
+  renderHomePoints(); renderAccount(); renderMenu(); renderCartBar(); renderFeedback(); route(); void loadRewards();
   if (!demo) { void refreshMenu(); if (user.linked) void refreshPoints(); }
 }
 $('menu-search').addEventListener('input', renderMenu); $('menu-sort').addEventListener('change', renderMenu);

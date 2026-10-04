@@ -155,7 +155,7 @@ async function showCustomers(sort = 'spend') {
       const mine = el('button', 'Use for my tests', 'link'); mine.type = 'button';
       mine.title = 'Your own record: test campaigns go to the phones on this customer’s app account';
       mine.addEventListener('click', async () => {
-        try { await api('settings/test-customer', { customerId: c.id }); campaignSetup.testPhone = true; message(`Test campaigns will go to ${c.name || 'this customer'}’s phones.`); void loadAssistant().catch(() => {}); }
+        try { await api('settings/test-customer', { customerId: c.id }); campaignSetup.testPhone = true; message(`Test campaigns and your alerts will go to ${c.name || 'this customer'}’s phones.`); void loadAlerts(); }
         catch (e) { message(e.message, true); }
       });
       cell.append(mine);
@@ -188,7 +188,9 @@ async function loadSaved() {
 async function loadAudit() {
   const { audit } = await api('audit');
   const names = { view_customers: 'viewed a customer list', save_segment: 'saved a segment', delete_segment: 'deleted a segment', forget_customer: 'removed a customer',
-    data_check: 'checked the CRM against GrowFlow', welcome_gift: 'updated the welcome gift', data_check_running: 'is checking the CRM against GrowFlow',
+    data_check: 'checked the CRM against GrowFlow', view_feedback: 'viewed visit ratings', handle_feedback: 'followed up on a rating',
+    alerts_assistant_on: 'turned on assistant updates for someone', alerts_assistant_off: 'turned off assistant updates for someone',
+    alerts_feedback_on: 'turned on low-rating alerts for someone', alerts_feedback_off: 'turned off low-rating alerts for someone', welcome_gift: 'updated the welcome gift', data_check_running: 'is checking the CRM against GrowFlow',
     assistant_run: 'asked the assistant for a run', assistant_updates_on: 'turned on assistant updates', assistant_updates_off: 'turned off assistant updates', approve_suggestion: 'approved an assistant suggestion',
     edit_suggestion: 'edited and sent an assistant suggestion', dismiss_suggestion: 'dismissed an assistant suggestion',
     send_campaign: 'sent or scheduled a campaign', test_campaign: 'sent a test campaign', cancel_campaign: 'canceled a campaign', set_test_phone: 'chose their test phone',
@@ -435,8 +437,6 @@ async function loadAssistant() {
   $('as-status').textContent = `This month ${dollars(data.spentCents)} of ${dollars(data.budgetCents)}`
     + (busy ? ' · Working on it…' : latest ? ` · Last ${RUN_LABELS[latest.kind] || 'run'} ${when(latest.finished_at || latest.created_at)}` : '');
   $('as-weekly').disabled = $('as-daily').disabled = busy;
-  $('as-notify').checked = data.me.notify; $('as-notify').disabled = !data.me.testPhone;
-  $('as-notify').title = data.me.testPhone ? '' : 'First choose your own customer record: Show customers, find yourself, then “Use for my tests”.';
   const open = data.suggestions.filter(s => s.status === 'open'), done = data.suggestions.filter(s => s.status !== 'open').slice(0, 8);
   $('as-suggestions').replaceChildren(...(open.length ? open.map(suggestionCard) : [el('p', 'No suggestions waiting.', 'muted')]),
     ...(done.length ? [el('p', 'Recent decisions', 'eyebrow'), ...done.map(suggestionCard)] : []));
@@ -457,6 +457,61 @@ async function runAssistantNow(kind) {
   } catch (e) { message(e.message, true); }
 }
 
+// --- Visit ratings ---
+const starText = n => '★'.repeat(n) + '☆'.repeat(5 - n);
+async function loadFeedback() {
+  const { summary: m, items } = await api('feedback');
+  const avg = (a, n) => (a === null ? 'no ratings' : `${a}★ from ${count.format(n)} ${n === 1 ? 'rating' : 'ratings'}`);
+  $('fb-summary').replaceChildren(el('p', `Last 30 days: ${avg(m.avg30, m.count30)} · Last 90 days: ${avg(m.avg90, m.count90)} · `
+    + `${count.format(m.low90)} rated 1–3 stars · ${count.format(m.google90)} went on to Google · ${count.format(m.waiting)} waiting for follow-up`, 'muted'));
+  $('fb-list').replaceChildren(...items.map(f => {
+    const row = el('div', '', 'feedback-item'), title = el('div', '', 'title'), waiting = f.status === 'new' && (f.rating <= 3 || f.contact);
+    title.append(el('span', starText(f.rating), 'rating-stars'), el('strong', f.name || 'Name unavailable'),
+      el('span', `rated ${new Date(f.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} · visit ${new Date(f.visit_at).toLocaleDateString()}`, 'muted'));
+    if (f.contact) title.append(el('span', 'Wants a call back', 'status waiting'));
+    if (f.google_at) title.append(el('span', 'Went to Google', 'status'));
+    if (f.status === 'handled') title.append(el('span', 'Followed up', 'status'));
+    row.append(title);
+    if (f.comment) row.append(el('p', `“${f.comment}”`, 'comment'));
+    if (f.status === 'handled') row.append(el('p', `Followed up by ${f.handled_by}${f.handled_note ? `: ${f.handled_note}` : ''}`, 'muted'));
+    else if (waiting) {
+      const done = el('button', 'Mark followed up', 'secondary'); done.type = 'button';
+      done.addEventListener('click', async () => {
+        const note = prompt('What did you do? (optional, e.g. “Called, comped next pre-roll”)', '');
+        if (note === null) return;
+        try { await api('feedback/handle', { id: f.id, note }); await loadFeedback(); void loadAudit(); } catch (e) { message(e.message, true); }
+      });
+      row.append(done);
+    }
+    return row;
+  }));
+  if (!items.length) $('fb-list').append(el('p', 'No ratings yet.', 'muted'));
+  $('fb-show').textContent = 'Refresh'; void loadAudit();
+}
+// --- Phone alerts ---
+async function loadAlerts() {
+  let data;
+  try { data = await api('alerts'); } catch { $('alerts-section').hidden = true; return; }
+  $('alerts-section').hidden = false; $('feedback-section').hidden = !data.feedbackOn;
+  $('alerts-people').replaceChildren(...data.people.map(p => {
+    const row = el('div', '', 'person-row');
+    row.append(el('strong', p.email));
+    const toggle = (kind, text, on, shown) => {
+      if (!shown) return;
+      const label = el('label', '', 'checks'), box = el('input'); box.type = 'checkbox'; box.checked = on; box.disabled = !p.phone;
+      box.addEventListener('change', async () => {
+        try { await api('alerts/set', { email: p.email, kind, on: box.checked }); void loadAudit(); }
+        catch (e) { box.checked = !box.checked; message(e.message, true); }
+      });
+      label.append(box, document.createTextNode(` ${text}`)); row.append(label);
+    };
+    toggle('assistant', 'Assistant updates', p.assistant, data.assistantOn);
+    toggle('feedback', 'Low-rating alerts', p.feedback, data.feedbackOn);
+    if (!p.phone) row.append(el('span', 'No phone chosen yet: they sign in, then Show customers → find themselves → Use for my tests.', 'muted'));
+    return row;
+  }));
+}
+
 async function start() {
   try {
     session = await api('session');
@@ -470,7 +525,7 @@ async function start() {
     }));
   } catch (e) { message(e.message, true); return; }
   // Each part loads on its own, so one slow part never blanks the whole page.
-  const parts = [loadOverview(), loadSaved(), loadAudit(), loadCampaigns().then(loadAssistant),
+  const parts = [loadOverview(), loadSaved(), loadAudit(), loadCampaigns().then(loadAssistant).then(loadAlerts),
     api('brands').then(({ brands }) => $('brand').append(...brands.map(b => { const o = el('option', b.name); o.value = b.id; return o; })))];
   const failed = (await Promise.allSettled(parts)).find(r => r.status === 'rejected');
   if (failed) message(failed.reason?.message || 'Part of the page could not load. Reload to try again.', true);
@@ -495,11 +550,7 @@ $('welcome').addEventListener('submit', async event => {
   catch (e) { message(e.message, true); }
 });
 $('as-weekly').addEventListener('click', () => runAssistantNow('weekly'));
-$('as-notify').addEventListener('change', async () => {
-  const on = $('as-notify').checked;
-  try { await api('settings/assistant-updates', { on }); message(on ? 'Your phone will get the assistant’s updates.' : 'Assistant updates are off for your phone.'); void loadAudit(); }
-  catch (e) { $('as-notify').checked = !on; message(e.message, true); }
-});
+$('fb-show').addEventListener('click', () => loadFeedback().catch(e => message(e.message, true)));
 $('as-daily').addEventListener('click', () => runAssistantNow('daily'));
 $('cp-body').addEventListener('input', () => {
   const text = $('cp-body').value.trim(); $('cp-preview').textContent = text || 'Your message appears here.';

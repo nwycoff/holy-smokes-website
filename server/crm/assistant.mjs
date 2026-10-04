@@ -3,6 +3,7 @@ import { AppError, randomToken } from '../customer-app/http.mjs';
 import { TOPICS } from '../customer-app/marketing.mjs';
 import { GROUPS, preview, validateDefinition } from './segments.mjs';
 import { overview, topBrands } from './insights.mjs';
+import { feedbackSummary } from './feedback.mjs';
 import { listAutomations, listCampaigns, localDay, localHour, previewCampaign, validateAutomation, validateCampaign,
   AUTOMATION_HOUR, COOLDOWNS, HOLDOUTS, QUIET, WEEKLY_CAP } from './campaigns.mjs';
 import { assistantReady, budgetCents, spentCents, SCHEDULE } from './suggestions.mjs';
@@ -123,7 +124,8 @@ async function runTool(env, ctx, name, input) {
     switch (name) {
       case 'get_shop_overview': {
         const { totals, categories, brands } = await overview(env, now);
-        return { totals, categories90Days: categories, topBrands90Days: brands.map(({ id, ...b }) => b), optedInByTopic: await optedInByTopic(env) };
+        return { totals, categories90Days: categories, topBrands90Days: brands.map(({ id, ...b }) => b), optedInByTopic: await optedInByTopic(env),
+          visitRatings: await feedbackSummary(env, now).catch(() => null) };
       }
       case 'count_customers': return await preview(env.CRM_DB, validateDefinition(input.definition), now);
       case 'list_brands': return { brands: await topBrands(env, now) };

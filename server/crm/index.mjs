@@ -5,6 +5,7 @@ import { GROUPS, members, preview, validateDefinition } from './segments.mjs';
 import { overview } from './insights.mjs';
 import { assistantReady, assistantView, decideSuggestion, requestRun, setAssistantUpdates } from './suggestions.mjs';
 import { saveWelcomeConfig, welcomeConfig, welcomeStats } from './welcome.mjs';
+import { feedbackList, feedbackReady, feedbackSummary, handleFeedback } from './feedback.mjs';
 import { campaignsReady, cancelCampaign, createAutomation, createCampaign, listAutomations, listCampaigns, previewCampaign,
   setAutomationActive, validateAutomation, validateCampaign, AUTOMATION_HOUR, COOLDOWNS, HOLDOUTS, LINKS, QUIET, WEEKLY_CAP } from './campaigns.mjs';
 import { TOPICS } from '../customer-app/marketing.mjs';
@@ -93,7 +94,8 @@ export async function handleCrm({ request, env }, overrides = {}) {
     preview: 'POST', customers: 'POST', 'segments/save': 'POST', 'segments/delete': 'POST', forget: 'POST',
     campaigns: 'GET', 'campaigns/preview': 'POST', 'campaigns/send': 'POST', 'campaigns/test': 'POST', 'campaigns/cancel': 'POST',
     'settings/test-customer': 'POST', 'automations/create': 'POST', 'automations/active': 'POST',
-    assistant: 'GET', 'assistant/run': 'POST', 'assistant/decide': 'POST', 'settings/assistant-updates': 'POST', 'welcome/save': 'POST' };
+    assistant: 'GET', 'assistant/run': 'POST', 'assistant/decide': 'POST', 'settings/assistant-updates': 'POST', 'welcome/save': 'POST',
+    feedback: 'GET', 'feedback/handle': 'POST', alerts: 'GET', 'alerts/set': 'POST' };
   if (!allowed[route]) return json(404, { error: 'Not found.' });
   if (allowed[route] !== request.method) return json(405, { error: 'Method not allowed.' }, { Allow: allowed[route] });
   try {
@@ -117,6 +119,36 @@ export async function handleCrm({ request, env }, overrides = {}) {
     if ((route.startsWith('campaigns') || route.startsWith('automations') || route.startsWith('assistant') || route.startsWith('welcome')) && !campaignsReady(env))
       throw new AppError('CAMPAIGNS_CONFIG');
     if ((route.startsWith('assistant') || route === 'settings/assistant-updates') && !assistantReady(env)) throw new AppError('ASSISTANT_CONFIG');
+    if (route.startsWith('feedback') && !feedbackReady(env)) throw new AppError('FEEDBACK_CONFIG');
+    if (route === 'feedback') {
+      // Customer names come live from GrowFlow, as in customer lists, and viewing them is logged.
+      const items = await feedbackList(env);
+      const named = items.length ? await names(env, deps, [...new Set(items.map(f => f.customer_id))]) : new Map();
+      await audit(env, deps, user.email, 'view_feedback', { shown: items.length });
+      return json(200, { summary: await feedbackSummary(env, now),
+        items: items.map(({ customer_id, ...f }) => ({ ...f, name: named.get(customer_id) || null })) });
+    }
+    // Who gets phone alerts. Anyone with CRM access can switch anyone's alerts on or off; people
+    // no longer on the CRM's allowed list stop getting them.
+    if (route === 'alerts' || route === 'alerts/set') {
+      const allowed = config(env).emails;
+      await db.prepare(`UPDATE crm_settings SET notify_assistant = 0, notify_feedback = 0 WHERE email NOT IN (SELECT value FROM json_each(?))
+        AND (notify_assistant = 1 OR notify_feedback = 1)`).bind(JSON.stringify(allowed)).run();
+      if (route === 'alerts/set') {
+        const { email, kind, on } = await bodyJSON(request);
+        if (!allowed.includes(String(email).toLowerCase()) || !['assistant', 'feedback'].includes(kind) || typeof on !== 'boolean')
+          throw new AppError('INPUT', 400);
+        const row = await db.prepare(`UPDATE crm_settings SET ${kind === 'feedback' ? 'notify_feedback' : 'notify_assistant'} = ?, updated_at = ?
+          WHERE email = ? AND test_customer_id IS NOT NULL RETURNING email`).bind(on ? 1 : 0, now, String(email).toLowerCase()).first();
+        if (!row) throw new AppError('ALERTS_PHONE', 400);
+        await audit(env, deps, user.email, `alerts_${kind}_${on ? 'on' : 'off'}`, { for: String(email).toLowerCase() });
+      }
+      const { results: rows = [] } = await db.prepare('SELECT email, test_customer_id IS NOT NULL AS phone, notify_assistant, notify_feedback FROM crm_settings')
+        .bind().run();
+      return json(200, { people: allowed.map(email => { const r = rows.find(x => x.email === email) || {};
+        return { email, phone: Boolean(r.phone), assistant: Boolean(r.notify_assistant), feedback: Boolean(r.notify_feedback) }; }),
+        assistantOn: assistantReady(env), feedbackOn: feedbackReady(env) });
+    }
     if (route === 'assistant') return json(200, await assistantView(env, now, user.email));
     const testCustomer = async () => (await db.prepare('SELECT test_customer_id FROM crm_settings WHERE email = ?')
       .bind(user.email).first())?.test_customer_id || null;
@@ -209,6 +241,11 @@ export async function handleCrm({ request, env }, overrides = {}) {
       await audit(env, deps, user.email, input.active ? 'resume_automation' : 'pause_automation', null);
       return json(200, { active: input.active });
     }
+    if (route === 'feedback/handle') {
+      await handleFeedback(env, user.email, input, now);
+      await audit(env, deps, user.email, 'handle_feedback', null);
+      return json(200, { handled: true });
+    }
     if (route === 'welcome/save') {
       const config = await saveWelcomeConfig(env, user.email, input.welcome, now);
       await audit(env, deps, user.email, 'welcome_gift', { on: config.on, description: config.description, endsOn: config.endsOn });
@@ -250,6 +287,8 @@ export async function handleCrm({ request, env }, overrides = {}) {
       INPUT: 'Please check the information and try again.',
       CAMPAIGNS_CONFIG: 'Deals & news campaigns aren’t switched on yet.', ASSISTANT_CONFIG: 'The campaign assistant isn’t switched on yet.',
       SUGGESTION_DONE: 'That suggestion was already decided or has expired.',
+      FEEDBACK_CONFIG: 'Visit ratings aren’t switched on yet.',
+      ALERTS_PHONE: 'That person needs to pick their own record first: Show customers, find themselves, then “Use for my tests” (while signed in as themselves).',
       WELCOME_DESCRIPTION: 'Describe the gift (shown in the app), e.g. “a pre-roll for a penny”.',
       WELCOME_CODE: 'The notification needs {code} where the customer’s code goes.', CAMPAIGN_NAME: 'Please give the campaign a name.',
       CAMPAIGN_LENGTH: 'The message needs to be 10 to 120 characters.',

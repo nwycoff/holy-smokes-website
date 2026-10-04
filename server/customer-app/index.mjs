@@ -10,6 +10,7 @@ import { licenseMemoryReady, forgetLicense } from './license.mjs';
 import { marketingReady, marketingState, setMarketing } from './marketing.mjs';
 import { recordTap } from '../crm/campaigns.mjs';
 import { dismissWelcome, welcomeForCustomer } from '../crm/welcome.mjs';
+import { addFeedbackMessage, feedbackReady, feedbackState, noteGoogle, postponeFeedback, rateVisit } from '../crm/feedback.mjs';
 
 async function limit(env, deps, subject, max, window = 900000) {
   if (!await consumeLimits(env.APP_DB, env.APP_LIMIT_SECRET, [{ subject, max, window }], deps.now()))
@@ -30,7 +31,8 @@ export async function handleApp(context, overrides = {}) {
   const allowed = { config: 'GET', menu: 'GET', rewards: 'GET', session: 'GET', points: 'GET', login: 'POST',
     callback: 'GET', enroll: 'POST', logout: 'POST', 'logout-all': 'POST', 'remove-link': 'POST', 'staff/enroll': 'POST',
     preorder: 'GET', 'preorder/place': 'POST', 'push/subscribe': 'POST', 'push/unsubscribe': 'POST', 'license/forget': 'POST',
-    marketing: 'POST', tap: 'POST', 'welcome/dismiss': 'POST' };
+    marketing: 'POST', tap: 'POST', 'welcome/dismiss': 'POST',
+    'feedback/rate': 'POST', 'feedback/message': 'POST', 'feedback/google': 'POST', 'feedback/later': 'POST' };
   if (!allowed[route]) return json(404, { error: 'Not found.' });
   if (allowed[route] !== request.method) return json(405, { error: 'Method not allowed.' }, { Allow: allowed[route] });
   if (route !== 'callback' && url.search) return json(400, { error: 'Invalid request.' });
@@ -103,7 +105,8 @@ export async function handleApp(context, overrides = {}) {
     if (route === 'session') return json(200, s ? { signedIn: true, linked: Boolean(s.customer_id), csrf: s.csrf,
       ...(s.license_hint && licenseMemoryReady(env) ? { licenseHint: s.license_hint } : {}),
       ...(s.customer_id && marketingReady(env) ? { marketing: await marketingState(env, deps, s.id) } : {}),
-      ...(s.customer_id && marketingReady(env) ? { welcomeGift: await welcomeForCustomer(env, s.customer_id, deps.now()) } : {}) }
+      ...(s.customer_id && marketingReady(env) ? { welcomeGift: await welcomeForCustomer(env, s.customer_id, deps.now()) } : {}),
+      ...(s.customer_id && feedbackReady(env) ? { feedback: await feedbackState(env, s.customer_id, deps.now()).catch(() => null) } : {}) }
       : { signedIn: false, linked: false });
     if (!s) throw new AppError('SIGN_IN', 401);
     if (request.method === 'POST' && request.headers.get('x-treehouse-csrf') !== s.csrf) throw new AppError('CSRF', 403);
@@ -148,6 +151,16 @@ export async function handleApp(context, overrides = {}) {
       return json(200, { points: customer.CurrentPoints, checkedAt: deps.now() });
     }
     if (route === 'license/forget') { await forgetLicense(env, s.id); return json(200, { licenseHint: null }); }
+    if (route.startsWith('feedback/')) {
+      if (!s.customer_id) throw new AppError('LINK_REQUIRED', 403);
+      if (!feedbackReady(env)) throw new AppError('FEEDBACK_CONFIG');
+      await limit(env, deps, `feedback:${s.id}`, 20);
+      const input = await bodyJSON(request), now = deps.now();
+      if (route === 'feedback/rate') return json(200, await rateVisit(env, s.customer_id, input, now));
+      if (route === 'feedback/message') { await addFeedbackMessage(env, s.customer_id, input, now); return json(200, { saved: true }); }
+      if (route === 'feedback/google') return json(200, await noteGoogle(env, s.customer_id, input, now));
+      await postponeFeedback(env, s.customer_id, input, now); return json(200, { saved: true });
+    }
     if (route === 'welcome/dismiss') {
       if (!s.customer_id) throw new AppError('LINK_REQUIRED', 403);
       await limit(env, deps, `welcome:${s.id}`, 10);
@@ -205,6 +218,7 @@ export async function handleApp(context, overrides = {}) {
       REWARD_TOO_LARGE: 'That reward is bigger than your order. Please choose a smaller one or add more items.',
       LICENSE_SAVED_MISSING: 'Please enter your medical license number.',
       LICENSE_SAVED_MISMATCH: 'Your saved license number no longer matches your store record. This usually means you have a new or renewed license. We’ve removed the old number; please enter the one on your current card. If it still doesn’t match, ask your budtender to update your store record.',
+      FEEDBACK_VISIT: 'That visit can’t be rated anymore. Thanks for checking in!', FEEDBACK_DONE: 'Thanks, we already have your rating for that visit.',
       PUSH_DEVICE_IN_USE: 'This device is set up for notifications on another account. Please try again.',
       OUT_OF_STOCK: 'Some items in your order have fewer in stock than you asked for. We’ve updated your order; please review it.',
       LICENSE_REQUIRED: 'Please enter your medical license number to order ahead.',

@@ -310,15 +310,17 @@ async function runAutomations(env, now) {
 export async function sendOwnerAlerts(env, deps) {
   if (!campaignSenderReady(env)) return { sent: 0 };
   const db = env.CRM_DB, now = deps.now();
-  const { results: alerts = [] } = await db.prepare(`SELECT id, body FROM crm_owner_alerts WHERE sent_at IS NULL AND created_at > ?
+  const { results: alerts = [] } = await db.prepare(`SELECT id, body, audience FROM crm_owner_alerts WHERE sent_at IS NULL AND created_at > ?
     ORDER BY created_at LIMIT 5`).bind(now - DAY).run().catch(() => ({ results: [] }));
   if (!alerts.length) return { sent: 0 };
-  const { results: owners = [] } = await db.prepare(`SELECT DISTINCT test_customer_id FROM crm_settings WHERE notify_assistant = 1
-    AND test_customer_id IS NOT NULL`).bind().run();
   let sent = 0;
   for (const alert of alerts) {
     const claimed = await db.prepare('UPDATE crm_owner_alerts SET sent_at = ? WHERE id = ? AND sent_at IS NULL RETURNING id').bind(now, alert.id).first();
     if (!claimed) continue;
+    // Each alert goes to the people who turned on that kind: assistant updates or low-rating alerts.
+    const column = alert.audience === 'feedback' ? 'notify_feedback' : 'notify_assistant';
+    const { results: owners = [] } = await db.prepare(`SELECT DISTINCT test_customer_id FROM crm_settings WHERE ${column} = 1
+      AND test_customer_id IS NOT NULL`).bind().run();
     for (const { test_customer_id: customerId } of owners) {
       const { results: devices = [] } = await env.APP_DB.prepare(`SELECT s.endpoint, s.p256dh, s.auth FROM app_users u
         JOIN app_push_subscriptions s ON s.user_id = u.id WHERE u.customer_id = ?`).bind(customerId).run();

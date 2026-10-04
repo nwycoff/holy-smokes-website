@@ -942,3 +942,15 @@ test('customers remove only their own welcome code, signed in and with CSRF', as
   const a=await s.login('auth0|someone-else'), csrfA=(await (await s.run('session',{cookie:a.cookie})).json()).csrf;
   assert.equal((await s.run('welcome/dismiss',{method:'POST',cookie:a.cookie,body:{},headers:{'x-treehouse-csrf':csrfA}})).status,403);
 });
+
+test('visit ratings stay off until enabled and need a linked account', async () => {
+  const s=await withPush(), b=await s.linked();
+  const rate=()=>s.run('feedback/rate',{method:'POST',cookie:b.cookie,body:{orderId:'x',rating:5},headers:{'x-treehouse-csrf':b.csrf}});
+  assert.equal((await rate()).status,503);
+  assert.equal((await (await s.run('session',{cookie:b.cookie})).json()).feedback,undefined);
+  const a=await s.login('auth0|not-linked'), csrfA=(await (await s.run('session',{cookie:a.cookie})).json()).csrf;
+  s.env.FEEDBACK_ENABLED='true'; s.env.CRM_DB={prepare:()=>({bind:()=>({first:async()=>null,run:async()=>({results:[]})})}),batch:async()=>[]};
+  assert.equal((await s.run('feedback/rate',{method:'POST',cookie:a.cookie,body:{orderId:'x',rating:5},headers:{'x-treehouse-csrf':csrfA}})).status,403);
+  assert.deepEqual((await (await s.run('session',{cookie:b.cookie})).json()).feedback,{visit:null,ask:false});
+  assert.equal((await rate()).status,409); // no recent visit to rate
+});

@@ -11,6 +11,7 @@ import { linkTarget, recordTap, sendCampaigns, sendOwnerAlerts, tapToken, valida
 import { tickAssistant, SYSTEM } from '../server/crm/assistant.mjs';
 import { maybeVerify } from '../server/crm/verify.mjs';
 import { dismissWelcome, sendWelcomeGifts, welcomeForCustomer, welcomeStats } from '../server/crm/welcome.mjs';
+import { addFeedbackMessage, feedbackState, noteGoogle, postponeFeedback, rateVisit, sendRatingRequests } from '../server/crm/feedback.mjs';
 
 class D1 {
   constructor(dir) {
@@ -642,4 +643,85 @@ test('a customer can remove their used welcome code; it never comes back or gets
   const before = s.pushes.length; await sendWelcomeGifts(s.env, s.deps);
   assert.equal(s.pushes.length, before); assert.equal(await welcomeForCustomer(s.env, 'A', s.now()), null);
   assert.deepEqual(await welcomeStats(s.env), { issued: 3, sent: 3, used: 1 });
+});
+
+// --- Visit ratings ---
+async function ratings() {
+  const s = await campaigns();
+  Object.assign(s.env, { FEEDBACK_ENABLED: 'true', FEEDBACK_REVIEW_URL: 'https://g.page/r/SAMPLE/review', APP_LIMIT_SECRET: 'synthetic-limit-secret-for-tap-codes-123' });
+  return s;
+}
+test('customers are asked sparingly, can always rate a recent visit, and everyone is invited to Google', async () => {
+  const s = await ratings(), state = id => feedbackState(s.env, id, s.now());
+  const c = await state('C'); // C's last visit was 2 days ago
+  assert.equal(c.ask, true); assert.equal(c.visit.id, 'o6');
+  assert.equal((await state('C')).ask, true); // same visit: still shown until they act
+  assert.equal((await state('B')).visit, null); // B's last visit was 100 days ago
+  await assert.rejects(rateVisit(s.env, 'C', { orderId: 'o1', rating: 5 }, s.now()), e => e.code === 'FEEDBACK_VISIT'); // not their visit
+  const rated = await rateVisit(s.env, 'C', { orderId: 'o6', rating: 5 }, s.now());
+  assert.deepEqual({ low: rated.low, google: rated.google }, { low: false, google: 'https://g.page/r/SAMPLE/review' });
+  await assert.rejects(rateVisit(s.env, 'C', { orderId: 'o6', rating: 4 }, s.now()), e => e.code === 'FEEDBACK_DONE');
+  assert.deepEqual(await state('C'), { visit: null, ask: false });
+  // A new visit soon after: no card (60 days), but it can be rated from My points.
+  s.order('o10', 'C', -1, 2000); s.advance(2 * DAY); await s.sync();
+  const soon = await state('C'); assert.equal(soon.ask, false); assert.equal(soon.visit.id, 'o10');
+  // After 60 days, the card returns; Google isn't suggested for 6 months after they went there.
+  await noteGoogle(s.env, 'C', { id: rated.id }, s.now());
+  s.order('o11', 'C', -62, 2000); s.advance(63 * DAY); await s.sync();
+  const later = await state('C'); assert.equal(later.ask, true); assert.equal(later.visit.id, 'o11');
+  assert.equal((await rateVisit(s.env, 'C', { orderId: 'o11', rating: 4 }, s.now())).google, null);
+  // Low ratings still get the Google invitation (no review gating).
+  const low = await rateVisit(s.env, 'A', { orderId: (await state('A')).visit?.id || 'none', rating: 2 }, s.now()).catch(() => null);
+  if (low) assert.equal(low.low, true);
+  // "Not now" waits 60 days; "Don't ask me again" stops the card for good (rating stays possible).
+  s.order('o12', 'C', -64, 2000); s.advance(65 * DAY); await s.sync();
+  await postponeFeedback(s.env, 'C', { mode: 'never' }, s.now());
+  const never = await state('C'); assert.equal(never.ask, false); assert.equal(never.visit.id, 'o12');
+});
+
+test('1-3 stars alert the people who turned on low-rating alerts, and the CRM lists ratings with names for follow-up', async () => {
+  const s = await ratings();
+  // Phone alerts: people come from the CRM's allowed list; a phone is needed first.
+  const people = (await (await s.call('alerts')).json()).people;
+  assert.deepEqual(people.map(p => p.email), ['owner@example.test', 'manager@example.test']);
+  assert.equal((await s.call('alerts/set', { email: 'manager@example.test', kind: 'feedback', on: true })).status, 400);
+  await s.call('settings/test-customer', { customerId: 'B' });
+  assert.equal((await s.call('alerts/set', { email: 'owner@example.test', kind: 'feedback', on: true })).status, 200);
+  assert.equal((await s.call('alerts/set', { email: 'someone@else.test', kind: 'feedback', on: true })).status, 400);
+  const r = await rateVisit(s.env, 'C', { orderId: 'o6', rating: 2 }, s.now());
+  assert.equal(r.low, true); assert.equal(r.google, 'https://g.page/r/SAMPLE/review');
+  await addFeedbackMessage(s.env, 'C', { id: r.id, comment: 'Waited 20 minutes for my order.', contact: true }, s.now());
+  await assert.rejects(addFeedbackMessage(s.env, 'A', { id: r.id, comment: 'not mine', contact: false }, s.now())); // only their own
+  const before = s.pushes.length;
+  await sendOwnerAlerts(s.env, s.deps);
+  assert.equal(s.pushes.length - before, 1); assert.ok(s.pushes.at(-1).url.endsWith('device-B'));
+  // An assistant update doesn't go to someone who only wants low-rating alerts.
+  s.db.prepare("INSERT INTO crm_owner_alerts(id, body, created_at) VALUES ('x', 'Weekly plan ready', ?)").run(s.now());
+  await sendOwnerAlerts(s.env, s.deps); assert.equal(s.pushes.length - before, 1);
+  const list = await (await s.call('feedback')).json();
+  assert.equal(list.summary.count30, 1); assert.equal(list.summary.waiting, 1); assert.equal(list.summary.avg30, 2);
+  assert.deepEqual({ name: list.items[0].name, comment: list.items[0].comment, contact: list.items[0].contact }, { name: 'Name of C', comment: 'Waited 20 minutes for my order.', contact: 1 });
+  assert.equal(list.items[0].customer_id, undefined);
+  assert.equal((await s.call('feedback/handle', { id: r.id, note: 'Called, apologized' })).status, 200);
+  assert.equal((await (await s.call('feedback')).json()).summary.waiting, 0);
+  // Someone removed from the CRM stops getting alerts.
+  s.env.CRM_EMAILS = 'manager@example.test';
+  await s.run('alerts', undefined, { assertion: await s.token({ email: 'manager@example.test' }) });
+  assert.equal(s.db.prepare("SELECT notify_feedback FROM crm_settings WHERE email = 'owner@example.test'").get().notify_feedback, 0);
+  const actions = s.db.prepare('SELECT action FROM crm_audit ORDER BY at').all().map(a => a.action);
+  assert.ok(actions.includes('view_feedback') && actions.includes('handle_feedback') && actions.includes('alerts_feedback_on'));
+});
+
+test('one rating notification ever: the day after a first order-ahead pickup, 11 am to 5 pm', async () => {
+  const s = await ratings(); // Thursday 10 am Central
+  s.order('pre1', 'A', 1, 3000, { IsPreOrder: true }); await s.sync();
+  assert.equal((await sendRatingRequests(s.env, s.deps)).sent, 0); // before 11 am
+  s.advance(2 * 3600000);
+  assert.equal((await sendRatingRequests(s.env, s.deps)).sent, 1);
+  assert.equal(s.pushes.at(-1).url.endsWith('device-A'), true);
+  assert.equal((await sendRatingRequests(s.env, s.deps)).sent, 0); // only once
+  s.order('pre2', 'A', -0.5, 3000, { IsPreOrder: true }); s.advance(DAY); await s.sync();
+  assert.equal((await sendRatingRequests(s.env, s.deps)).sent, 0); // never again, even after another order ahead
+  s.env.FEEDBACK_ENABLED = 'false';
+  assert.deepEqual(await sendRatingRequests(s.env, s.deps), { sent: 0 });
 });

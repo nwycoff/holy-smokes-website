@@ -1,6 +1,7 @@
 import { notifyReadyOrders } from '../../server/customer-app/push.mjs';
 import { sendCampaigns, sendOwnerAlerts } from '../../server/crm/campaigns.mjs';
 import { sendWelcomeGifts } from '../../server/crm/welcome.mjs';
+import { sendRatingRequests } from '../../server/crm/feedback.mjs';
 
 // Scheduled Worker: GrowFlow has no webhooks, so this checks recent open app orders every
 // minute and sends "your order is ready" when one is marked Fulfilled. It also sends Deals &
@@ -12,6 +13,7 @@ export default {
     ctx.waitUntil(Promise.all([notifyReadyOrders(env, deps).catch(() => deps.report('NOTIFIER_RUN')),
       sendCampaigns(env, deps).catch(() => deps.report('CAMPAIGN_RUN')),
       sendOwnerAlerts(env, deps).catch(() => deps.report('OWNER_ALERTS')),
-      sendWelcomeGifts(env, deps).catch(() => deps.report('WELCOME_GIFTS'))]));
+      sendWelcomeGifts(env, deps).catch(() => deps.report('WELCOME_GIFTS')),
+      sendRatingRequests(env, deps).catch(() => deps.report('RATING_REQUESTS'))]));
   }
 };
