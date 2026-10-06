@@ -853,7 +853,8 @@ function renderMenu() {
   renderFilters(base);
   $('menu-products').replaceChildren(...visible.map(productCard));
   if (!visible.length) {
-    const box = empty(menu ? 'No products match those filters. Try another category, search or filter.' : 'The menu is not available right now. Please call the shop for today’s selection.');
+    const box = empty(menu ? 'No products match those filters. Try another category, search or filter.' : menuLoading ? 'Getting the menu ready…' : 'The menu is not available right now. Please call the shop for today’s selection.');
+    if (!menu && !menuLoading && config.menuEnabled) box.append(button('Try again', () => void refreshMenu(), 'secondary-button'));
     if (menu && activeFilterCount()) box.append(button('Clear filters', clearFilters, 'secondary-button'));
     $('menu-products').append(box);
   }
@@ -868,7 +869,7 @@ function renderMenu() {
     ? 'Connect your account with a code from your budtender to order online for in-store pickup. '
     : 'Sign in and connect your account to order online for in-store pickup. '), link('How it works →', '#order', 'text-button'));
   $('menu-tax').textContent = menu ? `${menu.pricesIncludeTax ? 'Prices include tax.' : 'Prices do not include tax.'} Availability and final pricing are confirmed in store.${canOrder() ? ' Add items to order ahead for pickup.' : ''}` : '';
-  $('menu-freshness').textContent = demo ? 'Sample menu' : menu?.stale ? 'Update delayed' : menu ? `Updated ${new Date(menu.updatedAt).toLocaleTimeString([], { hour:'numeric',minute:'2-digit' })}` : 'Menu unavailable';
+  $('menu-freshness').textContent = demo ? 'Sample menu' : menu?.stale ? 'Update delayed' : menu ? `Updated ${new Date(menu.updatedAt).toLocaleTimeString([], { hour:'numeric',minute:'2-digit' })}` : menuLoading ? 'Checking the menu…' : 'Menu unavailable';
   const categoryRow = $('category-filters'); categoryRow.replaceChildren();
   for (const name of ['All', ...(menu?.categories || [])]) {
     const b = button(name, () => { category = name; renderMenu(); }, ''); b.setAttribute('aria-pressed', String(category === name)); categoryRow.append(b);
@@ -892,11 +893,24 @@ function setFilterPanel(open) {
 async function refreshMenu() {
   if (demo || !config.menuEnabled || menuLoading) return;
   menuLoading = true;
+  renderMenu();
   try {
-    menu = await api('menu'); menuError = menu.stale ? 'The last menu update was delayed. Please confirm availability with the shop.' : '';
+    let updated;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try { updated = await api('menu'); break; }
+      catch (error) {
+        if (attempt || (error.status && error.status < 500 && error.status !== 429)) throw error;
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+    menu = updated; menuError = menu.stale ? 'The last menu update was delayed. Please confirm availability with the shop.' : '';
     reconcileCart();
   }
-  catch { menu = null; menuError = 'We can’t refresh the menu right now. Please call the shop for availability.'; }
+  catch {
+    if (menu) menu = { ...menu, stale: true };
+    menuError = menu ? 'Showing the last available menu. Please confirm availability with the shop.'
+      : 'We can’t refresh the menu right now. Please try again or call the shop for availability.';
+  }
   finally { menuLoading = false; renderMenu(); renderCartBar(); applyMenuLink(); }
 }
 function route() {

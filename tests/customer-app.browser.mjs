@@ -56,6 +56,36 @@ try {
     assert.equal(await page.evaluate(()=>localStorage.length+sessionStorage.length),0);
     await page.close();
   }
+  // Transient public menu errors retry, preserve loaded products, and recover.
+  const { demoMenu } = await import('../assets/customer/demo-data.js');
+  const menuContext = await browser.newContext({ viewport: { width: 390, height: 850 }, serviceWorkers: 'block' });
+  const menuPage = await menuContext.newPage();
+  let menuCalls = 0, failMenu = false;
+  await menuContext.route('**/api/app/**', async route => {
+    const name = new URL(route.request().url()).pathname.split('/').at(-1);
+    const failed = name === 'menu' && (++menuCalls === 1 || failMenu);
+    const values = { config: { enabled: true, menuEnabled: true }, session: { signedIn: false }, menu: demoMenu };
+    await route.fulfill({ status: failed ? 503 : 200, contentType: 'application/json',
+      body: JSON.stringify(failed ? { error: 'Temporary failure' } : values[name] || {}) });
+  });
+  await menuPage.goto(`${origin}/app/#menu`);
+  await menuPage.locator('#menu-products .product-card').first().waitFor();
+  assert.equal(menuCalls, 2, 'first failed request retries automatically');
+  const productCount = await menuPage.locator('#menu-products .product-card').count();
+  failMenu = true;
+  await menuPage.evaluate(() => { location.hash = 'home'; });
+  await menuPage.locator('#view-home').waitFor();
+  await menuPage.evaluate(() => { location.hash = 'menu'; });
+  await menuPage.getByText('Showing the last available menu.', { exact: false }).waitFor();
+  assert.equal(await menuPage.locator('#menu-products .product-card').count(), productCount);
+  assert.equal(await menuPage.locator('#menu-freshness').innerText(), 'Update delayed');
+  await menuPage.reload();
+  await menuPage.getByRole('button', { name: 'Try again', exact: true }).waitFor();
+  failMenu = false;
+  await menuPage.getByRole('button', { name: 'Try again', exact: true }).click();
+  await menuPage.locator('#menu-products .product-card').first().waitFor();
+  assert.equal(await menuPage.locator('#menu-error').isHidden(), true);
+  await menuContext.close();
   // Live route uses only server data, handles missing menu, and clears private balance on logout.
   const page=await browser.newPage({viewport:{width:390,height:850}});let loggedIn=true;const writes=[];
   await page.route('**/api/app/**',async route=>{
