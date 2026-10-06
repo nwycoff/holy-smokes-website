@@ -93,7 +93,7 @@ async function refresh() {
     let result;
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const response = await fetch('/api/app/menu', { credentials:'omit', cache:'no-store', mode:'same-origin', redirect:'error', signal:AbortSignal.timeout(15000) });
+        const response = await fetch('/api/app/menu', { credentials:'same-origin', cache:'no-store', mode:'same-origin', redirect:'error', signal:AbortSignal.timeout(15000) });
         if (!response.ok) throw Object.assign(new Error('menu'), { status:response.status });
         result = await response.json();
         if (!Array.isArray(result.products) || !result.products.every(p => typeof p.id === 'string' && typeof p.name === 'string' && Array.isArray(p.variants) && p.variants.length && p.variants.every(v => Number.isFinite(v.priceCents))) || !Number.isFinite(result.updatedAt)) throw new Error('shape');
