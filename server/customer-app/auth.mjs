@@ -1,6 +1,8 @@
 import * as oauth from 'oauth4webapi';
 import { AppError, hash, randomToken, cookie, readCookie, redirect, fetchSafe,
   SESSION_COOKIE, LOGIN_COOKIE, SESSION_SECONDS } from './http.mjs';
+import { acquisitionForLogin, startAcquisition, trackSafely, verifiedAcquisition } from './acquisition.mjs';
+import { verificationProof, VERIFY_COOKIE } from './verification.mjs';
 
 // Auth0 Universal Login owns passwords, email verification and recovery. No passwords
 // or provider tokens enter our database or browser storage. Auth0 app type: Regular Web App.
@@ -12,16 +14,18 @@ function provider(env) {
 const client = env => ({ client_id: env.APP_AUTH_CLIENT_ID, id_token_signed_response_alg: 'RS256' });
 const callback = request => `${new URL(request.url).origin}/api/app/callback`;
 
-export async function startLogin(request, env, deps) {
+export async function startLogin(request, env, deps, signup = false) {
   const as = provider(env), state = randomToken(), nonce = oauth.generateRandomNonce();
   const verifier = oauth.generateRandomCodeVerifier();
+  const stateHash = await hash(env.APP_LIMIT_SECRET, `login:${state}`);
   await env.APP_DB.prepare('INSERT INTO app_logins(state_hash, verifier, nonce, expires_at) VALUES (?, ?, ?, ?)')
-    .bind(await hash(env.APP_LIMIT_SECRET, `login:${state}`), verifier, nonce, deps.now() + 600000).run();
+    .bind(stateHash, verifier, nonce, deps.now() + 600000).run();
+  await trackSafely(env, deps, () => startAcquisition(request, env, stateHash, deps.now()));
   const url = new URL(as.authorization_endpoint);
   url.search = new URLSearchParams({ client_id: env.APP_AUTH_CLIENT_ID, response_type: 'code',
     redirect_uri: callback(request), scope: 'openid email', state, nonce,
     code_challenge: await oauth.calculatePKCECodeChallenge(verifier), code_challenge_method: 'S256',
-    prompt: 'login', max_age: '300' }).toString();
+    prompt: 'login', max_age: '300', ...(signup ? { screen_hint: 'signup' } : {}) }).toString();
   return redirect(url.href, [cookie(LOGIN_COOKIE, state, 600)]);
 }
 
@@ -29,9 +33,12 @@ export async function finishLogin(request, env, deps) {
   const url = new URL(request.url), state = readCookie(request, LOGIN_COOKIE);
   if (!state || url.searchParams.getAll('state').length !== 1 || url.searchParams.get('state') !== state)
     throw new AppError('LOGIN_STATE', 400);
+  const stateHash = await hash(env.APP_LIMIT_SECRET, `login:${state}`);
+  // Capture optional attribution before deleting the login and its cascading helper row.
+  const visitId = await trackSafely(env, deps, () => acquisitionForLogin(env, stateHash));
   // Atomic consume prevents callback replay, even across edge instances.
   const pending = await env.APP_DB.prepare('DELETE FROM app_logins WHERE state_hash = ? AND expires_at > ? RETURNING verifier, nonce')
-    .bind(await hash(env.APP_LIMIT_SECRET, `login:${state}`), deps.now()).first();
+    .bind(stateHash, deps.now()).first();
   if (!pending) throw new AppError('LOGIN_STATE', 400);
   const as = provider(env), c = client(env);
   const params = oauth.validateAuthResponse(as, c, url, state);
@@ -42,14 +49,21 @@ export async function finishLogin(request, env, deps) {
     { expectedNonce: pending.nonce, requireIdToken: true, maxAge: 300 });
   await oauth.validateApplicationLevelSignature(as, tokenResponse, options);
   const claims = oauth.getValidatedIdTokenClaims(result);
-  if (!claims?.sub || claims.email_verified !== true) throw new AppError('VERIFY_EMAIL', 403);
+  if (!claims?.sub) throw new AppError('VERIFY_EMAIL', 403);
+  if (claims.email_verified !== true) {
+    let proof;
+    try { proof = await verificationProof(env, claims.sub, deps.now()); }
+    catch { deps.report('VERIFY_SETUP'); }
+    return redirect('/app/#verify-email', [cookie(LOGIN_COOKIE, '', 0), proof || cookie(VERIFY_COOKIE, '', 0)]);
+  }
   // Stable opaque identity; rotating the session/limiter secret must not orphan accounts.
   const identity = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',
     new TextEncoder().encode(JSON.stringify([as.issuer, claims.sub])))), b => b.toString(16).padStart(2, '0')).join('');
-  await env.APP_DB.prepare('INSERT INTO app_users(id, identity_hash, created_at) VALUES (?, ?, ?) ON CONFLICT(identity_hash) DO NOTHING')
-    .bind(randomToken(), identity, deps.now()).run();
-  const user = await env.APP_DB.prepare('SELECT id FROM app_users WHERE identity_hash = ?').bind(identity).first();
+  const inserted = await env.APP_DB.prepare('INSERT INTO app_users(id, identity_hash, created_at) VALUES (?, ?, ?) ON CONFLICT(identity_hash) DO NOTHING RETURNING id')
+    .bind(randomToken(), identity, deps.now()).first();
+  const user = await env.APP_DB.prepare('SELECT id, customer_id FROM app_users WHERE identity_hash = ?').bind(identity).first();
   if (!user) throw new AppError('LOGIN_SAVE');
+  if (inserted) await trackSafely(env, deps, () => verifiedAcquisition(env, user.id, visitId, deps.now()));
   const token = randomToken();
   const oldToken = readCookie(request, SESSION_COOKIE);
   const statements = [env.APP_DB.prepare('INSERT INTO app_sessions(token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)')
@@ -57,7 +71,7 @@ export async function finishLogin(request, env, deps) {
   if (oldToken) statements.push(env.APP_DB.prepare('DELETE FROM app_sessions WHERE token_hash = ?')
     .bind(await hash(env.APP_LIMIT_SECRET, `session:${oldToken}`)));
   await env.APP_DB.batch(statements);
-  return redirect('/app/#rewards', [cookie(LOGIN_COOKIE, '', 0), cookie(SESSION_COOKIE, token, SESSION_SECONDS)]);
+  return redirect(user.customer_id ? '/app/#rewards' : '/app/#setup', [cookie(LOGIN_COOKIE, '', 0), cookie(VERIFY_COOKIE, '', 0), cookie(SESSION_COOKIE, token, SESSION_SECONDS)]);
 }
 
 export async function session(request, env, deps) {

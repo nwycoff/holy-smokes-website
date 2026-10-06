@@ -5,9 +5,9 @@ The new `/staff/` page works in Chrome or Edge on the shop's Windows PC and in S
 ## What staff do
 
 1. Open the staff page and sign in with their own approved email through Cloudflare Access.
-2. Verify the customer in person and enter their exact GrowFlow name and last five patient-ID letters/numbers (the dash is optional).
+2. Have the customer create their app account and verify their email. Once they reach **Connection code**, verify them in person and enter their exact GrowFlow name and last five patient-ID letters/numbers (the dash is optional).
 3. Review the single matching name and check the identity confirmation.
-4. Generate a code and print the customer slip, or let the customer enter the code directly from a staff-controlled display. A paper slip includes the customer app URL, code and expiry, never the patient's name or license number.
+4. Generate a code and print the customer slip, or let the customer enter the code directly from a staff-controlled display. A paper slip includes the customer app URL, code and expiry, never the patient's name or license number. Waiting until the customer is ready avoids using up the code's ten minutes while waiting for email.
 5. The customer signs into their own Treehouse account and enters the code. Staff never need their password.
 6. Click **Clear & next customer** and dispose of unwanted printouts. Sign out of Cloudflare Access at shift change; do not share a staff login.
 
@@ -57,7 +57,7 @@ No command, local server, API token, or Auth0 administrator login is needed at t
 
 No new database migration or environment variable is required for this update, assuming the current staff page is already working. Deploy only after owner approval. Both the staff page and the optional owner CLI generate the same new code format. Customers can paste still-valid legacy codes during the transition.
 
-New codes use cryptographic randomness with unbiased sampling. The existing database primary key prevents two stored codes from matching, with up to five candidate attempts on collision; unrelated database failures are not retried. Only keyed hashes are stored. Code redemption requires a verified-email customer login and CSRF validation. Limits count all redemption attempts (including malformed inputs): 5 per account and 10 per IP per fixed 15-minute window, 20 per account per UTC day, and 100 across the application per fixed 15-minute window. The shared IP limit applies to shop Wi-Fi too. Hitting a limit temporarily blocks linking attempts, not normal sign-in or an already-linked account.
+New codes use cryptographic randomness with unbiased sampling. The existing database primary key prevents two stored codes from matching, with up to five candidate attempts on collision; unrelated database failures are not retried. Only keyed hashes are stored. Code redemption requires a verified-email customer login and CSRF validation. Limits count all redemption attempts (including malformed inputs): 5 per account and 50 per IP per fixed 15-minute window, 20 per account per UTC day, and 100 across the application per fixed 15-minute window. The shared IP limit applies to shop Wi-Fi too. Hitting a limit temporarily blocks linking attempts, not normal sign-in or an already-linked account. See [guided signup and source tracking](SIGNUP-ROLLOUT.md) for the accompanying signup changes.
 
 ## Security and audit behavior
 

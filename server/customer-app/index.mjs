@@ -1,6 +1,6 @@
 import { consumeLimits, lookupVariables, normalizeInput } from '../rewards.mjs';
 import { AppError, bodyJSON, enabled, authReady, growflowReady, menuReady, preorderReady, rewardTiersReady, hash, json,
-  sameOrigin, cookie, LOGIN_COOKIE, redirect } from './http.mjs';
+  sameOrigin, cookie, LOGIN_COOKIE, redirect, readCookie, randomToken } from './http.mjs';
 import { startLogin, finishLogin, session, logout } from './auth.mjs';
 import { CUSTOMER_QUERY, singleCustomer, eligibleCustomer, queryGrowflow, getMenu, getRewards, publicMenu, purchaseLimits } from './growflow.mjs';
 import { currentPreorder, placePreorder } from './preorders.mjs';
@@ -11,6 +11,8 @@ import { marketingReady, marketingState, setMarketing } from './marketing.mjs';
 import { recordTap } from '../crm/campaigns.mjs';
 import { dismissWelcome, welcomeForCustomer } from '../crm/welcome.mjs';
 import { addFeedbackMessage, feedbackReady, feedbackState, noteGoogle, postponeFeedback, rateVisit } from '../crm/feedback.mjs';
+import { acquisitionReady, linkedAcquisition, reachableAcquisition, trackSafely, visit } from './acquisition.mjs';
+import { resendVerification, verificationStatus } from './verification.mjs';
 
 async function limit(env, deps, subject, max, window = 900000) {
   if (!await consumeLimits(env.APP_DB, env.APP_LIMIT_SECRET, [{ subject, max, window }], deps.now()))
@@ -20,15 +22,20 @@ async function cleanup(env, now) {
   const specs = [['app_logins', 'expires_at'], ['app_enrollments', 'expires_at'],
     ['app_sessions', 'expires_at'], ['rewards_limits', 'expires_at'], ['rewards_backoff', 'until_at']];
   await env.APP_DB.batch(specs.map(([table, column]) => env.APP_DB.prepare(`DELETE FROM ${table} WHERE ${column} < ?`).bind(now)));
+  // Optional new tables may not exist before their staged migration. Never break login cleanup.
+  await env.APP_DB.prepare('DELETE FROM app_signup_visits WHERE created_at < ?').bind(now - 180 * 86400000).run().catch(() => {});
+  await env.APP_DB.prepare('DELETE FROM app_email_verifications WHERE expires_at < ?').bind(now).run().catch(() => {});
 }
 export async function handleApp(context, overrides = {}) {
   const { request, env } = context;
   const deps = { fetch: (url, options) => globalThis.fetch(url, options), now: Date.now,
     report: code => console.warn(`TREEHOUSE_APP_FAILURE ${code}`), ...overrides };
   const report = deps.report;
+  deps.trackingDenied = request.headers.get('sec-gpc') === '1' || request.headers.get('dnt') === '1';
   deps.report = code => { try { report(code); } catch { /* Logging cannot expose or break a response. */ } };
   const url = new URL(request.url), route = url.pathname.replace(/^\/api\/app\//, '').replace(/\/$/, '');
   const allowed = { config: 'GET', menu: 'GET', rewards: 'GET', session: 'GET', points: 'GET', login: 'POST',
+    signup: 'POST', 'signup/visit': 'POST', 'verification/status': 'GET', 'verification/resend': 'POST',
     callback: 'GET', enroll: 'POST', logout: 'POST', 'logout-all': 'POST', 'remove-link': 'POST', 'staff/enroll': 'POST',
     preorder: 'GET', 'preorder/place': 'POST', 'push/subscribe': 'POST', 'push/unsubscribe': 'POST', 'license/forget': 'POST',
     marketing: 'POST', tap: 'POST', 'welcome/dismiss': 'POST',
@@ -39,6 +46,7 @@ export async function handleApp(context, overrides = {}) {
   const active = enabled(env, url);
   if (route === 'config') return json(200, { enabled: Boolean(active),
     loginEnabled: Boolean(active && authReady(env)), menuEnabled: Boolean(active && menuReady(env)),
+    signupTrackingEnabled: Boolean(active && acquisitionReady(env)),
     preorderEnabled: Boolean(active && preorderReady(env)), rewardTiersEnabled: Boolean(active && rewardTiersReady(env)),
     licenseMemoryEnabled: Boolean(active && preorderReady(env) && licenseMemoryReady(env)),
     marketingEnabled: Boolean(active && marketingReady(env)),
@@ -53,13 +61,26 @@ export async function handleApp(context, overrides = {}) {
   if (!ip) return json(503, { error: 'The customer app is temporarily unavailable.' });
   try {
     await limit(env, deps, `requests:${ip}`, 120, 60000);
-    if (route === 'login' || route === 'callback') {
+    if (['login', 'signup', 'callback'].includes(route)) {
       if (!authReady(env)) throw new AppError('AUTH_CONFIG');
-      await limit(env, deps, `auth:${ip}`, 10);
-      const response = route === 'login' ? await startLogin(request, env, deps) : await finishLogin(request, env, deps);
+      let browserToken;
+      if (route !== 'callback') {
+        await limit(env, deps, `auth-start-ip:${ip}`, 60);
+        await limit(env, deps, 'auth-start-global', 600);
+        browserToken = readCookie(request, '__Host-treehouse_auth_browser') || randomToken();
+        await limit(env, deps, `auth-browser:${browserToken}`, 8);
+      } else await limit(env, deps, `auth-callback-ip:${ip}`, 120);
+      const response = route === 'callback' ? await finishLogin(request, env, deps) : await startLogin(request, env, deps, route === 'signup');
+      if (browserToken) response.headers.append('Set-Cookie', cookie('__Host-treehouse_auth_browser', browserToken, 86400));
       context.waitUntil?.(cleanup(env, deps.now()).catch(() => deps.report('CLEANUP')));
       return response;
     }
+    if (route === 'signup/visit') {
+      await limit(env, deps, `signup-visit:${ip}`, 60);
+      return visit(request, env, deps, await bodyJSON(request));
+    }
+    if (route === 'verification/status') return json(200, await verificationStatus(request, env, deps.now()));
+    if (route === 'verification/resend') return json(200, await resendVerification(request, env, deps, await bodyJSON(request), ip));
     // A Deals & news notification was tapped. The signed code is all that's needed; no sign-in.
     if (route === 'tap') {
       await limit(env, deps, `tap:${ip}`, 30);
@@ -119,7 +140,7 @@ export async function handleApp(context, overrides = {}) {
       return json(200, { signedIn: false }, { 'Set-Cookie': await logout(env, s) });
     }
     if (route === 'enroll') {
-      await limit(env, deps, `enroll-ip:${ip}`, 10);
+      await limit(env, deps, `enroll-ip:${ip}`, 50);
       await limit(env, deps, `enroll-user:${s.id}`, 5);
       await limit(env, deps, `enroll-user-day:${s.id}`, 20, 86400000);
       // Bound distributed guessing across accounts and IPs as well as individual attempts.
@@ -138,6 +159,7 @@ export async function handleApp(context, overrides = {}) {
           AND EXISTS (SELECT 1 FROM app_users WHERE id = ? AND customer_id = app_enrollments.customer_id)`).bind(key, s.id)
       ]);
       if (results[0]?.results?.length !== 1) throw new AppError('ENROLLMENT_CODE', 400);
+      await trackSafely(env, deps, () => linkedAcquisition(env, s.id, deps.now()));
       return json(200, { linked: true });
     }
     if (route === 'points') {
@@ -171,7 +193,9 @@ export async function handleApp(context, overrides = {}) {
       if (!s.customer_id) throw new AppError('LINK_REQUIRED', 403);
       if (!marketingReady(env)) throw new AppError('MARKETING_CONFIG');
       await limit(env, deps, `marketing:${s.id}`, 30);
-      return json(200, { marketing: await setMarketing(env, deps, s, await bodyJSON(request)) });
+      const marketing = await setMarketing(env, deps, s, await bodyJSON(request));
+      await trackSafely(env, deps, () => reachableAcquisition(env, s.id, deps.now()));
+      return json(200, { marketing });
     }
     if (route === 'push/subscribe' || route === 'push/unsubscribe') {
       if (route === 'push/unsubscribe') { await unsubscribe(env, s, await bodyJSON(request)); return json(200, { subscribed: false }); }
@@ -179,6 +203,7 @@ export async function handleApp(context, overrides = {}) {
       if (!preorderReady(env) || !pushReady(env)) throw new AppError('PUSH_CONFIG');
       await limit(env, deps, `push:${s.id}`, 10);
       await subscribe(env, deps, s, await bodyJSON(request));
+      await trackSafely(env, deps, () => reachableAcquisition(env, s.id, deps.now()));
       return json(200, { subscribed: true });
     }
     if (route === 'preorder' || route === 'preorder/place') {
@@ -200,6 +225,9 @@ export async function handleApp(context, overrides = {}) {
     deps.report(code);
     if (route === 'callback') return redirect(code === 'VERIFY_EMAIL' ? '/app/#verify-email' : '/app/#login-error', [cookie(LOGIN_COOKIE, '', 0)]);
     const messages = { SIGN_IN: 'Please sign in to continue.', LIMIT: 'Please wait a few minutes before trying again.',
+      VERIFY_AGAIN: 'Sign in again to request another verification email.',
+      VERIFY_LIMIT: 'Please wait before asking again. You can request up to three verification emails a day.',
+      VERIFY_PROVIDER: 'We couldn’t request the email. Please try later or ask the shop for help.',
       GROWFLOW_LIMIT: 'Please wait a minute before refreshing.', LINK_REQUIRED: 'Link your customer record with a code from your budtender.',
       ENROLLMENT_CODE: 'That code could not be used. Check it or ask your budtender for a new one.',
       ENROLLMENT_MATCH: 'No unique eligible customer matched. Check the record in GrowFlow.',

@@ -14,7 +14,7 @@ for (const name of await readdir(root)) {
   }
 }
 await writeFile(path.join(out, '_routes.json'), JSON.stringify({
-  version: 1, include: ['/api/rewards/*', '/api/app/*', '/api/staff/*', '/api/crm/*'], exclude: []
+  version: 1, include: ['/api/rewards/*', '/api/app/*', '/api/staff/*', '/api/crm/*', '/go/*'], exclude: []
 }, null, 2));
 // Give each page's own script and stylesheet a content version (?v=hash), so a release reaches
 // phones at once instead of after the custom domain's browser cache expires.

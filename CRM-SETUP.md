@@ -1,5 +1,9 @@
 # Treehouse CRM
 
+## App signups and outreach costs
+
+The **App signups** report compares source-specific QR links by estimated visitors, new verified accounts, rewards connections, marketing setup and subsequent synced sales. Owners can record printing/placement costs and see cost per connected account. These are attributed results, not a claim of additional revenue caused by the app. See [signup configuration and rollout](SIGNUP-ROLLOUT.md) for the two additive migrations, test-only activation, printable QR codes, privacy behavior and limitations. No new GrowFlow pulls are needed.
+
 Owner and manager dashboard at `/crm/`: shop KPIs, top categories and brands, ready-made and custom customer segments, saved segments, and an activity log. Built on GrowFlow purchase history, synced into its own database. Messaging (Blackleaf SMS, app push for deals) comes in later phases.
 
 ## Data standards

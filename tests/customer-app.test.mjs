@@ -83,9 +83,9 @@ function setup() {
       ...(body === undefined ? {} : {body:JSON.stringify(body)})}),waitUntil:p=>work.push(p)},deps);
     await Promise.all(work); return response;
   }
-  async function login(sub='auth0|test-one', overrides={}) {
+  async function login(sub='auth0|test-one', overrides={}, options={}) {
     subject=sub;claims=overrides;
-    const start = await run('login',{method:'POST',body:{}}); assert.equal(start.status,303);
+    const start = await run(options.signup ? 'signup' : 'login',{method:'POST',body:{},cookie:options.cookie || ''}); assert.equal(start.status,303);
     const url = new URL(start.headers.get('location')); nonce=url.searchParams.get('nonce');
     assert.equal(url.searchParams.get('code_challenge_method'),'S256'); assert.equal(url.searchParams.get('scope'),'openid email');
     const state=url.searchParams.get('state'), cookie=start.headers.getSetCookie()[0].split(';')[0];
@@ -110,7 +110,7 @@ test('customer app defaults off; exact HTTPS hostname; config never exposes secr
   const body=await (await s.run('config')).text();assert.ok(!body.includes('secret'));assert.ok(!body.includes('gfr_'));
 });
 test('real OIDC processing checks PKCE, nonce, issuer, audience, verification and signature', async () => {
-  const valid=setup(), login=await valid.login();assert.equal(login.response.headers.get('location'),'/app/#rewards');
+  const valid=setup(), login=await valid.login();assert.equal(login.response.headers.get('location'),'/app/#setup');
   assert.ok(login.cookie);assert.match(login.response.headers.get('set-cookie'),/HttpOnly; Secure; SameSite=Lax/);
   assert.deepEqual(Object.keys(await (await valid.run('session',{cookie:login.cookie})).json()).sort(),['csrf','linked','signedIn']);
   for (const claims of [{nonce:'wrong'},{iss:'https://attacker.example/'},{aud:'other-client'},{email_verified:false},{exp:1}]) {
@@ -148,6 +148,68 @@ test('login refuses missing/foreign Origin and never starts from GET', async () 
   const s=setup();assert.equal((await s.run('login')).status,405);
   assert.equal((await s.run('login',{method:'POST',body:{},headers:{origin:'https://other.example'}})).status,403);
   assert.equal((await s.run('login',{method:'POST',body:{},headers:{origin:'null'}})).status,403);assert.equal(s.calls.length,0);
+});
+test('signup opens Auth0 signup; shop IP supports separate customers while one browser remains bounded', async () => {
+  const s = setup();
+  const start = await s.run('signup', { method: 'POST', body: {} });
+  assert.equal(new URL(start.headers.get('location')).searchParams.get('screen_hint'), 'signup');
+  const browser = start.headers.getSetCookie().find(c => c.startsWith('__Host-treehouse_auth_browser=')).split(';')[0];
+  for (let i = 1; i < 8; i++) assert.equal((await s.run('login', { method: 'POST', body: {}, cookie: browser })).status, 303);
+  assert.equal((await s.run('login', { method: 'POST', body: {}, cookie: browser })).status, 429);
+  const shop = setup();
+  for (let i = 0; i < 8; i++) assert.ok((await shop.login(`auth0|customer-${i}`)).cookie);
+  assert.equal(shop.env.APP_DB.db.prepare('SELECT COUNT(*) n FROM app_users').get().n, 8);
+  assert.equal((await shop.run('signup', { method: 'POST', body: {}, headers: { origin: 'https://other.example' } })).status, 403);
+});
+test('verified signup records the captured source once; old users and tracking outages do not become new signups', async () => {
+  const s = setup(); s.env.APP_SIGNUP_TRACKING_ENABLED = 'true';
+  const visit = await s.run('signup/visit', { method: 'POST', body: { source: 'bag-card-v1' } });
+  const sourceCookie = visit.headers.get('set-cookie').split(';')[0];
+  const a = await s.login('auth0|new-person', {}, { cookie: sourceCookie, signup: true });
+  assert.ok(a.cookie);
+  const recorded = s.env.APP_DB.db.prepare('SELECT source, verified_at, user_id FROM app_signup_visits WHERE user_id IS NOT NULL').all();
+  assert.equal(recorded.length, 1); assert.equal(recorded[0].source, 'bag-card-v1'); assert.ok(recorded[0].verified_at);
+  await s.login('auth0|new-person', {}, { cookie: sourceCookie });
+  assert.equal(s.env.APP_DB.db.prepare('SELECT COUNT(*) n FROM app_signup_visits WHERE user_id IS NOT NULL').get().n, 1);
+  const input = { name: 'Synthetic Patient', lastFive: 'ABC-12', identityChecked: true };
+  const issued = await (await s.run('staff/enroll', { method: 'POST', body: input, headers: { authorization: `Bearer ${s.env.APP_ENROLLMENT_SECRET}` } })).json();
+  const info = await (await s.run('session', { cookie: a.cookie })).json();
+  assert.equal((await s.run('enroll', { method: 'POST', body: { code: issued.code }, cookie: a.cookie, headers: { 'x-treehouse-csrf': info.csrf } })).status, 200);
+  assert.ok(s.env.APP_DB.db.prepare('SELECT linked_at FROM app_signup_visits WHERE user_id IS NOT NULL').get().linked_at);
+  const noTables = setup(); noTables.env.APP_SIGNUP_TRACKING_ENABLED = 'true';
+  noTables.env.APP_DB.db.exec('DROP TABLE app_signup_logins; DROP TABLE app_signup_visits;');
+  assert.ok((await noTables.login()).cookie); assert.ok(noTables.codes.includes('SIGNUP_TRACKING'));
+});
+test('verification resend needs a validated unverified login, scoped proof, CSRF, and bounded attempts', async () => {
+  const s = setup(); Object.assign(s.env, { APP_AUTH_RESEND_ENABLED: 'true', APP_AUTH_RESEND_DOMAIN: 'test-tenant.auth0.com',
+    APP_AUTH_RESEND_CLIENT_ID: 'resend-client', APP_AUTH_RESEND_CLIENT_SECRET: 'synthetic-resend-secret' });
+  const original = s.deps.fetch, sent = [];
+  s.deps.fetch = async (target, init) => {
+    if (init.headers?.['Content-Type'] === 'application/json' && String(target).endsWith('/oauth/token')) {
+      const body = JSON.parse(init.body); assert.equal(body.grant_type, 'client_credentials'); assert.equal(body.scope, 'update:users');
+      assert.equal(body.client_id, 'resend-client'); sent.push('token');
+      return Response.json({ token_type: 'Bearer', access_token: 'temporary-management-token' });
+    }
+    if (String(target).endsWith('/api/v2/jobs/verification-email')) {
+      assert.deepEqual(JSON.parse(init.body), { user_id: 'auth0|needs-email', client_id: 'test-app' }); sent.push('email');
+      return Response.json({ type: 'verification_email', status: 'pending' }, { status: 201 });
+    }
+    return original(target, init);
+  };
+  const denied = await s.run('verification/resend', { method: 'POST', body: {} }); assert.equal(denied.status, 403); assert.equal(sent.length, 0);
+  const unverified = await s.login('auth0|needs-email', { email_verified: false });
+  assert.equal(unverified.cookie, ''); assert.equal(unverified.response.headers.get('location'), '/app/#verify-email');
+  const cookie = unverified.response.headers.getSetCookie().find(c => c.startsWith('__Host-treehouse_verify=')).split(';')[0];
+  const status = await (await s.run('verification/status', { cookie })).json(); assert.equal(status.canResend, true);
+  assert.ok(!JSON.stringify(status).includes('needs-email'));
+  assert.equal((await s.run('session', { cookie }).then(r => r.json())).signedIn, false);
+  const options = { method: 'POST', body: {}, cookie, headers: { 'x-treehouse-csrf': status.csrf } };
+  assert.equal((await s.run('verification/resend', { ...options, body: { user_id: 'someone-else' } })).status, 400);
+  assert.equal((await s.run('verification/resend', { ...options, headers: { 'x-treehouse-csrf': 'wrong' } })).status, 403);
+  const result = await s.run('verification/resend', options); assert.equal(result.status, 200); assert.deepEqual(await result.json(), { requested: true });
+  assert.equal(sent.length, 2); assert.equal((await s.run('verification/resend', options)).status, 429); assert.equal(sent.length, 2);
+  s.advance(600001); assert.equal((await s.run('verification/resend', options)).status, 403); assert.equal(sent.length, 2);
+  assert.equal(s.env.APP_DB.db.prepare('SELECT COUNT(*) n FROM app_sessions').get().n, 0);
 });
 test('a login alone cannot read points and clients cannot choose customer IDs', async () => {
   const s=setup();assert.equal((await s.run('points')).status,401);
@@ -216,7 +278,7 @@ test('enrollment accepts leading-zero and legacy codes, but enforces account, IP
     const csrf=(await (await s.run('session',{cookie:a.cookie})).json()).csrf;
     const uid=s.env.APP_DB.db.prepare('SELECT id FROM app_users').get().id;
     const [subject,window,max]=rule==='user' ? [`enroll-user:${uid}`,900000,5]
-      : rule==='ip' ? ['enroll-ip:192.0.2.9',900000,10]
+      : rule==='ip' ? ['enroll-ip:192.0.2.9',900000,50]
       : rule==='day' ? [`enroll-user-day:${uid}`,86400000,20] : ['enroll-global',900000,100];
     const bucket=Math.floor(s.deps.now()/window);
     const limitKey=await hash(s.env.APP_LIMIT_SECRET,`${subject}:${window}:${bucket}`);

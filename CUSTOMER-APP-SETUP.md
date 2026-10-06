@@ -1,5 +1,7 @@
 # My Treehouse: first test release
 
+Current additions: see [staff enrollment](STAFF-ENROLLMENT-SETUP.md), [CRM setup](CRM-SETUP.md), and [guided signup, QR attribution and rollout](SIGNUP-ROLLOUT.md). The first-release description below is historical; later sections and the linked guides describe subsequent features.
+
 This branch adds `/app/` and a clearly labelled `/app/demo/`. It does not change the existing website navigation, the public `/rewards` checker, or the store's Windows/Raspberry Pi menus. No preorder, loyalty adjustment, marketing subscription or notification is created.
 
 ## What is implemented

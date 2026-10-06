@@ -93,3 +93,9 @@ footer { text-align: center; color: var(--muted); font-size: 12px; padding: 20px
   .builder { grid-template-columns: 1fr; }
   .bar { grid-template-columns: 110px 1fr; }
 }
+.signup-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr)); gap: 1rem; }
+.signup-metrics { display: grid; grid-template-columns: 1fr auto; gap: .6rem 1rem; }
+.signup-metrics dt { font-weight: 400; }
+.signup-metrics dd { margin: 0; text-align: right; font-weight: 700; }
+.signup-card h2 { margin-bottom: 1rem; }
+#signup-links a { overflow-wrap: anywhere; }

@@ -167,6 +167,24 @@ test('overview, segments and live names work end to end, and list views are audi
   assert.equal(audit.length, 1); assert.equal(audit[0].actor, 'owner@example.test'); assert.ok(!audit[0].detail.includes('Name of'));
   assert.ok(!JSON.stringify(s.db.prepare('SELECT * FROM crm_customers').all()).includes('Name of'));
 });
+test('signup reports and printing costs require staff Access; cost changes require CSRF and are audited', async () => {
+  const s = await setup(); s.env.APP_SIGNUP_TRACKING_ENABLED = 'true';
+  const cost = { id: 'f'.repeat(32), source: 'register-1', cents: 1200, date: '2026-10-01' };
+  assert.equal((await s.run('signups', undefined, { assertion: '' })).status, 401);
+  assert.equal((await s.run('signups', undefined, { assertion: await s.token({ email: 'stranger@example.test' }) })).status, 403);
+  assert.equal((await s.run('signups/spend', cost, { headers: { 'x-crm-csrf': 'wrong' } })).status, 403);
+  assert.equal((await s.run('signups/spend', cost, { headers: { origin: 'https://evil.example' } })).status, 403);
+  assert.equal((await s.run('signups/spend', cost)).status, 200);
+  assert.equal((await s.run('signups/spend', cost)).status, 200);
+  const report = await (await s.run('signups?days=30')).json();
+  assert.equal(report.rows.find(r => r.source === 'register-1').spend_cents, 1200);
+  assert.equal(report.spend.length, 1); assert.equal(s.gf.queries.length, 0);
+  assert.equal((await s.run('signups?days=30&days=7')).status, 400);
+  assert.equal((await s.run('signups/spend/delete', { id: cost.id }, { headers: { 'x-crm-csrf': 'wrong' } })).status, 403);
+  assert.equal((await s.run('signups/spend/delete', { id: cost.id })).status, 200);
+  assert.equal(s.db.prepare('SELECT COUNT(*) n FROM crm_signup_spend').get().n, 0);
+  assert.deepEqual(s.db.prepare('SELECT action FROM crm_audit ORDER BY rowid').all().map(r => r.action), ['signup_spend', 'signup_spend_deleted']);
+});
 test('saved segments, customer removal, and app adoption flags', async () => {
   const s = await setup(); seed(s);
   s.env.APP_DB.db.exec("INSERT INTO app_users(id, identity_hash, customer_id, created_at) VALUES ('u1', 'h1', 'A', 1)");

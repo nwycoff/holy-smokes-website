@@ -2,6 +2,13 @@ const $ = id => document.getElementById(id);
 const demo = location.pathname === '/app/demo/' || location.pathname === '/app/demo/index.html';
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
 let config = {}, user = { signedIn: false, linked: false }, points = null, menu = null;
+let needsVerification = location.hash === '#verify-email', verification = null, verificationBusy = false;
+let sourceRecorded = false;
+const signupSources = ['register-1', 'register-2', 'bag-card-v1', 'menu-tvs', 'website'];
+const from = new URL(location.href).searchParams.getAll('from');
+const signupSource = from.length === 1 && signupSources.includes(from[0]) ? from[0] : 'direct';
+// Keep only a public source label in memory; strip it before sign-in, sharing or installation.
+if (from.length) { const clean = new URL(location.href); clean.searchParams.delete('from'); history.replaceState(null, '', clean); }
 // A section or brand to show when a notification opens the menu, applied once the menu is loaded.
 let menuLink = null;
 let category = 'All', menuError = '', generation = 0, pendingInstall = null, menuLoading = false, pointsLoading = false;
@@ -281,11 +288,11 @@ function message(text = '') {
   $('app-message-text').textContent = text; $('app-message').hidden = !text;
   if (text) messageTimer = setTimeout(() => { $('app-message').hidden = true; }, Math.max(5000, text.length * 70));
 }
-async function api(path, body) {
+async function api(path, body, csrf = user.csrf || '', timeoutMs = 15000) {
   const response = await fetch(`/api/app/${path}`, { method: body === undefined ? 'GET' : 'POST',
     credentials: 'same-origin', mode: 'same-origin', redirect: 'error', cache: 'no-store', referrerPolicy: 'strict-origin',
-    headers: body === undefined ? {} : { 'Content-Type': 'application/json', 'X-Treehouse-CSRF': user.csrf || '' },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(15000) });
+    headers: body === undefined ? {} : { 'Content-Type': 'application/json', 'X-Treehouse-CSRF': csrf },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(timeoutMs) });
   if (!response.headers.get('content-type')?.includes('application/json')) throw new Error('Please reopen the app and try again.');
   const result = await response.json();
   if (!response.ok) throw Object.assign(new Error(result.error || 'This is temporarily unavailable. Please try again.'), { status: response.status });
@@ -298,18 +305,77 @@ function signInPanel() {
     user = { signedIn: true, linked: true }; points = { points: 750, checkedAt: Date.now() }; renderAccount(); renderHomePoints(); route();
   }));
   else if (config.loginEnabled) {
-    const form = el('form'); form.method = 'post'; form.action = '/api/app/login';
-    const submit = el('button', 'Sign in or create account →', 'primary-button'); submit.type = 'submit';
-    form.append(submit); panel.append(form);
+    panel.append(loginForm('Create account →', 'signup'), loginForm('Already have an account? Sign in', 'login', 'secondary-button'));
   } else panel.append(el('p', 'Account sign-in is being prepared. You can use the existing points checker in the meantime.', 'notice'));
   panel.append(link('Use the quick points checker ↗', '/rewards', 'text-button'), el('p', 'Signing up does not subscribe you to marketing.', 'fine-print'));
   return panel;
 }
-function linkPanel() {
+function loginForm(text, route = 'login', style = 'primary-button') {
+  const form = el('form'); form.method = 'post'; form.action = `/api/app/${route}`;
+  const submit = el('button', text, style); submit.type = 'submit';
+  form.append(submit); return form;
+}
+function verificationPanel() {
+  const panel = el('section', '', 'account-panel verification-panel');
+  panel.append(el('h2', 'Check your email to continue.'),
+    el('p', 'Open the verification message from our sign-in service and follow its link. Check Spam or Junk if it hasn’t arrived.'),
+    loginForm('I’ve verified my email — continue', 'login'),
+    el('p', 'Then sign in with the same account. Your budtender can issue your connection code once you reach the next step.', 'fine-print'));
+  if (verification?.canResend) panel.append(button('Resend verification email', async () => {
+    await api('verification/resend', {}, verification.csrf);
+    message('Another verification email was requested. Please check your inbox and Spam or Junk. Wait before requesting another.');
+  }, 'secondary-button'));
+  else panel.append(el('p', 'Still missing the email? Sign in again, or ask the shop to resend it. Don’t create a second account.', 'fine-print'));
+  panel.append(link('Call the shop for help', 'tel:+15807166720', 'text-button'));
+  return panel;
+}
+async function loadVerification() {
+  if (demo || verificationBusy || verification || !config.enabled) return;
+  verificationBusy = true; const current = generation;
+  try { const result = await api('verification/status'); if (current === generation) verification = result; }
+  catch { /* The continue and shop-help actions remain usable. */ }
+  finally { verificationBusy = false; if (current === generation) renderAccount(); }
+}
+const standalone = () => matchMedia('(display-mode: standalone)').matches || Boolean(navigator.standalone);
+function installGuidance() {
+  const panel = el('div', '', 'setup-install');
+  if (standalone()) { panel.append(el('p', '✓ You opened the app from its Home Screen icon.')); return panel; }
+  panel.append(el('h3', 'Keep Treehouse on your Home Screen'),
+    el('p', 'This is optional for points and ordering. On iPhone, add the app and open its icon before turning on notifications.'));
+  if (pendingInstall) panel.append(button('Add Treehouse to Home Screen', async () => {
+    await pendingInstall.prompt(); pendingInstall = null; renderSetup(); $('install-button').hidden = true;
+  }, 'secondary-button'));
+  const steps = el('ol');
+  for (const text of iosBrowserTab()
+    ? ['In Safari, open Share (it may be under the menu button).', 'Choose Add to Home Screen, then Add.', 'Open the new Treehouse icon. Use the same account if asked to sign in.']
+    : /Android/i.test(navigator.userAgent)
+      ? ['Open the browser menu and choose Install app or Add to Home screen.', 'Open the Treehouse icon. Use the same account if asked to sign in.']
+      : ['On a computer, use Install app in your browser menu if it is offered.', 'For phone notifications, open treehousepharmacy.com/app on your phone and sign in with this same account.']) steps.append(el('li', text));
+  panel.append(steps); return panel;
+}
+function renderSetup() {
+  const target = $('setup-content'); if (!target) return;
+  const progress = el('ol', '', 'setup-progress');
+  for (const [label, done] of [['Create account and verify email', user.signedIn], ['Connect your rewards', user.linked],
+    ['Choose optional phone notifications', pushSubscribed && marketingTopics().length]]) {
+    const item = el('li', `${done ? '✓ ' : ''}${label}`, done ? 'complete' : ''); progress.append(item);
+  }
+  target.replaceChildren(progress);
+  if (!user.signedIn) { target.append(needsVerification ? verificationPanel() : signInPanel()); return; }
+  if (!user.linked) {
+    target.append(el('p', 'You’re ready for your budtender to connect your rewards during this visit. The code expires 10 minutes after it is issued.', 'setup-note'), linkPanel('setup-connection-code'));
+    target.append(link('Browse the menu while you wait →', '#menu', 'text-button')); return;
+  }
+  target.append(el('h2', 'Your rewards are connected.'), el('p', points ? `Your balance is ${formatPoints(points.points)} points.` : 'You can now check your points and order ahead.'),
+    link('View my points →', '#rewards', 'primary-button'), installGuidance());
+  const notifications = notificationsPanel(); if (notifications) target.append(notifications);
+  target.append(el('p', 'Deals & news is your choice. Points and ordering work without it.', 'fine-print'), link('Finish setup and browse the menu →', '#menu', 'text-button'));
+}
+function linkPanel(inputId = 'connection-code') {
   const panel = el('section', '', 'account-panel');
   panel.append(el('h2', 'One quick introduction.'), el('p', 'Ask your budtender for a connection code after they check your customer record. Enter the 8-digit code here within 10 minutes.'));
   const form = el('form'), label = el('label', 'Connection code'), input = el('input');
-  label.htmlFor = 'connection-code'; input.id = 'connection-code'; input.autocomplete = 'off'; input.spellcheck = false;
+  label.htmlFor = inputId; input.id = inputId; input.dataset.connection = 'true'; input.autocomplete = 'off'; input.spellcheck = false;
   input.autocapitalize = 'off'; input.inputMode = 'numeric'; input.required = true;
   input.maxLength = 24; input.placeholder = '1234 5678'; // Allow pasting an unexpired legacy code.
   const submit = el('button', 'Connect my points →', 'primary-button'); submit.type = 'submit';
@@ -319,8 +385,13 @@ function linkPanel() {
     try {
       await api('enroll', { code: input.value.trim() }); input.value = '';
       if (current !== generation) return;
-      user.linked = true; message('Your rewards are connected. Welcome to My Treehouse.'); renderAccount(); renderMenu(); renderCartBar();
-      await refreshPoints(); route();
+      user.linked = true;
+      // Reload account-dependent settings immediately; an unlinked session has no marketing state.
+      try { const fresh = await api('session'); if (current !== generation) return; user = fresh; }
+      catch { message('Your rewards connected. Reopen the app to finish notification setup.'); }
+      if (current !== generation) return;
+      renderAccount(); renderMenu(); renderCartBar(); await refreshPoints();
+      location.hash = 'setup'; route();
     } catch (error) { message(error.message); } finally { submit.disabled = false; }
   }); panel.append(form); return panel;
 }
@@ -362,12 +433,13 @@ async function refreshPoints() {
     if (current !== generation) return;
     points = result;
   } catch (error) { if (current === generation) { points = null; message(error.message); } }
-  finally { pointsLoading = false; if (current === generation) { renderHomePoints(); renderRewards(); } }
+  finally { pointsLoading = false; if (current === generation) { renderHomePoints(); renderRewards(); renderSetup(); } }
 }
 function clearPrivate() {
   generation++; points = null; order = null; rating = null; forceRate = false; orderLicense = ''; selectedReward = ''; rememberLicense = false; changingLicense = false;
   user = { signedIn: false, linked: false };
-  const input = $('connection-code'); if (input) input.value = '';
+  verification = null;
+  for (const input of document.querySelectorAll('input[data-connection]')) input.value = '';
   renderHomePoints(); renderAccount(); renderRewards(); renderOrder(); renderCartBar();
 }
 async function signOut(all = false) {
@@ -375,11 +447,13 @@ async function signOut(all = false) {
   cart = []; clearPrivate(); message('You’re signed out.'); location.hash = 'account';
 }
 function renderAccount() {
+  renderSetup();
   const target = $('account-content'); target.replaceChildren();
-  if (!user.signedIn) { target.append(signInPanel()); return; }
+  if (!user.signedIn) { target.append(needsVerification ? verificationPanel() : signInPanel()); return; }
   const panel = el('section', '', 'account-panel');
   panel.append(el('h2', 'You’re right at home.'), el('p', user.linked ? 'Your rewards connection is active. You can check your balance from My points.' : 'Your account is ready. Connect your rewards with a code from your budtender.'));
   panel.append(link(user.linked ? 'View my points →' : 'Connect my rewards →', '#rewards', 'primary-button'));
+  panel.append(link('Open setup guide →', '#setup', 'text-button'));
   const actions = el('div', '', 'action-row');
   actions.append(button('Sign out', () => signOut(), 'text-button'), button('Sign out on all devices', () => signOut(true), 'text-button'));
   if (licenseMemory() && user.licenseHint) actions.append(button(`Forget my saved license number (ending ${user.licenseHint})`, async () => {
@@ -763,10 +837,10 @@ function route() {
     const wanted = new URLSearchParams(query);
     menuLink = wanted.get('category') ? { category: wanted.get('category') } : wanted.get('brand') ? { brand: wanted.get('brand') } : null;
   }
-  if (view === 'verify-email') { view = 'account'; message('Please verify your email using the message from our sign-in service, then sign in again.'); }
+  if (view === 'verify-email') { needsVerification = true; view = 'setup'; void loadVerification(); }
   if (view === 'rate') { view = 'home'; forceRate = true; renderFeedback(); history.replaceState(null, '', '#home'); }
   if (view === 'login-error') { view = 'account'; message('Sign-in could not finish. Please try again.'); }
-  if (!['home', 'menu', 'rewards', 'account', 'order'].includes(view)) view = 'home';
+  if (!['home', 'menu', 'rewards', 'account', 'order', 'setup'].includes(view)) view = 'home';
   for (const section of document.querySelectorAll('.view')) section.hidden = section.id !== `view-${view}`;
   for (const a of document.querySelectorAll('nav a')) {
     if (a.getAttribute('href') === `#${view}`) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
@@ -774,8 +848,9 @@ function route() {
   if (view === 'rewards') { renderRewards(); if (user.linked && (!points || Date.now() - points.checkedAt > 30000)) void refreshPoints(); }
   if (view === 'menu') { applyMenuLink(); void refreshMenu(); }
   if (view === 'order') { rewardPointsTried = false; renderOrder(); void refreshOrder(); }
+  if (view === 'setup') renderSetup();
   renderCartBar();
-  document.title = `${({ home:'My Treehouse',menu:'Menu',rewards:'My Points',account:'My Account',order:'Order online' })[view]} | Treehouse Pharmacy`;
+  document.title = `${({ home:'My Treehouse',menu:'Menu',rewards:'My Points',account:'My Account',order:'Order online',setup:'Set up My Treehouse' })[view]} | Treehouse Pharmacy`;
 }
 async function initialize() {
   const current = generation;
@@ -788,7 +863,14 @@ async function initialize() {
     try {
       const loaded = await api('config'); if (current !== generation) return; config = loaded;
       if (config.enabled) {
+        if (config.signupTrackingEnabled && !sourceRecorded) {
+          sourceRecorded = true;
+          // Await this bounded request so the first-party cookie survives the Auth0 redirect.
+          await api('signup/visit', { source: signupSource }, '', 2000).catch(() => {});
+          if (current !== generation) return;
+        }
         const loadedUser = await api('session'); if (current !== generation) return; user = loadedUser;
+        if (user.signedIn) needsVerification = false;
         pushSubscribed = Boolean(user.signedIn && canPush() && await currentPushSubscription().catch(() => null));
       } else message('My Treehouse is being prepared. The quick points checker is still available on our website.');
     } catch { message('You’re offline or the app is temporarily unavailable. Reconnect to check your menu and points.'); }
@@ -808,7 +890,8 @@ addEventListener('pageshow', event => { if (event.persisted) void initialize(); 
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) clearPrivate(); else void initialize();
 });
-addEventListener('beforeinstallprompt', event => { if (demo) return; event.preventDefault(); pendingInstall = event; $('install-button').hidden = false; });
+addEventListener('beforeinstallprompt', event => { if (demo) return; event.preventDefault(); pendingInstall = event; $('install-button').hidden = false; renderSetup(); });
+addEventListener('appinstalled', () => { pendingInstall = null; $('install-button').hidden = true; renderSetup(); });
 $('install-button').addEventListener('click', async () => {
   if (!pendingInstall) return; await pendingInstall.prompt(); pendingInstall = null; $('install-button').hidden = true;
 });

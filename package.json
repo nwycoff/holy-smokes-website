@@ -6,7 +6,8 @@
     "build": "node scripts/build.mjs",
     "test": "node --test tests/*.test.mjs",
     "test:browser": "npm run build && node tests/customer-app.browser.mjs",
-    "test:staff-browser": "npm run build && node tests/staff-enrollment.browser.mjs"
+    "test:staff-browser": "npm run build && node tests/staff-enrollment.browser.mjs",
+    "test:signup-browser": "npm run build && node tests/signup.browser.mjs"
   },
   "engines": {
     "node": ">=22"

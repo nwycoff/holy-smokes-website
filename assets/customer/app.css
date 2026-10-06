@@ -1604,3 +1604,13 @@ textarea {
   display: inline-block;
   margin: 6px 0;
 }
+:root { --setup-border: #d9ded1; }
+.setup-progress { padding: 0; list-style: none; counter-reset: setup; display: grid; gap: .6rem; margin: 1rem 0 1.5rem; }
+.setup-progress li { counter-increment: setup; padding: .85rem 1rem; background: #eeeadd; border: 1px solid var(--setup-border); border-radius: 12px; }
+.setup-progress li:not(.complete)::before { content: counter(setup) '. '; font-weight: 700; }
+.setup-progress .complete { background: #e5eddf; color: #213b2c; }
+.setup-note { padding: 1rem; border-left: 3px solid #b39b55; background: #fff9e9; }
+.setup-install { padding: 1.2rem 0; }
+.setup-install li { margin: .7rem 0; }
+.account-panel form + form { margin-top: .75rem; }
+.verification-panel form { margin: 1rem 0; }
