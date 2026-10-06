@@ -1,18 +1,31 @@
 // Static, public shell only. No API, auth response, points or account data is cached.
-const CACHE = 'treehouse-shell-v3';
+const CACHE = 'treehouse-shell-v4';
 const SHELL = ['/app/', '/assets/customer/app.css', '/assets/customer/app.js', '/app/icon.svg', '/images/img6.png'];
 self.addEventListener('install', event => event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL))));
 self.addEventListener('activate', event => event.waitUntil(caches.keys().then(keys => Promise.all(
   keys.filter(key => key.startsWith('treehouse-shell-') && key !== CACHE).map(key => caches.delete(key))))));
-// Network first; the offline copy is refreshed whenever the network answers. Pages load their
-// script and stylesheet with a content version (?v=hash), which maps to the same offline copy.
+// Render the public shell immediately on repeat launches. Refresh unversioned files
+// in the background; content-versioned assets are immutable and keyed by full URL.
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url), versioned = /^\?v=[a-f0-9]{12}$/.test(url.search);
-  if (event.request.method !== 'GET' || url.origin !== self.location.origin || (url.search && !versioned) || !SHELL.includes(url.pathname)) return;
-  event.respondWith(fetch(event.request).then(response => {
-    if (response.ok) { const copy = response.clone(); event.waitUntil(caches.open(CACHE).then(cache => cache.put(url.pathname, copy))); }
+  const key = url.pathname + url.search;
+  if (event.request.method !== 'GET' || url.origin !== self.location.origin || (url.search && !versioned) ||
+      !SHELL.some(item => item.split('?')[0] === url.pathname)) return;
+  const cached = caches.open(CACHE).then(cache => cache.match(key));
+  const update = async () => {
+    const response = await fetch(event.request);
+    if (response.ok) await (await caches.open(CACHE)).put(key, response.clone());
     return response;
-  }).catch(() => caches.match(url.pathname)));
+  };
+  const response = cached.then(hit => {
+    if (hit && versioned) return hit;
+    const network = update();
+    // Keep background refresh alive after a cached response is delivered.
+    event.waitUntil(network.catch(() => {}));
+    return hit || network;
+  });
+  event.respondWith(response);
+  event.waitUntil(response.then(() => {}, () => {}));
 });
 // Order-ready alerts and opted-in "Deals & news". Messages carry no order details, and a tap
 // can only open a screen inside the app.
