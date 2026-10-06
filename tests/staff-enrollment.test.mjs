@@ -169,3 +169,20 @@ test('rate limits, schema failures and redirects fail closed without exposing su
   const r = await setup(); r.deps.fetch = async () => new Response(null, { status: 302, headers: { Location: 'https://evil.test' } });
   assert.equal((await r.run('session')).status, 401); assert.equal(count(r, 'app_enrollments'), 0);
 });
+
+
+test('staff guide requires an authorized staff identity and returns the private PDF', async () => {
+  const s = await setup();
+  const missing = await s.run('guide', { method: 'GET', assertion: '' });
+  assert.equal(missing.status, 401);
+  const denied = await s.run('guide', { method: 'GET', assertion: await s.token({ email: 'unauthorized@example.test' }) });
+  assert.equal(denied.status, 403);
+  const response = await s.run('guide', { method: 'GET' });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('content-type'), 'application/pdf');
+  assert.equal(response.headers.get('cache-control'), 'private, no-store');
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  assert.equal(new TextDecoder().decode(bytes.slice(0, 5)), '%PDF-');
+  assert.ok(bytes.length > 100000);
+  assert.equal(s.calls.filter(c => c.url.includes('growflow')).length, 0);
+});
