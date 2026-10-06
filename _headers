@@ -43,3 +43,18 @@
 
 /assets/staff/*
   Cache-Control: no-cache
+
+/tablet/*
+  X-Robots-Tag: noindex, nofollow
+  Cache-Control: no-store
+  Referrer-Policy: no-referrer
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'
+
+/assets/tablet/*
+  X-Robots-Tag: noindex, nofollow
+  Cache-Control: no-cache
+
+/tablet
+  X-Robots-Tag: noindex, nofollow
