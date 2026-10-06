@@ -54,13 +54,68 @@ try {
     await setup.getByLabel('Connection code').fill('1234 5678');
     await setup.getByRole('button', { name: 'Connect my points →', exact: true }).click();
     await setup.getByText('Your balance is 321 points.', { exact: true }).waitFor();
-    await setup.getByRole('heading', { name: 'Deals & news', exact: true }).waitFor();
-    if (width === 360) await setup.getByText('Choose Add to Home Screen, then Add.', { exact: true }).waitFor();
+    const homeScreenStep = setup.locator('.setup-progress li').nth(2);
+    assert.equal(await setup.locator('.setup-progress li').count(), 4);
+    assert.equal(await homeScreenStep.innerText(), 'Add to Home Screen');
+    assert.equal(await homeScreenStep.getAttribute('class'), null);
+    await setup.getByRole('heading', { name: '4. Choose notifications (optional)', exact: true }).waitFor();
+    if (width === 360) {
+      assert.equal(await setup.getByRole('button', { name: 'Install Treehouse', exact: true }).count(), 0);
+      assert.equal(await setup.getByRole('button', { name: 'Turn on Deals & news', exact: true }).count(), 0);
+      await setup.locator('.install-guide summary').click();
+      await setup.getByRole('heading', { name: 'Open Share in Safari', exact: true }).waitFor();
+      assert.match(await setup.locator('.install-guide').innerText(), /Open as Web App/);
+      assert.equal(await homeScreenStep.getAttribute('class'), null, 'opening instructions is not an installation');
+      await page.screenshot({ path: fileURLToPath(new URL('../docs/signup-install-iphone.png', import.meta.url)), fullPage: true });
+    } else await setup.getByRole('heading', { name: 'Deals & news', exact: true }).waitFor();
     assert.ok(sessions >= 2, 'fresh session supplies marketing state immediately after enrollment');
     assert.equal(requests.find(r => r.key === 'enroll').csrf, 'synthetic-csrf');
     assert.equal(requests.some(r => /marketing|push\/subscribe/.test(r.key)), false, 'no automatic consent or push subscription');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     if (width !== 360) await page.screenshot({ path: fileURLToPath(new URL(`../docs/signup-connected-${width === 390 ? 'mobile' : 'desktop'}.png`, import.meta.url)), fullPage: true });
+    if (width === 390) {
+      // A real prompt requires a browser-provided event and a user click. Synthetic events
+      // exercise accepted/dismissed/error handling; they do not prove phone installation.
+      for (const outcome of ['dismissed', 'error', 'accepted']) {
+        await page.evaluate(outcome => {
+          const event = new Event('beforeinstallprompt', { cancelable: true });
+          window.installCalls = 0;
+          event.prompt = async () => {
+            window.installCalls++;
+            window.installHadUserGesture = navigator.userActivation.isActive;
+            if (outcome === 'error') throw new Error('Synthetic prompt failure');
+            return { outcome };
+          };
+          dispatchEvent(event); window.installDefaultPrevented = event.defaultPrevented;
+        }, outcome);
+        assert.equal(await page.evaluate(() => window.installCalls), 0, 'never open the prompt automatically');
+        if (outcome === 'dismissed') await page.screenshot({ path: fileURLToPath(new URL('../docs/signup-install-android.png', import.meta.url)), fullPage: true });
+        await setup.getByRole('button', { name: 'Install Treehouse', exact: true }).click();
+        await setup.locator('.setup-install [role="status"]').waitFor();
+        assert.equal(await page.evaluate(() => window.installCalls), 1);
+        assert.equal(await page.evaluate(() => window.installHadUserGesture), true);
+        assert.equal(await page.evaluate(() => window.installDefaultPrevented), true);
+        assert.equal(await setup.getByRole('button', { name: 'Install Treehouse', exact: true }).count(), 0, 'used events cannot be reused');
+        assert.equal(await homeScreenStep.getAttribute('class'), null, 'acceptance alone does not mean the app has been opened');
+        if (outcome === 'error') {
+          assert.match(await setup.locator('[role="status"]').innerText(), /couldn’t open/);
+          assert.equal(await setup.locator('.install-guide').getAttribute('open'), '');
+        }
+      }
+      await page.evaluate(() => dispatchEvent(new Event('appinstalled')));
+      assert.equal(await homeScreenStep.getAttribute('class'), null, 'appinstalled in a browser tab does not complete the open-app step');
+      // Exercise an installed iPhone/iPad-style launch: instructions and install buttons go
+      // away, and the step is complete without granting notification/marketing consent.
+      await page.evaluate(() => { Object.defineProperty(navigator, 'standalone', { value: true }); dispatchEvent(new Event('appinstalled')); });
+      assert.equal(await homeScreenStep.getAttribute('class'), 'complete');
+      await setup.getByText('✓ You’re using the installed app.', { exact: true }).waitFor();
+      assert.equal(await setup.locator('.install-guide').count(), 0);
+      assert.equal(await setup.locator('.setup-progress li').nth(3).getAttribute('class'), null);
+      assert.equal(requests.some(r => /marketing|push\/subscribe/.test(r.key)), false);
+      // Installing is optional: the customer's normal menu remains available throughout.
+      await setup.getByRole('link', { name: 'Finish setup and browse the menu →', exact: true }).click();
+      assert.equal(new URL(page.url()).hash, '#menu');
+    }
     assert.deepEqual(errors, []); await page.close();
   }
   // A tracking outage cannot block sign-in. Signup and returning-account actions are separate.
@@ -113,5 +168,5 @@ try {
   await crm.getByText('$1.07 per connected account', { exact: true }).waitFor();
   await crm.locator('#signups-section').screenshot({ path: fileURLToPath(new URL('../docs/signup-crm.png', import.meta.url)) });
   assert.deepEqual(errors, []); await crm.close();
-  console.log('PASS: guided setup at 360/390/1365px, source capture and URL cleanup, tracking-outage recovery, immediate linked-session state, separate signup/sign-in, safe email resend UI, no automatic marketing opt-in, and CRM source/cost report.');
+  console.log('PASS: four-step setup at 360/390/1365px, iPhone installation guide, install prompt acceptance/dismissal/failure with a user gesture, standalone completion, no automatic consent, source tracking, enrollment, email verification, and CRM source/cost report.');
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }

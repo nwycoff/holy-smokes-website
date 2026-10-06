@@ -12,6 +12,7 @@ if (from.length) { const clean = new URL(location.href); clean.searchParams.dele
 // A section or brand to show when a notification opens the menu, applied once the menu is loaded.
 let menuLink = null;
 let category = 'All', menuError = '', generation = 0, pendingInstall = null, menuLoading = false, pointsLoading = false;
+let installing = false, installHelpOpen = false, installMessage = '';
 // The cart holds only public menu choices, in memory. Order status is account data.
 const MAX_ITEMS = 10;
 let cart = [], order = null, orderLoading = false, orderNote = '', orderLicense = '';
@@ -132,7 +133,9 @@ function rewardTiersPanel() {
 // Order-ready notifications (Web Push). iPhone only allows them once the app is on the Home Screen.
 let pushSubscribed = false;
 const canPush = () => !demo && Boolean(config.pushKey) && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
-const iosBrowserTab = () => /iPhone|iPad|iPod/.test(navigator.userAgent) && !matchMedia('(display-mode: standalone)').matches && !navigator.standalone;
+const standalone = () => matchMedia('(display-mode: standalone)').matches || Boolean(navigator.standalone);
+const appleMobile = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+const iosBrowserTab = () => appleMobile() && !standalone();
 const pushKeyBytes = () => Uint8Array.from(atob(config.pushKey.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
 async function currentPushSubscription() {
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) return null;
@@ -336,28 +339,86 @@ async function loadVerification() {
   catch { /* The continue and shop-help actions remain usable. */ }
   finally { verificationBusy = false; if (current === generation) renderAccount(); }
 }
-const standalone = () => matchMedia('(display-mode: standalone)').matches || Boolean(navigator.standalone);
-function installGuidance() {
-  const panel = el('div', '', 'setup-install');
-  if (standalone()) { panel.append(el('p', '✓ You opened the app from its Home Screen icon.')); return panel; }
-  panel.append(el('h3', 'Keep Treehouse on your Home Screen'),
-    el('p', 'This is optional for points and ordering. On iPhone, add the app and open its icon before turning on notifications.'));
-  if (pendingInstall) panel.append(button('Add Treehouse to Home Screen', async () => {
-    await pendingInstall.prompt(); pendingInstall = null; renderSetup(); $('install-button').hidden = true;
-  }, 'secondary-button'));
-  const steps = el('ol');
-  for (const text of iosBrowserTab()
-    ? ['In Safari, open Share (it may be under the menu button).', 'Choose Add to Home Screen, then Add.', 'Open the new Treehouse icon. Use the same account if asked to sign in.']
-    : /Android/i.test(navigator.userAgent)
-      ? ['Open the browser menu and choose Install app or Add to Home screen.', 'Open the Treehouse icon. Use the same account if asked to sign in.']
-      : ['On a computer, use Install app in your browser menu if it is offered.', 'For phone notifications, open treehousepharmacy.com/app on your phone and sign in with this same account.']) steps.append(el('li', text));
-  panel.append(steps); return panel;
+// Simple illustrations accompany real browser actions; they never imitate an install dialog.
+function installPicture(kind) {
+  const frame = el('span', '', 'install-picture'); frame.setAttribute('aria-hidden', 'true');
+  if (kind === 'app') {
+    const icon = el('img'); icon.src = '/images/img6.png'; icon.alt = ''; icon.width = 48; icon.height = 48; frame.append(icon);
+  } else {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    for (const [key, value] of Object.entries({ viewBox: '0 0 32 32', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', focusable: 'false' })) svg.setAttribute(key, value);
+    const path = document.createElementNS(svg.namespaceURI, 'path');
+    path.setAttribute('d', ({ share: 'M16 20V3m-5 5 5-5 5 5M10 13H6v16h20V13h-4', add: 'M9 3h14v26H9ZM13 16h6m-3-3v6M14 25h4', menu: 'M5 8h22M5 16h22M5 24h22' })[kind]);
+    svg.append(path); frame.append(svg);
+  }
+  return frame;
+}
+function installGuidance(setup = false) {
+  const panel = el('section', '', 'setup-install');
+  panel.append(el('h3', `${setup ? '3. ' : ''}Add to Home Screen`));
+  if (standalone()) {
+    panel.append(el('p', '✓ You’re using the installed app.', 'install-complete'));
+    return panel;
+  }
+  panel.append(el('p', iosBrowserTab()
+    ? 'Keep Treehouse one tap away. On iPhone and iPad, open the Home Screen app before turning on notifications.'
+    : 'Keep your menu and points one tap away. Adding the app is optional.'));
+  if (pendingInstall || installing) {
+    const install = button(installing ? 'Opening installation…' : 'Install Treehouse', requestInstall);
+    install.disabled = installing; panel.append(install);
+  }
+  if (installMessage) {
+    const status = el('p', installMessage, 'fine-print'); status.setAttribute('role', 'status'); panel.append(status);
+  }
+  const guide = el('details', '', 'install-guide'); guide.open = installHelpOpen;
+  guide.addEventListener('toggle', () => { if (guide.isConnected) installHelpOpen = guide.open; });
+  guide.append(el('summary', pendingInstall || installing ? 'See installation steps' : 'Add to Home Screen — show me how'));
+  const steps = el('ol', '', 'install-steps');
+  const instructions = iosBrowserTab() ? [
+    ['share', 'Open Share in Safari', 'Open this page in Safari. Tap the Share icon (a square with an up arrow). It may be inside the page menu.'],
+    ['add', 'Add Treehouse', 'Scroll down and tap Add to Home Screen. If you see Open as Web App, turn it on. Then tap Add.'],
+    ['app', 'Open your new icon', 'Tap Treehouse on your Home Screen. Use the same account if asked to sign in. Choose your notifications under Account.']
+  ] : /Android/i.test(navigator.userAgent) ? [
+    ['menu', 'Open your browser menu', 'In Chrome, tap the three dots beside the address bar. If this page opened inside another app, open it in Chrome first.'],
+    ['add', 'Install the app', 'Choose Install app or Add to Home screen, then confirm. If you already added Treehouse, look for its icon on your phone.'],
+    ['app', 'Open Treehouse', 'Tap the new icon. Use the same account if asked to sign in, then choose your notifications under Account.']
+  ] : [
+    ['menu', 'Open your browser menu', 'Look for Install app. On a Mac using Safari, choose File → Add to Dock.'],
+    ['add', 'Confirm, then open Treehouse', 'Follow your browser’s instructions, then open Treehouse from your apps.'],
+    ['app', 'Want it on your phone?', 'Open this app’s address on your phone and use the same account. The installation steps will match your phone.']
+  ];
+  for (const [picture, title, text] of instructions) {
+    const item = el('li'), copy = el('div'); copy.append(el('h4', title), el('p', text));
+    item.append(installPicture(picture), copy); steps.append(item);
+  }
+  guide.append(steps);
+  if (iosBrowserTab()) guide.append(el('p', 'Can’t find Add to Home Screen? Scroll to the bottom of Safari’s Share menu, tap Edit Actions, and add it there.', 'fine-print'));
+  panel.append(guide, el('p', 'You can keep checking points and ordering in your browser.', 'fine-print'));
+  return panel;
+}
+function renderInstallation() {
+  renderSetup();
+  $('account-install').replaceChildren(installGuidance());
+}
+async function requestInstall() {
+  if (!pendingInstall || installing || standalone()) return;
+  // Consume each browser event once, and invoke prompt within the customer's click.
+  const prompt = pendingInstall; pendingInstall = null; installing = true; installMessage = '';
+  renderInstallation();
+  try {
+    const choice = await prompt.prompt() || await prompt.userChoice;
+    installMessage = choice?.outcome === 'accepted'
+      ? 'When the Treehouse icon appears, open it to finish setting up notifications under Account.'
+      : 'You can add Treehouse later. Your points and ordering still work here.';
+  } catch {
+    installMessage = 'The installation prompt couldn’t open. Follow the steps below instead.'; installHelpOpen = true;
+  } finally { installing = false; renderInstallation(); }
 }
 function renderSetup() {
   const target = $('setup-content'); if (!target) return;
   const progress = el('ol', '', 'setup-progress');
   for (const [label, done] of [['Create account and verify email', user.signedIn], ['Connect your rewards', user.linked],
-    ['Choose optional phone notifications', pushSubscribed && marketingTopics().length]]) {
+    ['Add to Home Screen', standalone()], ['Choose notifications (optional)', pushSubscribed]]) {
     const item = el('li', `${done ? '✓ ' : ''}${label}`, done ? 'complete' : ''); progress.append(item);
   }
   target.replaceChildren(progress);
@@ -367,8 +428,15 @@ function renderSetup() {
     target.append(link('Browse the menu while you wait →', '#menu', 'text-button')); return;
   }
   target.append(el('h2', 'Your rewards are connected.'), el('p', points ? `Your balance is ${formatPoints(points.points)} points.` : 'You can now check your points and order ahead.'),
-    link('View my points →', '#rewards', 'primary-button'), installGuidance());
-  const notifications = notificationsPanel(); if (notifications) target.append(notifications);
+    link('View my points →', '#rewards', 'primary-button'), installGuidance(true));
+  if (iosBrowserTab()) {
+    const next = el('section', '', 'account-panel setup-notifications');
+    next.append(el('h3', '4. Choose notifications (optional)'), el('p', 'Open Treehouse from its Home Screen icon, then go to Account to choose order updates and Deals & news.'));
+    target.append(next);
+  } else {
+    const notifications = notificationsPanel();
+    if (notifications) { notifications.querySelector('h3').textContent = '4. Choose notifications (optional)'; target.append(notifications); }
+  }
   target.append(el('p', 'Deals & news is your choice. Points and ordering work without it.', 'fine-print'), link('Finish setup and browse the menu →', '#menu', 'text-button'));
 }
 function linkPanel(inputId = 'connection-code') {
@@ -447,7 +515,7 @@ async function signOut(all = false) {
   cart = []; clearPrivate(); message('You’re signed out.'); location.hash = 'account';
 }
 function renderAccount() {
-  renderSetup();
+  renderInstallation();
   const target = $('account-content'); target.replaceChildren();
   if (!user.signedIn) { target.append(needsVerification ? verificationPanel() : signInPanel()); return; }
   const panel = el('section', '', 'account-panel');
@@ -890,11 +958,14 @@ addEventListener('pageshow', event => { if (event.persisted) void initialize(); 
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) clearPrivate(); else void initialize();
 });
-addEventListener('beforeinstallprompt', event => { if (demo) return; event.preventDefault(); pendingInstall = event; $('install-button').hidden = false; renderSetup(); });
-addEventListener('appinstalled', () => { pendingInstall = null; $('install-button').hidden = true; renderSetup(); });
-$('install-button').addEventListener('click', async () => {
-  if (!pendingInstall) return; await pendingInstall.prompt(); pendingInstall = null; $('install-button').hidden = true;
+addEventListener('beforeinstallprompt', event => {
+  if (demo || standalone()) return;
+  event.preventDefault(); pendingInstall = event; installMessage = ''; renderInstallation();
 });
+addEventListener('appinstalled', () => {
+  pendingInstall = null; installMessage = 'Treehouse has been installed. Open its icon to finish setup under Account.'; renderInstallation();
+});
+matchMedia('(display-mode: standalone)').addEventListener('change', () => { renderAccount(); renderOrder(); });
 if (!demo && 'serviceWorker' in navigator && window.isSecureContext) navigator.serviceWorker.register('/app/sw.js', { scope:'/app/' }).catch(() => {});
 setInterval(() => {
   if (document.hidden) return;

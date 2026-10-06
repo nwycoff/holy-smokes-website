@@ -4,12 +4,17 @@ Prepared for review on `feature/app-signup-attribution`. The owner authorizes pu
 
 ## What customers and staff see
 
-- A setup page at `/app/#setup`: create an account and verify email, connect rewards, then choose optional phone notifications.
+- A four-step setup page at `/app/#setup`: create an account and verify email, connect rewards, add to Home Screen, then choose optional phone notifications.
 - Separate **Create account** and **Already have an account? Sign in** actions. Auth0 continues to own passwords and recovery.
 - Unverified sign-ins get inbox/spam instructions and a continue button. An optional, secured resend button is available after the extra Auth0 setup below.
 - After entering a valid connection code, the app immediately reloads the linked session and shows points and notification choices.
 - Points and ordering do not require marketing consent. On iPhone, install and reopen the Home Screen app before enabling push notifications; the same account keeps its rewards connection across sign-ins.
 - Existing linked customers continue to land on their points. Unlinked customers land on the setup page.
+- **Install Treehouse** opens the browser's native installation prompt only when a supported browser provides one and the customer taps the button. Dismissal or failure leaves points and ordering available, with manual instructions as a fallback.
+- iPhone/iPad show an illustrated Safari guide: Share → Add to Home Screen → enable **Open as Web App** if offered → Add. Website code cannot open this system installation screen on iOS. Customers reopen the Treehouse icon, sign in to the same account if asked, and choose notifications under **Account** (or return to **Open setup guide**).
+- The Home Screen step is checked only when the app is running in standalone mode. Clicking instructions, accepting the browser prompt, and the `appinstalled` event alone do not mark it complete. This is local display state, not a new CRM installation metric. Installation never opts someone into push or marketing.
+
+The installation update needs only a test branch deployment; it adds no migration, setting, permission, or secret. References: [browser installation prompts](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Guides/Making_PWAs_installable#triggering_the_install_prompt), [Apple's Home Screen instructions](https://support.apple.com/guide/iphone/iphea86e5236/ios).
 
 Keep the in-person identity check. Have the customer create and verify their account first. Once they reach **Connection code**, the budtender verifies the matching GrowFlow record and generates the existing eight-digit, single-use code. It still expires after ten minutes. Staff do not need customer passwords. Already-linked customers should recover their existing account.
 
@@ -95,6 +100,8 @@ No third-party advertising tracker, patient details, raw IP address or usable lo
 Local, synthetic checks:
 
 Checked on October 6, 2026: 175 backend tests passed; the existing app browser regression suite and new signup/CRM browser suite passed; Cloudflare Pages Functions compiled successfully; all five SVG QR codes rendered and decoded to their intended URLs. Phone email delivery, real iOS/Android installation and notification delivery still require the protected deployment checks below.
+
+The Home Screen update also passed the signup browser suite's iPhone guide, Android prompt acceptance/dismissal/failure, user-click requirement, and standalone completion checks. The existing app browser regression suite passed, and Chromium reported no manifest installability errors on the local build. These synthetic checks do not replace installing from the protected test hostname on actual phones. This UI update adds no backend changes.
 
 ```sh
 npm ci

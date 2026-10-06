@@ -1611,6 +1611,20 @@ textarea {
 .setup-progress .complete { background: #e5eddf; color: #213b2c; }
 .setup-note { padding: 1rem; border-left: 3px solid #b39b55; background: #fff9e9; }
 .setup-install { padding: 1.2rem 0; }
-.setup-install li { margin: .7rem 0; }
+.setup-install > p { line-height: 1.7; }
+.install-guide { margin: 1rem 0; border: 1px solid var(--setup-border); border-radius: 12px; background: #fffdf7; }
+.install-guide > summary { padding: 1rem; font-weight: 700; line-height: 1.5; }
+.install-guide > summary:focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; border-radius: 12px; }
+.install-guide > .fine-print { margin: 0 1rem 1rem; }
+.install-steps { padding: 0 1rem; list-style: none; counter-reset: install; }
+.install-steps li { counter-increment: install; display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 1rem; padding: 1rem 0; border-top: 1px solid var(--setup-border); }
+.install-steps h4 { margin: 0 0 .4rem; font-size: 1rem; }
+.install-steps h4::before { content: counter(install) '. '; }
+.install-steps p { margin: 0; font-size: .9rem; line-height: 1.7; }
+.install-picture { display: grid; place-items: center; width: 56px; height: 64px; color: #213b2c; background: #e5eddf; border-radius: 12px; }
+.install-picture svg { width: 32px; height: 32px; }
+.install-picture img { width: 48px; height: 48px; object-fit: contain; }
+.install-complete { color: #213b2c; font-weight: 600; }
+.setup-notifications { margin-top: 1rem; }
 .account-panel form + form { margin-top: .75rem; }
 .verification-panel form { margin: 1rem 0; }
