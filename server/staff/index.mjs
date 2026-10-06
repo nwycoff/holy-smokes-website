@@ -1,6 +1,7 @@
 import { createRemoteJWKSet, customFetch, jwtVerify } from 'jose';
 import { consumeLimits, lookupVariables, normalizeInput } from '../rewards.mjs';
 import { AppError, bodyJSON, enabled, fetchSafe, growflowReady, hash, json, randomToken, sameOrigin } from '../customer-app/http.mjs';
+import { staffGuideResponse } from './guide.mjs';
 import { withEnrollmentCode } from '../customer-app/enrollment.mjs';
 import { queryGrowflow, singleCustomer } from '../customer-app/growflow.mjs';
 
@@ -59,7 +60,7 @@ export async function handleStaff({ request, env }, overrides = {}) {
   const deps = { fetch: productionFetch, now: Date.now,
     report: code => console.warn(`TREEHOUSE_STAFF_FAILURE ${code}`), ...overrides };
   const url = new URL(request.url), route = url.pathname.replace(/^\/api\/staff\//, '').replace(/\/$/, '');
-  const methods = { session: 'GET', match: 'POST', issue: 'POST' };
+  const methods = { guide: 'GET', session: 'GET', match: 'POST', issue: 'POST' };
   if (!Object.hasOwn(methods, route)) return json(404, { error: 'Not found.' });
   if (methods[route] !== request.method) return json(405, { error: 'Method not allowed.' }, { Allow: methods[route] });
   if (url.search) return json(400, { error: 'Invalid request.' });
@@ -71,6 +72,7 @@ export async function handleStaff({ request, env }, overrides = {}) {
     if (!ip) throw new AppError('STAFF_CONFIG');
     await limited(env, deps, [{ subject: `staff-page-ip:${ip}`, max: 60, window: 60000 }]);
     const staff = await authenticate(request, env, deps);
+    if (route === 'guide') return staffGuideResponse();
     if (route === 'session') return json(200, { email: staff.email, csrf: staff.csrf, appUrl: `${url.origin}/app/` });
     if (request.headers.get('x-treehouse-csrf') !== staff.csrf) throw new AppError('STAFF_CSRF', 403);
     await limited(env, deps, [{ subject: `staff-page-user:${staff.id}`, max: 30, window: 900000 }]);
