@@ -3,7 +3,7 @@
 Test URL: https://treehouse-app-test.pages.dev/tablet/
 Production URL after a separate approved merge: https://www.treehousepharmacy.com/tablet/
 
-The standalone page uses the existing public `/api/app/menu` feed and existing sales-floor stock rules. It sends no account cookies, requests no customer/session data, and offers no sign-in, rewards, ordering, or external navigation.
+Same-origin cookies are permitted so existing Cloudflare Access protection continues to work. The standalone page uses the existing public `/api/app/menu` feed and existing sales-floor stock rules. It requests no customer/session data, and offers no sign-in, rewards, ordering, or external navigation.
 
 - Landscape: sidebar categories and filters, with product cards beside them.
 - Portrait: categories and filters above the product cards.
