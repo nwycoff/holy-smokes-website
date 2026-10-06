@@ -1,0 +1,6 @@
+{
+  "id": "/tablet/", "name": "Treehouse Counter Menu", "short_name": "Treehouse Menu",
+  "start_url": "/tablet/", "scope": "/tablet/", "display": "standalone",
+  "background_color": "#f6f3eb", "theme_color": "#213b2c",
+  "icons": [{ "src": "/app/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}
