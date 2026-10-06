@@ -87,6 +87,65 @@ async function loadOverview() {
       + ' · totals grow until this finishes';
 }
 
+const signupMoney = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
+let signupGeneration = 0, pendingSpend = null;
+async function loadSignups() {
+  const generation = ++signupGeneration;
+  try {
+    const report = await api(`signups?days=${$('signup-days').value}`);
+    if (generation !== signupGeneration) return;
+    if (!report.available) { $('signup-status').textContent = 'Signup reporting needs the app database connected to this CRM.'; return; }
+    $('signup-status').textContent = `${report.trackingEnabled ? '' : 'New tracking is switched off. '}`
+      + 'First visits grouped by source, with setup progress through today. Browser counts are estimates; repeated scans on one browser count once for 30 days. '
+      + 'Sales show synced purchases within 30 days after connection, not proof of extra sales caused by the app. Recent groups are still developing.';
+    $('signup-results').replaceChildren(...report.rows.map(row => {
+      const card = el('article', '', 'card signup-card'); card.append(el('h2', row.label));
+      const metrics = el('dl', '', 'signup-metrics');
+      for (const [label, value] of [['Estimated visitors', row.visitors], ['Started sign-in / signup', row.started],
+        ['New verified accounts', row.verified], ['Rewards connected', row.linked], ['Set up Deals & news', row.reachable],
+        ['Still reachable now', row.reachable_now], ['Customers with later purchases', row.visit_customers], ['Customers with completed preorders', row.preorder_customers]]) {
+        metrics.append(el('dt', label), el('dd', value === null ? 'Choose a shorter period' : count.format(value)));
+      }
+      card.append(metrics, el('p', `Subsequent sales: ${row.revenue_cents === null ? 'not calculated' : signupMoney.format(row.revenue_cents / 100)}`, 'muted'));
+      if (row.spend_cents) {
+        card.append(el('p', `Recorded costs in this period: ${signupMoney.format(row.spend_cents / 100)}`, 'muted'));
+        if (row.linked) card.append(el('p', `${signupMoney.format(row.spend_cents / 100 / row.linked)} per connected account`, 'muted'));
+        if (row.reachable) card.append(el('p', `${signupMoney.format(row.spend_cents / 100 / row.reachable)} per subscriber set up`, 'muted'));
+      }
+      return card;
+    }));
+    const sources = report.rows.filter(r => r.source !== 'direct');
+    $('signup-spend-source').replaceChildren(...sources.map(r => { const o = el('option', r.label); o.value = r.source; return o; }));
+    $('signup-links').replaceChildren(...sources.map(row => {
+      const p = el('p'), href = `https://www.treehousepharmacy.com/go/${row.source}`;
+      const link = el('a', href); link.href = href; link.target = '_blank'; link.rel = 'noopener noreferrer';
+      const download = el('a', 'Download QR (SVG)'); download.href = `/assets/signup-qr/${row.source}.svg`; download.download = `treehouse-${row.source}.svg`;
+      p.append(el('strong', `${row.label}: `), link, document.createTextNode(' · '), download); return p;
+    }));
+    $('signup-spend-list').replaceChildren(...report.spend.map(item => {
+      const p = el('p'), remove = el('button', 'Remove', 'link'); remove.type = 'button';
+      p.append(document.createTextNode(`${new Date(item.spent_at).toLocaleDateString()} · ${report.rows.find(r => r.source === item.source)?.label || item.source} · ${signupMoney.format(item.cents / 100)} `));
+      remove.addEventListener('click', async () => { remove.disabled = true;
+        try { await api('signups/spend/delete', { id: item.id }); await loadSignups(); }
+        catch (e) { message(e.message, true); remove.disabled = false; }
+      }); p.append(remove); return p;
+    }));
+  } catch (error) {
+    if (generation === signupGeneration) $('signup-status').textContent = `Signup report unavailable: ${error.message}`;
+  }
+}
+$('signup-days').addEventListener('change', () => { void loadSignups(); });
+$('signup-spend-date').value = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+$('signup-spend-form').addEventListener('submit', async event => {
+  event.preventDefault(); const submit = event.currentTarget.querySelector('button'); submit.disabled = true;
+  const value = { source: $('signup-spend-source').value, cents: Math.round(Number($('signup-spend-amount').value) * 100), date: $('signup-spend-date').value };
+  const fingerprint = JSON.stringify(value);
+  if (!pendingSpend || pendingSpend.fingerprint !== fingerprint) pendingSpend = { fingerprint, id: crypto.randomUUID().replaceAll('-', '') };
+  try { await api('signups/spend', { ...value, id: pendingSpend.id }); pendingSpend = null; $('signup-spend-amount').value = ''; await loadSignups(); }
+  catch (error) { message(error.message, true); }
+  finally { submit.disabled = false; }
+});
+
 function value(id) { const v = $(id).value.trim(); return v === '' ? undefined : Number(v); }
 function readBuilder() {
   const d = {}, lvMin = value('lv-min'), lvMax = value('lv-max');
@@ -189,6 +248,7 @@ async function loadAudit() {
   const { audit } = await api('audit');
   const names = { view_customers: 'viewed a customer list', save_segment: 'saved a segment', delete_segment: 'deleted a segment', forget_customer: 'removed a customer',
     data_check: 'checked the CRM against GrowFlow', view_feedback: 'viewed visit ratings', handle_feedback: 'followed up on a rating',
+    signup_spend: 'recorded signup outreach costs', signup_spend_deleted: 'removed a signup outreach cost',
     alerts_assistant_on: 'turned on assistant updates for someone', alerts_assistant_off: 'turned off assistant updates for someone',
     alerts_feedback_on: 'turned on low-rating alerts for someone', alerts_feedback_off: 'turned off low-rating alerts for someone', welcome_gift: 'updated the welcome gift', data_check_running: 'is checking the CRM against GrowFlow',
     assistant_run: 'asked the assistant for a run', assistant_updates_on: 'turned on assistant updates', assistant_updates_off: 'turned off assistant updates', approve_suggestion: 'approved an assistant suggestion',
@@ -525,7 +585,7 @@ async function start() {
     }));
   } catch (e) { message(e.message, true); return; }
   // Each part loads on its own, so one slow part never blanks the whole page.
-  const parts = [loadOverview(), loadSaved(), loadAudit(), loadCampaigns().then(loadAssistant).then(loadAlerts),
+  const parts = [loadOverview(), loadSignups(), loadSaved(), loadAudit(), loadCampaigns().then(loadAssistant).then(loadAlerts),
     api('brands').then(({ brands }) => $('brand').append(...brands.map(b => { const o = el('option', b.name); o.value = b.id; return o; })))];
   const failed = (await Promise.allSettled(parts)).find(r => r.status === 'rejected');
   if (failed) message(failed.reason?.message || 'Part of the page could not load. Reload to try again.', true);

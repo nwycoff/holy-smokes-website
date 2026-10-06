@@ -11,6 +11,7 @@ import { campaignsReady, cancelCampaign, createAutomation, createCampaign, listA
 import { TOPICS } from '../customer-app/marketing.mjs';
 import { getMenu } from '../customer-app/growflow.mjs';
 import { menuReady } from '../customer-app/http.mjs';
+import { signupReport, saveSignupSpend } from './acquisition.mjs';
 
 // Owner/manager CRM at /crm/, behind its own Cloudflare Access application. Every request is
 // re-verified here (signature, issuer, audience, approved email). Customer names are fetched
@@ -95,7 +96,8 @@ export async function handleCrm({ request, env }, overrides = {}) {
     campaigns: 'GET', 'campaigns/preview': 'POST', 'campaigns/send': 'POST', 'campaigns/test': 'POST', 'campaigns/cancel': 'POST',
     'settings/test-customer': 'POST', 'automations/create': 'POST', 'automations/active': 'POST',
     assistant: 'GET', 'assistant/run': 'POST', 'assistant/decide': 'POST', 'settings/assistant-updates': 'POST', 'welcome/save': 'POST',
-    feedback: 'GET', 'feedback/handle': 'POST', alerts: 'GET', 'alerts/set': 'POST' };
+    feedback: 'GET', 'feedback/handle': 'POST', alerts: 'GET', 'alerts/set': 'POST',
+    signups: 'GET', 'signups/spend': 'POST', 'signups/spend/delete': 'POST' };
   if (!allowed[route]) return json(404, { error: 'Not found.' });
   if (allowed[route] !== request.method) return json(405, { error: 'Method not allowed.' }, { Allow: allowed[route] });
   try {
@@ -106,6 +108,26 @@ export async function handleCrm({ request, env }, overrides = {}) {
     const now = deps.now(), db = env.CRM_DB;
     if (route === 'session') return json(200, { email: user.email, csrf: user.csrf, groups: GROUPS });
     if (route === 'overview') return json(200, await overview(env, now));
+    if (route === 'signups') {
+      if ([...url.searchParams.keys()].some(k => k !== 'days') || url.searchParams.getAll('days').length > 1) throw new AppError('INPUT', 400);
+      await limit(env, deps, `signup-report:${user.email}`, 10);
+      return json(200, await signupReport(env, now, Number(url.searchParams.get('days') || 30)));
+    }
+    if (route === 'signups/spend') {
+      await saveSignupSpend(env, await bodyJSON(request), user.email, now);
+      return json(200, { saved: true });
+    }
+    if (route === 'signups/spend/delete') {
+      const input = await bodyJSON(request);
+      if (Object.keys(input).some(k => k !== 'id') || !/^[a-f0-9]{32}$/.test(input.id || '')) throw new AppError('INPUT', 400);
+      await db.batch([
+        db.prepare(`INSERT INTO crm_audit(id, at, actor, action, detail)
+          SELECT ?, ?, ?, 'signup_spend_deleted', NULL WHERE EXISTS (SELECT 1 FROM crm_signup_spend WHERE id = ?)`)
+          .bind(randomToken(), now, user.email, input.id),
+        db.prepare('DELETE FROM crm_signup_spend WHERE id = ?').bind(input.id)
+      ]);
+      return json(200, { deleted: true });
+    }
     if (route === 'brands') {
       const { results = [] } = await db.prepare(`SELECT b.id, b.name, SUM(l.net_cents) AS cents FROM crm_brands b
         JOIN crm_lines l ON l.brand_id = b.id AND l.sold_at >= ? AND l.returned = 0 GROUP BY b.id ORDER BY cents DESC LIMIT 100`)
@@ -268,6 +290,10 @@ export async function handleCrm({ request, env }, overrides = {}) {
     if (route === 'forget') {
       // A customer's request to be removed. Their GrowFlow record is untouched.
       if (typeof input.customerId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(input.customerId)) throw new AppError('INPUT', 400);
+      if (env.APP_DB) await env.APP_DB.prepare(`DELETE FROM app_signup_visits WHERE user_id IN
+        (SELECT id FROM app_users WHERE customer_id = ?)`).bind(input.customerId).run().catch(error => {
+          if (!/no such table.*app_signup_visits/i.test(String(error.message))) throw error;
+        });
       await db.batch(forgetStatements(db, input.customerId));
       await audit(env, deps, user.email, 'forget_customer', null);
       return json(200, { forgotten: true });
@@ -285,6 +311,7 @@ export async function handleCrm({ request, env }, overrides = {}) {
       CRM_CSRF: 'Please reload the page and try again.', SEGMENT_RULES: 'Please check the segment rules.',
       SEGMENT_NAME: 'Please give the segment a name.', CRM_RATE_LIMITED: 'GrowFlow is busy. Please try again in a minute.',
       INPUT: 'Please check the information and try again.',
+      SIGNUP_SETUP: 'Apply the signup migrations to APP_DB and CRM_DB before using this report.',
       CAMPAIGNS_CONFIG: 'Deals & news campaigns aren’t switched on yet.', ASSISTANT_CONFIG: 'The campaign assistant isn’t switched on yet.',
       SUGGESTION_DONE: 'That suggestion was already decided or has expired.',
       FEEDBACK_CONFIG: 'Visit ratings aren’t switched on yet.',
