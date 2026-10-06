@@ -27,6 +27,16 @@ for (const page of ['app/index.html', 'staff/index.html', 'crm/index.html']) {
   }
   await writeFile(file, html);
 }
+// Precache the exact content-versioned assets referenced by this release's app.
+// A new shell cache per release keeps its HTML and assets together offline.
+const appHtml = await readFile(path.join(out, 'app/index.html'), 'utf8');
+const shellAssets = [...appHtml.matchAll(/(?:href|src)="(\/assets\/customer\/[^" ]+)"/g)].map(match => match[1]);
+const shellVersion = createHash('sha256').update(appHtml).digest('hex').slice(0, 12);
+const swFile = path.join(out, 'app/sw.js');
+let sw = await readFile(swFile, 'utf8');
+sw = sw.replace("const CACHE = 'treehouse-shell-v4';", `const CACHE = 'treehouse-shell-v4-${shellVersion}';`)
+  .replace(/^const SHELL = .*;$/m, `const SHELL = ${JSON.stringify(['/app/', ...shellAssets, '/app/icon.svg', '/images/img6.png'])};`);
+await writeFile(swFile, sw);
 // Same UI in a separately labelled, static demo. It never calls live APIs.
 await mkdir(path.join(out, 'app', 'demo'), { recursive: true });
 await cp(path.join(out, 'app', 'index.html'), path.join(out, 'app', 'demo', 'index.html'));
