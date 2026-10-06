@@ -17,6 +17,10 @@ Keep the in-person identity check. Have the customer create and verify their acc
 
 Make these changes only in the protected test environment initially. Keep current Access protection, approved hostnames, Auth0 callback URLs and existing secrets.
 
+The configured `treehouse-app-test` Pages project uses `feature/treehouse-customer-app` as its default deployment branch. Publish the reviewed signup changes to that test branch and use `https://treehouse-app-test.pages.dev/app/#setup`. Cloudflare calls this project's default environment **Production**, even though it is our separate test site. Apply the settings below to that environment in **treehouse-app-test**. This does not mean the live `holy-smokes-website` project or the Git `main` branch.
+
+`feature/app-signup-attribution` is the review branch. Its preview URL is not the end-to-end test target: previews have separate bindings/settings and their hostname needs its own app/Auth0 configuration. Keep the existing test hostname and Access protection instead of copying secrets or changing login hostnames just for this rollout.
+
 | Where | Change |
 | --- | --- |
 | Test `APP_DB` | Execute `app-migrations/0009_signup.sql` once, after the existing app migrations. |
