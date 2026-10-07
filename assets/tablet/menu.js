@@ -4,6 +4,11 @@ const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: '
 const state = { menu: null, category: 'All', loading: false, error: '', selected: new Set() };
 const controlIds = ['search', 'type', 'brand', 'budget', 'size', 'sort'];
 const IDLE_MS = 120000;
+// The same browse-only menu runs on the counter tablet (/tablet/) and the website's Menu page
+// (<body data-menu="website">). Only the tablet resets itself after two idle minutes and keeps
+// the screen awake; only the website shows product photos and keeps the heading in the address
+// (/menu?category=Flower) so it can be linked to.
+const site = document.body.dataset.menu === 'website';
 let idleTimer, toastTimer, wakeLock, wakePending = false;
 function node(tag, text = '', className = '') {
   const item = document.createElement(tag); item.textContent = text; if (className) item.className = className; return item;
@@ -63,6 +68,10 @@ function labDetails(product, make) {
 }
 function card(product) {
   const item = node('article', '', 'product'); item.dataset.productId = product.id;
+  if (site && product.image) {
+    const photo = node('img', '', 'product-photo'); photo.src = product.image; photo.alt = ''; photo.loading = 'lazy'; photo.decoding = 'async';
+    photo.addEventListener('error', () => photo.remove()); item.append(photo);
+  }
   const top = node('div', '', 'product-top'); top.append(node('span', [product.category, ...Object.values(product.facets || {})].filter((v,i,a)=>v && a.indexOf(v)===i).join(' · '), 'product-category'));
   if (product.type || product.cbdRich) top.append(node('span', product.type || 'CBD-rich', `product-type ${product.type || ''}`));
   item.append(top, node('p', product.brand || 'Treehouse selection', 'product-brand'), node('h2', product.name));
@@ -114,13 +123,13 @@ function render(preservePosition = false) {
   const saved = preservePosition ? anchor() : null;
   const products = state.menu?.products || [];
   const categories = ['All', ...(state.menu?.categories || [])];
-  if (!categories.includes(state.category)) state.category = 'All';
+  if (state.menu && !categories.includes(state.category)) state.category = 'All';
   updateOptions('brand', [...new Set(products.map(p => p.brand).filter(Boolean))].sort(), 'All brands');
   updateOptions('size', [...new Map(products.filter(p => p.flower).flatMap(p => p.variants).map(v => [v.size,v.grams || 0])).entries()].sort((a,b)=>a[1]-b[1]).map(([size])=>size), 'All sizes');
   const buttons = categories.map(category => {
     const button = node('button', category); button.type = 'button'; button.setAttribute('aria-pressed', String(category === state.category));
     button.append(node('span', String(products.filter(p => inSection(p, category)).length)));
-    button.addEventListener('click', () => { state.category = category; state.selected.clear(); render(); }); return button;
+    button.addEventListener('click', () => { state.category = category; state.selected.clear(); render(); rememberCategory(); }); return button;
   });
   const categoryScroll = $('categories').scrollLeft;
   $('categories').replaceChildren(...buttons); $('categories').scrollLeft = categoryScroll; renderFacets(products);
@@ -167,9 +176,16 @@ async function refresh() {
     else renderWhenStill();
   }
 }
+function rememberCategory() {
+  if (!site) return;
+  const url = new URL(location.href);
+  if (state.category === 'All') url.searchParams.delete('category'); else url.searchParams.set('category', state.category);
+  history.replaceState(null, '', url);
+}
 function reset(automatic = false) {
   state.category = 'All'; state.selected.clear(); controlIds.forEach(id => { $(id).value = id === 'sort' ? 'price' : ''; });
-  document.activeElement?.blur(); render(); window.scrollTo({top:0,behavior:'instant'}); $('categories').scrollLeft = 0;
+  document.activeElement?.blur(); render(); rememberCategory(); $('categories').scrollLeft = 0;
+  if (!site) window.scrollTo({top:0,behavior:'instant'});
   if (automatic) { $('reset-message').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(()=>{ $('reset-message').hidden = true; },3500); }
 }
 function activity() { clearTimeout(idleTimer); idleTimer = setTimeout(()=>reset(true), IDLE_MS); }
@@ -181,9 +197,11 @@ async function keepAwake() {
   finally { wakePending = false; }
 }
 controlIds.forEach(id => $(id).addEventListener(id === 'search' ? 'input' : 'change', () => render()));
-$('reset').addEventListener('click',()=>reset()); $('clear').addEventListener('click',()=>reset()); $('retry').addEventListener('click',()=>void refresh());
-for (const event of ['pointerdown','pointermove','keydown','input','scroll']) document.addEventListener(event,activity,{passive:true});
-document.addEventListener('pointerdown',()=>void keepAwake(),{passive:true});
+$('reset')?.addEventListener('click',()=>reset()); $('clear').addEventListener('click',()=>reset()); $('retry').addEventListener('click',()=>void refresh());
+if (!site) {
+  for (const event of ['pointerdown','pointermove','keydown','input','scroll']) document.addEventListener(event,activity,{passive:true});
+  document.addEventListener('pointerdown',()=>void keepAwake(),{passive:true});
+}
 let scrollAnchor = null, resizing = false, resizeTimer, viewportWidth = innerWidth;
 addEventListener('scroll',()=>{ lastScroll = Date.now(); if (!resizing && innerWidth === viewportWidth) scrollAnchor = anchor(); },{passive:true});
 // Only a width change (rotation) moves the page back to the product that was in view. Phone
@@ -194,9 +212,13 @@ addEventListener('resize',()=>{
   resizeTimer = setTimeout(()=>{ restoreAnchor(scrollAnchor); resizing = false; viewportWidth = innerWidth; scrollAnchor = anchor(); },160);
 });
 addEventListener('online',()=>void refresh());
-document.addEventListener('visibilitychange',()=>{ if (!document.hidden) { reset(); activity(); void refresh(); void keepAwake(); } });
+document.addEventListener('visibilitychange',()=>{ if (document.hidden) return; if (!site) { reset(); activity(); void keepAwake(); } void refresh(); });
 setInterval(()=>{ if (!document.hidden) void refresh(); },60000);
-activity(); void keepAwake(); void refresh();
+// A linked heading (/menu?category=Flower) opens on that heading once the menu has it.
+const linkedCategory = site ? new URL(location.href).searchParams.get('category') : null;
+if (linkedCategory) state.category = linkedCategory;
+if (!site) { activity(); void keepAwake(); }
+void refresh();
 
 
 // Boxes start unchecked (everything shows); checking narrows. Each count is what checking
@@ -236,6 +258,7 @@ function renderFacets(products) {
  const reset=node('button','Show all '+state.category);reset.type='button';reset.hidden=!state.selected.size;
  reset.addEventListener('click',()=>{state.selected.clear();render();});panel.append(reset);
  const selected=$('categories').querySelector('[aria-pressed="true"]');
- selected.after(panel);
+ // Under the chosen heading; on the website's phone layout the headings are one swipeable row, so below it.
+ if (site && matchMedia('(max-width: 580px)').matches) $('categories').after(panel); else selected.after(panel);
  if(focus) [...panel.querySelectorAll('input')].find(el=>el.dataset.facet===focus)?.focus();
 }

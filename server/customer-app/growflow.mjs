@@ -266,15 +266,17 @@ export function normalizeMenu(input, stock, now, categoryTypes = new Map()) {
       variants.splice(0, variants.length, ...stocked);
       seen.add(p.id);
       const category = placed.department, flower = ['Flower', 'Smalls', 'Shake'].includes(category);
+      // House products: Treehouse-grown categories, or anything under the Treehouse brand.
+      const house = placed.house || /^tree\s?house\b/i.test(clean(p.brand));
       const thc = potencyRange(eligiblePackages, 'totalPotentialPsychoactiveThc'), cbd = potencyRange(eligiblePackages, 'cbd');
       const terpenes = terpeneRange(eligiblePackages), lab = labPanel(eligiblePackages);
       // CBD-rich: tested CBD at least 1% and at least equal to THC (CBD-dominant or balanced).
       const cbdRich = Boolean(cbd && cbd[1] >= 1 && cbd[1] >= (thc ? thc[1] : 0));
       products.push({ id: p.id, name: flower ? clean(p.strain) || clean(p.name) : clean(p.name),
         packageIds,
-        brand: clean(p.brand), category, facets: placed.facets, ...(placed.house ? { house: true } : {}),
+        brand: clean(p.brand), category, facets: placed.facets, ...(house ? { house: true } : {}),
         // Extra tabs this product is also listed under.
-        also: [...(placed.house ? [HOUSE] : []), ...(cbdRich && category !== CBD ? [CBD] : [])],
+        also: [...(house ? [HOUSE] : []), ...(cbdRich && category !== CBD ? [CBD] : [])],
         sourceCategory: clean(p.category), flower, type: ['indica', 'sativa', 'hybrid'].includes(normalized(p.cannabisType))
           ? normalized(p.cannabisType) : '', variants, thc, cbd, terpenes, ...(lab ? { lab } : {}),
         cbdRich,
@@ -384,7 +386,7 @@ export async function rankPopular(env, menu) {
 }
 export async function getMenu(env, deps) {
   const key = await hash(env.APP_LIMIT_SECRET,
-    `menu:v13-popular:${env.GROWFLOW_ORG}:${env.APP_MENU_KEY}:${inventoryStore(env)}:${env.APP_GROWFLOW_TOKEN}`);
+    `menu:v14-house-brand:${env.GROWFLOW_ORG}:${env.APP_MENU_KEY}:${inventoryStore(env)}:${env.APP_GROWFLOW_TOKEN}`);
   const cached = await env.APP_DB.prepare('SELECT value, updated_at FROM app_cache WHERE key = ?').bind(key).first();
   const age = cached ? deps.now() - cached.updated_at : Infinity;
   const fallback = () => {

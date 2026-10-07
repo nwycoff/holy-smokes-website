@@ -1171,3 +1171,12 @@ test('a full-size menu refresh reads stock for 1,200 packages in parallel batche
   assert.equal(calls,12);assert.equal(peak,4);assert.equal(stock.get('pkg1199'),2);
   assert.equal((await readSellableInventory(ids,s.env,s.deps)).size,1200); // 24 requests within one minute is fine
 });
+
+test('Treehouse-brand products are house products too, whatever their GrowFlow category', () => {
+  const item=(id,category,brand)=>({id,name:id,brand,category,variants:[{price:1000}],packages:[{room:'Front',qty:5,testResults:null}]});
+  const input={pricesIncludeTax:true,menuGroups:[{name:'Everything',products:[item('pr','Pre-Roll','Treehouse Farms'),item('other','Pre-Roll','Aero Labs'),item('bud','Tree House Small Bud','')]}]};
+  const menu=normalizeMenu(input,stocked(input),Date.now()), get=id=>menu.products.find(p=>p.id===id);
+  assert.deepEqual([get('pr').house,get('pr').also,get('pr').category],[true,['Treehouse'],'Pre-Rolls']);
+  assert.equal(get('other').house,undefined);assert.equal(get('bud').house,true);
+  assert.equal(menu.categories[0],'Treehouse');
+});

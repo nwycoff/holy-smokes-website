@@ -8,7 +8,8 @@
     "test:browser": "npm run build && node tests/customer-app.browser.mjs",
     "test:staff-browser": "npm run build && node tests/staff-enrollment.browser.mjs",
     "test:signup-browser": "npm run build && node tests/signup.browser.mjs",
-    "test:tablet-browser": "npm run build && node tests/tablet-menu.browser.mjs"
+    "test:tablet-browser": "npm run build && node tests/tablet-menu.browser.mjs",
+    "test:site-browser": "npm run build && node tests/site-menu.browser.mjs"
   },
   "engines": {
     "node": ">=22"

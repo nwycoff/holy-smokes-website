@@ -44,6 +44,9 @@
 /assets/staff/*
   Cache-Control: no-cache
 
+/assets/menu/*
+  Cache-Control: no-cache
+
 /tablet/*
   X-Robots-Tag: noindex, nofollow
   Cache-Control: no-store
