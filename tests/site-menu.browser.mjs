@@ -51,9 +51,15 @@ try {
   await plain.close();
   await page.clock.install();
   await page.goto(`${base}/menu/pre-rolls`);
+  // Tailwind is stubbed out here, so give the header its real logo size and hide the mobile menu.
+  await page.addStyleTag({ content:'#mainNav img, footer img { width:40px; height:40px; } #mobileMenu { display:none; }' });
   await page.clock.runFor(1000);
   await page.waitForSelector('#category-facets', { timeout:10000 }); // the live menu has loaded and the script has taken over
   assert.match(await page.locator('#categories [aria-current="page"]').textContent(), /^Pre-Rolls/, 'the page opens on its heading');
+  // The page clock is faked, so poll from here in real time.
+  let logo = false;
+  for (let i = 0; i < 50 && !logo; i++) { logo = await page.locator('#mainNav img').evaluate(img => img.complete && img.naturalWidth > 0); if (!logo) await new Promise(r => setTimeout(r, 100)); }
+  assert.ok(logo, 'the logo loads on heading pages');
   assert.equal(await page.locator('#refine').evaluate(d => d.open), true, 'filters are open beside the products on wide screens');
   assert.equal(await page.locator('#category-facets').count(), 1, 'the heading has its sub-filters');
   await page.getByRole('checkbox', { name:/Multipacks/ }).check();

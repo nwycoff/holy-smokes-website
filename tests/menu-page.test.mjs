@@ -49,6 +49,11 @@ test('each heading page has its own title, description, canonical, heading and p
   assert.equal(pages.Treehouse.title, 'Treehouse Products in Ponca City, OK | Treehouse Pharmacy Menu');
   assert.equal(pages['Pre-Rolls'].path, '/menu/pre-rolls');
 });
+test('every link and image on menu pages works from heading addresses like /menu/pre-rolls', async () => {
+  const html = await (await page('/menu/pre-rolls')).text();
+  const relative = [...html.matchAll(/(?:src|href)="([^"]*)"/g)].map(m => m[1]).filter(u => !/^(https?:|\/|#|mailto:|tel:)/.test(u));
+  assert.deepEqual(relative, []);
+});
 test('the overview lists every heading and the most popular products first', async () => {
   const html = await (await page('/menu')).text();
   assert.match(html, /<title>Live Menu \| Treehouse Pharmacy/);
