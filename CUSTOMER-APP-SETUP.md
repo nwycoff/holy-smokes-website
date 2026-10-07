@@ -13,7 +13,7 @@ This branch adds `/app/` and a clearly labelled `/app/demo/`. It does not change
 - Owner-issued, one-use connection codes after an in-person identity check. Codes expire after ten minutes; database stores their HMAC, not the usable code. A customer record can belong to only one app account.
 - Points lookup uses only the customer ID attached to that server-side session. Browser callers cannot supply another customer's ID.
 - Menu availability uses store-scoped `findInventory` quantities. Explicitly non-sellable, deleted, waste and return locations are excluded. Unknown sellability and unassigned inventory are allowed by owner policy; room names and METRC rooms do not determine eligibility.
-- Brand followed by strain for flower, falling back to product name. Prices are provider variant prices in cents, with the menu's explicit tax flag. THC comes only from eligible packages; conflicting tests appear as a range. Individual terpene enrichment is not included in this first mobile release; the TV application is unchanged.
+- Brand followed by strain for flower, falling back to product name. Prices are provider variant prices in cents, with the menu's explicit tax flag. THC comes only from eligible packages; conflicting tests appear as a range. Terpenes come from the same menu lab results (`testResults`: 14 named terpenes plus `totalTerpenes`) on in-stock packages: cards on the app and tablet show the total and the three largest, as ranges when packages differ. The total is the lab's figure, or the sum of the named terpenes when the lab gave none. The TV application is unchanged.
 
 ## Review without any secrets
 

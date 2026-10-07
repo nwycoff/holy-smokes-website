@@ -28,12 +28,23 @@ function sorted(products, sort) {
 }
 function range(label, r) { return Array.isArray(r) && r.length === 2 && r.every(Number.isFinite)
   ? `${label} ${r[0].toFixed(1)}${r[0] === r[1] ? '' : `–${r[1].toFixed(1)}`}%` : ''; }
+// "Terpenes 1.50% · Myrcene 0.52% · Limonene 0.31% · Linalool 0.24%" (ranges when packages differ).
+const isRange = r => Array.isArray(r) && r.length === 2 && r.every(Number.isFinite);
+const terpenePercent = r => `${r[0].toFixed(2)}${r[0] === r[1] ? '' : `–${r[1].toFixed(2)}`}%`;
+function terpeneLine(t) {
+  if (!t || !isRange(t.total) || !Array.isArray(t.top)) return null;
+  const parts = [`Terpenes ${terpenePercent(t.total)}`, ...t.top.filter(x => x && isRange(x.range)).map(x => `${x.name} ${terpenePercent(x.range)}`)];
+  const line = node('p', '', 'terpenes');
+  line.append(...parts.flatMap((part, i) => [...(i ? [' · '] : []), node('span', part)]));
+  return line;
+}
 function card(product) {
   const item = node('article', '', 'product'); item.dataset.productId = product.id;
   const top = node('div', '', 'product-top'); top.append(node('span', [product.browse.section, ...Object.values(product.browse.facets).filter(v => v !== 'Not specified')].filter((v,i,a)=>a.indexOf(v)===i).join(' · '), 'product-category'));
   if (product.type || product.cbdRich) top.append(node('span', product.type || 'CBD-rich', `product-type ${product.type || ''}`));
   item.append(top, node('p', product.brand || 'Treehouse selection', 'product-brand'), node('h2', product.name));
   item.append(node('p', [range('Total THC', product.thc), product.cbd?.[1] >= 1 ? range('CBD', product.cbd) : ''].filter(Boolean).join(' · ') || 'Ask us for testing details', 'potency'));
+  const terpenes = terpeneLine(product.terpenes); if (terpenes) item.append(terpenes);
   const variants = node('div', '', 'variants');
   for (const variant of product.variants) {
     const row = node('div', '', 'variant'), price = node('div');

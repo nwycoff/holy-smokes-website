@@ -541,6 +541,9 @@ function renderAccount() {
   panel.append(details); target.append(panel);
   const notifications = notificationsPanel(); if (notifications) target.append(notifications);
 }
+// "Terpenes 1.50% · Myrcene 0.52% · Limonene 0.31% · Linalool 0.24%" (ranges when packages differ).
+const terpenePercent = r => `${r[0].toFixed(2)}${r[0] !== r[1] ? '–' + r[1].toFixed(2) : ''}%`;
+const terpeneParts = t => [`Terpenes ${terpenePercent(t.total)}`, ...t.top.map(x => `${x.name} ${terpenePercent(x.range)}`)];
 function productCard(product) {
   const card = $('product-template').content.firstElementChild.cloneNode(true);
   card.querySelector('.product-category').textContent = product.category;
@@ -550,6 +553,11 @@ function productCard(product) {
   const range = (label, r) => r ? `${label} ${r[0].toFixed(1)}${r[0] !== r[1] ? '–' + r[1].toFixed(1) : ''}%` : '';
   card.querySelector('.product-thc').textContent = [range('Total THC', product.thc), product.cbd?.[1] >= 1 ? range('CBD', product.cbd) : '']
     .filter(Boolean).join(' · ') || 'Ask your budtender for testing details';
+  const terpenes = card.querySelector('.product-terpenes');
+  if (product.terpenes) {
+    terpenes.replaceChildren(...terpeneParts(product.terpenes).flatMap((part, i) => [...(i ? [' · '] : []), el('span', part)]));
+    terpenes.hidden = false;
+  }
   if (product.cbdRich) card.querySelector('.product-type').textContent = product.type ? `${product.type} · CBD-rich` : 'CBD-rich';
   const image = card.querySelector('.product-image');
   if (product.image) { image.src = product.image; image.hidden = false; image.addEventListener('error', () => { image.hidden = true; }); }

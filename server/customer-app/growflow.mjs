@@ -16,7 +16,8 @@ export const MENU_QUERY = `query TreehouseMobileMenu($menuKey: String!) {
       unitWeight unitWeightUOM netWeight netWeightUOM
       variants { weight uom price }
       packages { id
-        testResults { uom totalPotentialPsychoactiveThc cbd }
+        testResults { uom totalPotentialPsychoactiveThc cbd totalTerpenes myrcene limonene caryophyllene linalool humulene
+          alphaPinene betaPinene terpinolene alphaBisabolol caryophylleneOxide eucalyptol alphaTerpinene cisNerolidol transNerolidol }
       }
     } }
   }
@@ -115,13 +116,39 @@ const clean = value => typeof value === 'string' ? value.trim().slice(0, 250) : 
 const normalized = value => clean(value).toLocaleLowerCase('en-US');
 // Percentage lab results across the eligible packages, as [min, max]; null unless every
 // package reports a valid percentage (conflicting tests show as a range).
+const inPercent = t => ['%', 'percent', 'percentage', 'pct'].includes(normalized(t?.uom));
 function potencyRange(packages, field) {
   const values = packages.map(p => {
     const t = p.testResults, v = t?.[field];
-    return ['%', 'percent', 'percentage', 'pct'].includes(normalized(t?.uom))
-      && typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 100 ? v : null;
+    return inPercent(t) && typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 100 ? v : null;
   });
   return values.length && values.every(v => v !== null) ? [Math.min(...values), Math.max(...values)] : null;
+}
+// GrowFlow's menu lab results name these terpenes individually (anything else is lumped into
+// otherTerpenes, a free-text field we don't show).
+export const TERPENES = { myrcene: 'Myrcene', limonene: 'Limonene', caryophyllene: 'Caryophyllene', linalool: 'Linalool',
+  humulene: 'Humulene', alphaPinene: 'α-Pinene', betaPinene: 'β-Pinene', terpinolene: 'Terpinolene', alphaBisabolol: 'Bisabolol',
+  caryophylleneOxide: 'Caryophyllene oxide', eucalyptol: 'Eucalyptol', alphaTerpinene: 'α-Terpinene',
+  cisNerolidol: 'cis-Nerolidol', transNerolidol: 'trans-Nerolidol' };
+const hundredths = v => Math.round(v * 100) / 100;
+const spread = values => [hundredths(Math.min(...values)), hundredths(Math.max(...values))];
+// Terpenes across the in-stock packages that report any, in percent: the three largest (as
+// [min, max] ranges, like THC) and the total. The total is GrowFlow's figure when the lab gave
+// one, otherwise the sum of the named terpenes.
+function terpeneProfile(packages) {
+  const tested = packages.map(p => p.testResults).filter(inPercent).map(t => {
+    const values = new Map(Object.keys(TERPENES).map(k => [k, t[k]])
+      .filter(([, v]) => typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 100));
+    const stated = typeof t.totalTerpenes === 'number' ? t.totalTerpenes
+      : /^\s*\d+(\.\d+)?\s*%?\s*$/.test(String(t.totalTerpenes ?? '')) ? parseFloat(t.totalTerpenes) : NaN;
+    return { values, total: stated > 0 && stated <= 100 ? stated : [...values.values()].reduce((sum, v) => sum + v, 0) };
+  }).filter(t => t.values.size);
+  if (!tested.length) return null;
+  const top = Object.entries(TERPENES).map(([key, name]) => {
+    const values = tested.map(t => t.values.get(key)).filter(v => v !== undefined);
+    return values.length ? { name, range: spread(values) } : null;
+  }).filter(Boolean).sort((a, b) => b.range[1] - a.range[1] || a.name.localeCompare(b.name)).slice(0, 3);
+  return { top, total: spread(tested.map(t => t.total)) };
 }
 const GRAMS = { g: 1, gram: 1, grams: 1, gr: 1, oz: 28.3495, ounce: 28.3495, ounces: 28.3495 };
 const GRAMS_PER = { grams: 1, g: 1, milligrams: 0.001, mg: 0.001, oz: 28.3495 };
@@ -226,10 +253,11 @@ export function normalizeMenu(input, stock, now, categoryTypes = new Map()) {
       if (!categories.includes(category)) categories.push(category);
       const flower = /flower|smalls|top shelf/i.test(`${p.category} ${category}`);
       const thc = potencyRange(eligiblePackages, 'totalPotentialPsychoactiveThc'), cbd = potencyRange(eligiblePackages, 'cbd');
+      const terpenes = terpeneProfile(eligiblePackages);
       products.push({ id: p.id, name: flower ? clean(p.strain) || clean(p.name) : clean(p.name),
         packageIds,
         brand: clean(p.brand), category, sourceCategory: clean(p.category), flower, type: ['indica', 'sativa', 'hybrid'].includes(normalized(p.cannabisType))
-          ? normalized(p.cannabisType) : '', variants, thc, cbd,
+          ? normalized(p.cannabisType) : '', variants, thc, cbd, terpenes,
         // CBD-rich: tested CBD at least 1% and at least equal to THC (CBD-dominant or balanced).
         cbdRich: Boolean(cbd && cbd[1] >= 1 && cbd[1] >= (thc ? thc[1] : 0)),
         image: imageUrl(p.image), description: plainText(p.description), stockUnits, limitGroup: group });
@@ -327,7 +355,7 @@ export function purchaseLimits(env) {
 }
 export async function getMenu(env, deps) {
   const key = await hash(env.APP_LIMIT_SECRET,
-    `menu:v9-inventory:${env.GROWFLOW_ORG}:${env.APP_MENU_KEY}:${inventoryStore(env)}:${env.APP_GROWFLOW_TOKEN}`);
+    `menu:v10-terpenes:${env.GROWFLOW_ORG}:${env.APP_MENU_KEY}:${inventoryStore(env)}:${env.APP_GROWFLOW_TOKEN}`);
   const cached = await env.APP_DB.prepare('SELECT value, updated_at FROM app_cache WHERE key = ?').bind(key).first();
   const age = cached ? deps.now() - cached.updated_at : Infinity;
   const fallback = () => {

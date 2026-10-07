@@ -4,8 +4,10 @@ export const demoMenu = {
   categories: ['Flower', 'Concentrates', 'Vapes', 'Edibles'],
   products: [
     { id:'demo-1', brand:'Sample Garden', name:'Golden Hour', category:'Flower', limitGroup:'flower', flower:true, type:'hybrid', thc:[24.2,24.2], cbd:null, cbdRich:false,
+      terpenes:{total:[1.62,1.62],top:[{name:'Limonene',range:[0.51,0.51]},{name:'Caryophyllene',range:[0.42,0.42]},{name:'Myrcene',range:[0.3,0.3]}]},
       variants:[{size:'3.5 g',priceCents:1500,grams:3.5,pricePerGramCents:429,available:2,limitUse:3.5}], description:'Bright, citrusy and easygoing.' },
     { id:'demo-2', brand:'Sample Garden', name:'Sunday Slowdown', category:'Flower', limitGroup:'flower', flower:true, type:'indica', thc:[26.5,26.5], cbd:null, cbdRich:false,
+      terpenes:{total:[1.88,2.05],top:[{name:'Myrcene',range:[0.86,0.9]},{name:'Linalool',range:[0.24,0.31]},{name:'Humulene',range:[0.14,0.14]}]},
       variants:[{size:'3.5 g',priceCents:2000,grams:3.5,pricePerGramCents:571,available:10,limitUse:3.5}] },
     { id:'demo-3', brand:'Example Extracts', name:'Citrus Live Resin', category:'Concentrates', limitGroup:'concentrate', type:'sativa', thc:[72.4,72.4], cbd:null, cbdRich:false,
       variants:[{size:'1 g',priceCents:2000,grams:1,pricePerGramCents:2000,available:10,limitUse:1}] },
