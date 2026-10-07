@@ -384,21 +384,37 @@ export async function rankPopular(env, menu) {
     .forEach((p, i) => { p.popular = i + 1; });
   return menu;
 }
+// The menu is refreshed at most once a minute for everyone (a database lock), and a refresh
+// takes several seconds (about a thousand products and their stock). While the saved copy is
+// under 3 minutes old, visitors get it at once and one request refreshes it in the background
+// (deps.waitUntil). An older copy is refreshed while the visitor waits, and is only labelled
+// stale ("Update delayed") if that fails; after 5 minutes it is withheld.
+const MENU_FRESH = 60000, MENU_DELAYED = 180000, MENU_MAX_AGE = 300000;
 export async function getMenu(env, deps) {
   const key = await hash(env.APP_LIMIT_SECRET,
     `menu:v14-house-brand:${env.GROWFLOW_ORG}:${env.APP_MENU_KEY}:${inventoryStore(env)}:${env.APP_GROWFLOW_TOKEN}`);
   const cached = await env.APP_DB.prepare('SELECT value, updated_at FROM app_cache WHERE key = ?').bind(key).first();
   const age = cached ? deps.now() - cached.updated_at : Infinity;
-  const fallback = () => {
-    if (age > 300000) throw new AppError('MENU_UNAVAILABLE');
-    return { ...JSON.parse(cached.value), stale: true };
+  const saved = () => {
+    if (age > MENU_MAX_AGE) throw new AppError('MENU_UNAVAILABLE');
+    const menu = JSON.parse(cached.value);
+    return age > MENU_DELAYED ? { ...menu, stale: true } : menu;
   };
-  if (age < 60000) return JSON.parse(cached.value);
+  if (age < MENU_FRESH) return JSON.parse(cached.value);
   // Database lock limits the whole app to one menu refresh/minute, not one per visitor.
   const lock = await env.APP_DB.prepare(`INSERT INTO app_locks(key, expires_at) VALUES (?, ?)
     ON CONFLICT(key) DO UPDATE SET expires_at = excluded.expires_at
     WHERE app_locks.expires_at <= ? RETURNING key`).bind(key, deps.now() + 60000, deps.now()).first();
-  if (!lock) return fallback();
+  if (!lock) return saved();
+  const refresh = refreshMenu(env, deps, key);
+  if (cached && age <= MENU_DELAYED && deps.waitUntil) {
+    deps.waitUntil(refresh.catch(() => {}));
+    return saved();
+  }
+  try { return await refresh; }
+  catch { return saved(); }
+}
+async function refreshMenu(env, deps, key) {
   try {
     // The full menu (hundreds of products with photos and weights) can take GrowFlow a while.
     const result = await queryGrowflow(env, deps, MENU_QUERY, { menuKey: env.APP_MENU_KEY }, env.APP_GROWFLOW_TOKEN, 25000);
@@ -415,7 +431,7 @@ export async function getMenu(env, deps) {
     return menu;
   } catch (error) {
     deps.report(`MENU_REFRESH_${error?.code || 'ERROR'}${error?.category ? `_${error.category}` : ''}`);
-    return fallback();
+    throw error;
   }
 }
 

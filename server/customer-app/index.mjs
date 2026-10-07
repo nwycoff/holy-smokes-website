@@ -29,7 +29,9 @@ async function cleanup(env, now) {
 export async function handleApp(context, overrides = {}) {
   const { request, env } = context;
   const deps = { fetch: (url, options) => globalThis.fetch(url, options), now: Date.now,
-    report: code => console.warn(`TREEHOUSE_APP_FAILURE ${code}`), ...overrides };
+    report: code => console.warn(`TREEHOUSE_APP_FAILURE ${code}`),
+    // Lets slow work (a menu refresh) finish after the response is sent.
+    ...(typeof context.waitUntil === 'function' ? { waitUntil: promise => context.waitUntil(promise) } : {}), ...overrides };
   const report = deps.report;
   deps.trackingDenied = request.headers.get('sec-gpc') === '1' || request.headers.get('dnt') === '1';
   deps.report = code => { try { report(code); } catch { /* Logging cannot expose or break a response. */ } };

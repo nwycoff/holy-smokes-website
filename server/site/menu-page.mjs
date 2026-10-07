@@ -154,7 +154,8 @@ export async function handleMenuPage(context, overrides = {}) {
   if (page.status >= 300 && page.status < 400 && page.headers.get('location')) page = await env.ASSETS.fetch(new URL(page.headers.get('location'), url));
   const template = await page.text();
   const deps = { fetch: (u, o) => globalThis.fetch(u, o), now: Date.now,
-    report: code => { try { console.warn(`TREEHOUSE_MENU_PAGE ${code}`); } catch { /* never break a page */ } }, ...overrides };
+    report: code => { try { console.warn(`TREEHOUSE_MENU_PAGE ${code}`); } catch { /* never break a page */ } },
+    ...(typeof context.waitUntil === 'function' ? { waitUntil: promise => context.waitUntil(promise) } : {}), ...overrides };
   let menu = null;
   if (deps.loadMenu || menuReady(env)) {
     try { menu = deps.loadMenu ? await deps.loadMenu() : publicMenu(await getMenu(env, deps)); }
