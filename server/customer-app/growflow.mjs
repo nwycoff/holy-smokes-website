@@ -1,5 +1,6 @@
 import { consumeLimits } from '../rewards.mjs';
 import { AppError, fetchSafe, hash } from './http.mjs';
+import { classifyProduct, DEPARTMENTS, HOUSE } from './taxonomy.mjs';
 
 // Contracts checked against the supplied retailGraphQLSchema.graphql. Live
 // permission/field checks and POS price comparison are required before enabling.
@@ -16,7 +17,7 @@ export const MENU_QUERY = `query TreehouseMobileMenu($menuKey: String!) {
       unitWeight unitWeightUOM netWeight netWeightUOM
       variants { weight uom price }
       packages { id
-        testResults { uom totalPotentialPsychoactiveThc cbd totalTerpenes myrcene limonene caryophyllene linalool humulene
+        testResults { uom totalPotentialPsychoactiveThc thc thca cbd cbda cbn cbc totalTerpenes myrcene limonene caryophyllene linalool humulene
           alphaPinene betaPinene terpinolene alphaBisabolol caryophylleneOxide eucalyptol alphaTerpinene cisNerolidol transNerolidol }
       }
     } }
@@ -124,9 +125,28 @@ function potencyRange(packages, field) {
   });
   return values.length && values.every(v => v !== null) ? [Math.min(...values), Math.max(...values)] : null;
 }
-// Named terpenes in GrowFlow's menu lab results, added up when a lab gave no total.
-export const TERPENES = ['myrcene', 'limonene', 'caryophyllene', 'linalool', 'humulene', 'alphaPinene', 'betaPinene', 'terpinolene',
-  'alphaBisabolol', 'caryophylleneOxide', 'eucalyptol', 'alphaTerpinene', 'cisNerolidol', 'transNerolidol'];
+// Named terpenes in GrowFlow's menu lab results (added up when a lab gave no total), with the
+// names shown in the lab panel.
+const TERPENE_NAMES = { myrcene: 'Myrcene', limonene: 'Limonene', caryophyllene: 'Caryophyllene', linalool: 'Linalool',
+  humulene: 'Humulene', alphaPinene: 'α-Pinene', betaPinene: 'β-Pinene', terpinolene: 'Terpinolene', alphaBisabolol: 'Bisabolol',
+  caryophylleneOxide: 'Caryophyllene oxide', eucalyptol: 'Eucalyptol', alphaTerpinene: 'α-Terpinene',
+  cisNerolidol: 'cis-Nerolidol', transNerolidol: 'trans-Nerolidol' };
+export const TERPENES = Object.keys(TERPENE_NAMES);
+const CANNABINOIDS = { thca: 'THCa', thc: 'Δ9-THC', cbd: 'CBD', cbda: 'CBDa', cbn: 'CBN', cbc: 'CBC' };
+const spread = values => [Math.round(Math.min(...values) * 100) / 100, Math.round(Math.max(...values) * 100) / 100];
+// The tap-to-open lab panel: each cannabinoid reported above zero, and the five largest
+// terpenes, as [min, max] percentage ranges across the in-stock packages that report them.
+function labPanel(packages) {
+  const tested = packages.map(p => p.testResults).filter(inPercent);
+  const rangeOf = key => {
+    const values = tested.map(t => t[key]).filter(v => typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 100);
+    return values.length ? spread(values) : null;
+  };
+  const rows = names => Object.entries(names).map(([key, name]) => ({ name, range: rangeOf(key) })).filter(row => row.range);
+  const cannabinoids = rows(CANNABINOIDS);
+  const terpenes = rows(TERPENE_NAMES).sort((a, b) => b.range[1] - a.range[1] || a.name.localeCompare(b.name)).slice(0, 5);
+  return cannabinoids.length || terpenes.length ? { cannabinoids, terpenes } : null;
+}
 // Total terpenes across the in-stock packages that report any, as a [min, max] percentage
 // range like THC: the lab's totalTerpenes when given, otherwise the sum of the named terpenes.
 function terpeneRange(packages) {
@@ -138,7 +158,7 @@ function terpeneRange(packages) {
       .reduce((total, v) => total + v, 0);
     return sum > 0 && sum <= 100 ? sum : null;
   }).filter(v => v !== null);
-  return totals.length ? [Math.round(Math.min(...totals) * 100) / 100, Math.round(Math.max(...totals) * 100) / 100] : null;
+  return totals.length ? spread(totals) : null;
 }
 const GRAMS = { g: 1, gram: 1, grams: 1, gr: 1, oz: 28.3495, ounce: 28.3495, ounces: 28.3495 };
 const GRAMS_PER = { grams: 1, g: 1, milligrams: 0.001, mg: 0.001, oz: 28.3495 };
@@ -204,17 +224,19 @@ export function menuPackageIds(input) {
   });
 }
 // The published menu decides what is sold and at what price; `stock` (package ID → sellable
-// quantity, from readSellableInventory) decides what is on hand right now.
+// quantity, from readSellableInventory) decides what is on hand right now. Menu group names
+// are ignored: each product's GrowFlow category places it (taxonomy.mjs).
 export function normalizeMenu(input, stock, now, categoryTypes = new Map()) {
   if (!input || !Array.isArray(input.menuGroups) || typeof input.pricesIncludeTax !== 'boolean'
     || !(stock instanceof Map)) throw new AppError('MENU_SHAPE');
-  const seen = new Set(), products = [], categories = [];
+  const seen = new Set(), products = [];
   for (const group of input.menuGroups) {
     if (!group || !Array.isArray(group.products) || typeof group.name !== 'string') throw new AppError('MENU_SHAPE');
-    const category = clean(group.name).replace(/^Screen\s*\d+\s*[-–—:]\s*/i, '') || 'More products';
     for (const p of group.products) {
       if (!p || typeof p.id !== 'string' || !clean(p.name)) throw new AppError('MENU_SHAPE');
       if (seen.has(p.id)) continue;
+      const placed = classifyProduct(clean(p.category), clean(p.name));
+      if (!placed) continue;
       const packageIds = [...new Set((Array.isArray(p.packages) ? p.packages : []).map(pkg => pkg?.id).filter(id => typeof id === 'string'))];
       const quantity = id => { const qty = stock.get(id); return Number.isFinite(qty) && qty > 0 ? qty : 0; };
       const eligiblePackages = packageIds.filter(id => quantity(id) > 0)
@@ -240,14 +262,14 @@ export function normalizeMenu(input, stock, now, categoryTypes = new Map()) {
       for (const v of stocked) v.limitUse = limitUse(group, p, v);
       variants.splice(0, variants.length, ...stocked);
       seen.add(p.id);
-      if (!categories.includes(category)) categories.push(category);
-      const flower = /flower|smalls|top shelf/i.test(`${p.category} ${category}`);
+      const category = placed.department, flower = category === 'Flower';
       const thc = potencyRange(eligiblePackages, 'totalPotentialPsychoactiveThc'), cbd = potencyRange(eligiblePackages, 'cbd');
-      const terpenes = terpeneRange(eligiblePackages);
+      const terpenes = terpeneRange(eligiblePackages), lab = labPanel(eligiblePackages);
       products.push({ id: p.id, name: flower ? clean(p.strain) || clean(p.name) : clean(p.name),
         packageIds,
-        brand: clean(p.brand), category, sourceCategory: clean(p.category), flower, type: ['indica', 'sativa', 'hybrid'].includes(normalized(p.cannabisType))
-          ? normalized(p.cannabisType) : '', variants, thc, cbd, terpenes,
+        brand: clean(p.brand), category, facets: placed.facets, ...(placed.house ? { house: true } : {}),
+        sourceCategory: clean(p.category), flower, type: ['indica', 'sativa', 'hybrid'].includes(normalized(p.cannabisType))
+          ? normalized(p.cannabisType) : '', variants, thc, cbd, terpenes, ...(lab ? { lab } : {}),
         // CBD-rich: tested CBD at least 1% and at least equal to THC (CBD-dominant or balanced).
         cbdRich: Boolean(cbd && cbd[1] >= 1 && cbd[1] >= (thc ? thc[1] : 0)),
         image: imageUrl(p.image), description: plainText(p.description), stockUnits, limitGroup: group });
@@ -255,6 +277,8 @@ export function normalizeMenu(input, stock, now, categoryTypes = new Map()) {
   }
   products.sort((a, b) => Math.min(...a.variants.map(v => v.priceCents)) - Math.min(...b.variants.map(v => v.priceCents))
     || a.name.localeCompare(b.name));
+  const categories = [...(products.some(p => p.house) ? [HOUSE] : []),
+    ...DEPARTMENTS.filter(d => products.some(p => p.category === d))];
   return { products, categories, pricesIncludeTax: input.pricesIncludeTax, updatedAt: now, stale: false };
 }
 
@@ -345,7 +369,7 @@ export function purchaseLimits(env) {
 }
 export async function getMenu(env, deps) {
   const key = await hash(env.APP_LIMIT_SECRET,
-    `menu:v11-terpenes:${env.GROWFLOW_ORG}:${env.APP_MENU_KEY}:${inventoryStore(env)}:${env.APP_GROWFLOW_TOKEN}`);
+    `menu:v12-departments:${env.GROWFLOW_ORG}:${env.APP_MENU_KEY}:${inventoryStore(env)}:${env.APP_GROWFLOW_TOKEN}`);
   const cached = await env.APP_DB.prepare('SELECT value, updated_at FROM app_cache WHERE key = ?').bind(key).first();
   const age = cached ? deps.now() - cached.updated_at : Infinity;
   const fallback = () => {

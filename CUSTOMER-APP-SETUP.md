@@ -233,3 +233,8 @@ Campaign sending, birthday automation, redemption, delivery and pickup-time slot
 Menu package location/sellability can disagree with actual GrowFlow inventory. The app and tablet now join menu package IDs to paginated, store-scoped `findInventory` results and sum eligible quantities. Unknown location/sellability is allowed by owner policy. An API failure is not an unknown status: failed or incomplete inventory reads block new preorders. Previously verified menus may be displayed with a stale warning for up to five minutes, but stale menus cannot be ordered from.
 
 The v8 cache discards older menu-derived availability. The app token needs **Packages & inventory** read access; no database migration is required. Preorder validation does not reserve stock atomically: simultaneous customers can still request the same stock until GrowFlow allocates packages.
+
+
+## Menu layout (2026-10-07)
+
+The menu key may point at a single-group GrowFlow menu: group names are ignored. Each product is placed by its GrowFlow product category (`server/customer-app/taxonomy.mjs`) into a department (Flower, Pre-Rolls, Vapes, Concentrates, Edibles, Tinctures & Topicals, CBD & Hemp, Seeds & Clones, Accessories; unknown categories go to More) with sub-filters such as Style, Packaging, Strength, or Type/Format/Pack. Treehouse-grown categories also appear under a Treehouse tab. Waste, sample (Sample- Flower, Pre-Pack Flower Samples) and Nicotine Products categories are never shown or orderable (patients may be under 21). A new GrowFlow category needs one line in `CATEGORIES` to get its own place. Cards have a Lab results panel with cannabinoids above zero and the five largest terpenes from in-stock packages.

@@ -1,4 +1,4 @@
-import { classify, matchesFacets, sectionOrder } from './categories.js';
+import { inSection, matchesFacets } from './categories.js';
 const $ = id => document.getElementById(id);
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
 const state = { menu: null, category: 'All', loading: false, error: '', selected: new Set() };
@@ -12,9 +12,9 @@ function selection() { return Object.fromEntries(controlIds.map(id => [id, $(id)
 // skipGroup leaves one facet group out, for that group's counts.
 function filtered(products, query, skipGroup = null) {
   const search = query.search.toLocaleLowerCase().trim();
-  return products.filter(p => (state.category === 'All' || p.browse.section === state.category)
+  return products.filter(p => inSection(p, state.category)
     && matchesFacets(p, state.selected, skipGroup)
-    && (!search || `${p.name} ${p.brand} ${p.category} ${p.sourceCategory || ''} ${Object.values(p.browse.facets).join(' ')} ${p.type}`.toLocaleLowerCase().includes(search))
+    && (!search || `${p.name} ${p.brand} ${p.category} ${p.sourceCategory || ''} ${Object.values(p.facets || {}).join(' ')} ${p.type}`.toLocaleLowerCase().includes(search))
     && (!query.type || (query.type === 'cbd' ? p.cbdRich : p.type === query.type))
     && (!query.brand || p.brand === query.brand)
     && p.variants.some(v => (!query.size || (p.flower && v.size === query.size))
@@ -29,13 +29,38 @@ function sorted(products, sort) {
 }
 function range(label, r, digits = 1) { return Array.isArray(r) && r.length === 2 && r.every(Number.isFinite)
   ? `${label} ${r[0].toFixed(digits)}${r[0] === r[1] ? '' : `–${r[1].toFixed(digits)}`}%` : ''; }
+// Tap-to-open lab panel: cannabinoids as figures, the top terpenes as bars scaled to the
+// largest (terpenes don't add up to 100%, so no pie). Stays open across re-renders.
+const openLab = new Set();
+function labDetails(product, make) {
+  const details = make('details', '', 'lab'); details.open = openLab.has(product.id);
+  details.addEventListener('toggle', () => { if (details.open) openLab.add(product.id); else openLab.delete(product.id); });
+  details.append(make('summary', 'Lab results'));
+  const pct = r => `${r[0].toFixed(2)}${r[0] !== r[1] ? '–' + r[1].toFixed(2) : ''}%`;
+  const section = (title, rows, bars) => {
+    if (!rows?.length) return;
+    const box = make('div', '', 'lab-section'), top = Math.max(...rows.map(r => r.range[1]));
+    box.append(make('p', title, 'lab-title'));
+    for (const r of rows) {
+      const row = make('div', '', 'lab-row'); row.append(make('span', r.name), make('strong', pct(r.range)));
+      if (bars) { const bar = make('i', '', 'lab-bar'); bar.style.width = `${Math.max(4, r.range[1] / top * 100)}%`; row.append(bar); }
+      box.append(row);
+    }
+    details.append(box);
+  };
+  section('Cannabinoids', product.lab.cannabinoids, false);
+  section('Top terpenes', product.lab.terpenes, true);
+  details.append(make('p', 'From the lab results on file for the packages in stock.', 'lab-note'));
+  return details;
+}
 function card(product) {
   const item = node('article', '', 'product'); item.dataset.productId = product.id;
-  const top = node('div', '', 'product-top'); top.append(node('span', [product.browse.section, ...Object.values(product.browse.facets).filter(v => v !== 'Not specified')].filter((v,i,a)=>a.indexOf(v)===i).join(' · '), 'product-category'));
+  const top = node('div', '', 'product-top'); top.append(node('span', [product.category, ...Object.values(product.facets || {})].filter((v,i,a)=>v && a.indexOf(v)===i).join(' · '), 'product-category'));
   if (product.type || product.cbdRich) top.append(node('span', product.type || 'CBD-rich', `product-type ${product.type || ''}`));
   item.append(top, node('p', product.brand || 'Treehouse selection', 'product-brand'), node('h2', product.name));
   item.append(node('p', [range('Total THC', product.thc), product.cbd?.[1] >= 1 ? range('CBD', product.cbd) : '', range('Terpenes', product.terpenes, 2)]
     .filter(Boolean).join(' · ') || 'Ask us for testing details', 'potency'));
+  if (product.lab) item.append(labDetails(product, node));
   const variants = node('div', '', 'variants');
   for (const variant of product.variants) {
     const row = node('div', '', 'variant'), price = node('div');
@@ -66,13 +91,13 @@ function restoreAnchor(saved) {
 function render(preservePosition = false) {
   const saved = preservePosition ? anchor() : null;
   const products = state.menu?.products || [];
-  const categories = ['All', ...[...new Set(products.map(p => p.browse.section))].sort((a,b) => (sectionOrder.indexOf(a)<0?99:sectionOrder.indexOf(a))-(sectionOrder.indexOf(b)<0?99:sectionOrder.indexOf(b)) || a.localeCompare(b))];
+  const categories = ['All', ...(state.menu?.categories || [])];
   if (!categories.includes(state.category)) state.category = 'All';
   updateOptions('brand', [...new Set(products.map(p => p.brand).filter(Boolean))].sort(), 'All brands');
   updateOptions('size', [...new Map(products.filter(p => p.flower).flatMap(p => p.variants).map(v => [v.size,v.grams || 0])).entries()].sort((a,b)=>a[1]-b[1]).map(([size])=>size), 'All sizes');
   const buttons = categories.map(category => {
     const button = node('button', category); button.type = 'button'; button.setAttribute('aria-pressed', String(category === state.category));
-    button.append(node('span', String(category === 'All' ? products.length : products.filter(p => p.browse.section === category).length)));
+    button.append(node('span', String(products.filter(p => inSection(p, category)).length)));
     button.addEventListener('click', () => { state.category = category; state.selected.clear(); render(); }); return button;
   });
   const categoryScroll = $('categories').scrollLeft;
@@ -107,7 +132,7 @@ async function refresh() {
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
-    state.menu = { ...result, products: result.products.map(p => ({...p, browse:classify(p)})) };
+    state.menu = result;
     state.error = result.stale ? 'Showing the last available menu. Please confirm availability with your budtender.' : '';
   } catch {
     if (state.menu) state.menu = { ...state.menu, stale:true };
@@ -154,7 +179,7 @@ function renderFacets(products) {
  existing?.remove();
  if (state.category === 'All') return;
  const groups = new Map();
- for (const p of products.filter(p => p.browse.section === state.category)) for (const [key,value] of Object.entries(p.browse.facets)) {
+ for (const p of products.filter(p => inSection(p, state.category))) for (const [key,value] of Object.entries(p.facets || {})) {
    if (!groups.has(key)) groups.set(key,new Set());
    groups.get(key).add(value);
  }
@@ -166,7 +191,7 @@ function renderFacets(products) {
   const others = filtered(products, query, key);
   for (const value of values) {
    const label=node('label'), input=document.createElement('input'), id=`${key}:${value}`;
-   const count = others.filter(p => p.browse.facets[key] === value).length;
+   const count = others.filter(p => p.facets?.[key] === value).length;
    input.type='checkbox';input.dataset.facet=id;input.checked=state.selected.has(id);input.disabled=!count && !input.checked;
    input.addEventListener('change',()=>{input.checked?state.selected.add(id):state.selected.delete(id);render();});
    label.append(input,node('span',value),node('small',String(count)));field.append(label);

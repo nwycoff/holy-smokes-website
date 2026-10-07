@@ -541,9 +541,34 @@ function renderAccount() {
   panel.append(details); target.append(panel);
   const notifications = notificationsPanel(); if (notifications) target.append(notifications);
 }
+// Tap-to-open lab panel: cannabinoids as figures, the top terpenes as bars scaled to the
+// largest (terpenes don't add up to 100%, so no pie). Stays open across re-renders.
+const openLab = new Set();
+function labDetails(product, make) {
+  const details = make('details', '', 'lab'); details.open = openLab.has(product.id);
+  details.addEventListener('toggle', () => { if (details.open) openLab.add(product.id); else openLab.delete(product.id); });
+  details.append(make('summary', 'Lab results'));
+  const pct = r => `${r[0].toFixed(2)}${r[0] !== r[1] ? '–' + r[1].toFixed(2) : ''}%`;
+  const section = (title, rows, bars) => {
+    if (!rows?.length) return;
+    const box = make('div', '', 'lab-section'), top = Math.max(...rows.map(r => r.range[1]));
+    box.append(make('p', title, 'lab-title'));
+    for (const r of rows) {
+      const row = make('div', '', 'lab-row'); row.append(make('span', r.name), make('strong', pct(r.range)));
+      if (bars) { const bar = make('i', '', 'lab-bar'); bar.style.width = `${Math.max(4, r.range[1] / top * 100)}%`; row.append(bar); }
+      box.append(row);
+    }
+    details.append(box);
+  };
+  section('Cannabinoids', product.lab.cannabinoids, false);
+  section('Top terpenes', product.lab.terpenes, true);
+  details.append(make('p', 'From the lab results on file for the packages in stock.', 'lab-note'));
+  return details;
+}
 function productCard(product) {
   const card = $('product-template').content.firstElementChild.cloneNode(true);
-  card.querySelector('.product-category').textContent = product.category;
+  card.querySelector('.product-category').textContent = [product.category, ...Object.values(product.facets || {})]
+    .filter((v, i, a) => v && a.indexOf(v) === i).join(' · ');
   card.querySelector('.product-type').textContent = product.type;
   card.querySelector('.product-brand').textContent = product.brand;
   card.querySelector('.product-name').textContent = product.name;
@@ -554,6 +579,7 @@ function productCard(product) {
   if (product.cbdRich) card.querySelector('.product-type').textContent = product.type ? `${product.type} · CBD-rich` : 'CBD-rich';
   const image = card.querySelector('.product-image');
   if (product.image) { image.src = product.image; image.hidden = false; image.addEventListener('error', () => { image.hidden = true; }); }
+  if (product.lab) card.querySelector('.product-thc').after(labDetails(product, el));
   const description = card.querySelector('.product-description');
   if (product.description) { description.textContent = product.description; description.hidden = false; }
   for (const variant of product.variants) {
@@ -795,7 +821,21 @@ async function refreshOrder(force = false) {
 function empty(text) { const box = el('div', '', 'empty-state'); box.append(el('p', text)); return box; }
 // Menu filters: strain type, flower size, price band and brand, shown in a panel with
 // removable chips for whatever is active. Options list only what the current menu has.
-const filters = { types: new Set(), sizes: new Set(), brands: new Set(), price: '' };
+const filters = { types: new Set(), sizes: new Set(), brands: new Set(), price: '', facets: new Set() };
+// Departments come from the server; "Treehouse" is the house-brand tab (those products are also in Flower).
+const inCategory = (p, name) => name === 'All' || (name === 'Treehouse' ? p.house === true : p.category === name);
+// Department sub-filters ("Style:Smalls", "Pack:Multipacks"): any checked value within a group,
+// every group with a check. skipGroup leaves one group out, for that group's counts.
+function facetMatch(p, skipGroup = null) {
+  const groups = new Map();
+  for (const id of filters.facets) {
+    const at = id.indexOf(':'), key = id.slice(0, at);
+    if (key === skipGroup) continue;
+    if (!groups.has(key)) groups.set(key, new Set());
+    groups.get(key).add(id.slice(at + 1));
+  }
+  return [...groups].every(([key, values]) => values.has(p.facets?.[key]));
+}
 const TYPES = [['indica', 'Indica'], ['sativa', 'Sativa'], ['hybrid', 'Hybrid'], ['cbd', 'CBD-rich']];
 const PRICES = [['under20', 'Under $20', c => c < 2000], ['20to40', '$20–$40', c => c >= 2000 && c <= 4000], ['over40', 'Over $40', c => c > 4000]];
 const matches = {
@@ -804,11 +844,31 @@ const matches = {
   brands: p => !filters.brands.size || filters.brands.has(p.brand),
   price: p => !filters.price || p.variants.some(v => PRICES.find(([key]) => key === filters.price)[2](v.priceCents))
 };
-const activeFilterCount = () => filters.types.size + filters.sizes.size + filters.brands.size + (filters.price ? 1 : 0);
+const activeFilterCount = () => filters.types.size + filters.sizes.size + filters.brands.size + (filters.price ? 1 : 0) + filters.facets.size;
+const panelFiltersMatch = p => matches.types(p) && matches.sizes(p) && matches.brands(p) && matches.price(p);
 function menuBase() {
   const search = $('menu-search').value.toLocaleLowerCase().trim();
-  return (menu?.products || []).filter(p => (category === 'All' || p.category === category)
-    && `${p.name} ${p.brand} ${p.category} ${p.type} ${p.cbdRich ? 'cbd' : ''}`.toLocaleLowerCase().includes(search));
+  return (menu?.products || []).filter(p => inCategory(p, category)
+    && `${p.name} ${p.brand} ${p.category} ${Object.values(p.facets || {}).join(' ')} ${p.type} ${p.cbdRich ? 'cbd' : ''}`.toLocaleLowerCase().includes(search));
+}
+// One chip row per sub-filter group of the chosen department, e.g. Pre-Rolls: Type, Format, Pack.
+function renderFacetRows(base) {
+  const box = $('facet-filters'), groups = new Map();
+  if (category !== 'All') for (const p of base) for (const [key, value] of Object.entries(p.facets || {})) {
+    if (!groups.has(key)) groups.set(key, new Set());
+    groups.get(key).add(value);
+  }
+  const rows = [...groups].filter(([, values]) => values.size > 1).map(([key, values]) => {
+    const row = el('div', '', 'filter-row facet-row'); row.setAttribute('role', 'group'); row.setAttribute('aria-label', key);
+    const others = base.filter(p => panelFiltersMatch(p) && facetMatch(p, key));
+    row.append(el('span', key, 'facet-label'), ...[...values].map(value => {
+      const id = `${key}:${value}`, count = others.filter(p => p.facets?.[key] === value).length;
+      const b = chip(value, filters.facets.has(id), () => toggle(filters.facets, id), count);
+      b.disabled = !count && !filters.facets.has(id); return b;
+    }));
+    return row;
+  });
+  box.replaceChildren(...rows); box.hidden = !rows.length;
 }
 function chip(label, pressed, onClick, count) {
   const b = button(count === undefined ? label : `${label} (${count})`, onClick, 'chip');
@@ -850,8 +910,8 @@ function sortProducts(list) {
 }
 function renderMenu() {
   const products = menu?.products || [], base = menuBase();
-  const visible = sortProducts(base.filter(p => matches.types(p) && matches.sizes(p) && matches.brands(p) && matches.price(p)));
-  renderFilters(base);
+  const visible = sortProducts(base.filter(p => panelFiltersMatch(p) && facetMatch(p)));
+  renderFilters(base); renderFacetRows(base);
   $('menu-products').replaceChildren(...visible.map(productCard));
   if (!visible.length) {
     const box = empty(menu ? 'No products match those filters. Try another category, search or filter.' : menuLoading ? 'Getting the menu ready…' : 'The menu is not available right now. Please call the shop for today’s selection.');
@@ -873,14 +933,14 @@ function renderMenu() {
   $('menu-freshness').textContent = demo ? 'Sample menu' : menu?.stale ? 'Update delayed' : menu ? `Updated ${new Date(menu.updatedAt).toLocaleTimeString([], { hour:'numeric',minute:'2-digit' })}` : menuLoading ? 'Checking the menu…' : 'Menu unavailable';
   const categoryRow = $('category-filters'); categoryRow.replaceChildren();
   for (const name of ['All', ...(menu?.categories || [])]) {
-    const b = button(name, () => { category = name; renderMenu(); }, ''); b.setAttribute('aria-pressed', String(category === name)); categoryRow.append(b);
+    const b = button(name, () => { category = name; filters.facets.clear(); renderMenu(); }, ''); b.setAttribute('aria-pressed', String(category === name)); categoryRow.append(b);
   }
 }
-function clearFilters() { filters.types.clear(); filters.sizes.clear(); filters.brands.clear(); filters.price = ''; renderMenu(); }
+function clearFilters() { filters.types.clear(); filters.sizes.clear(); filters.brands.clear(); filters.price = ''; filters.facets.clear(); renderMenu(); }
 function applyMenuLink() {
   if (!menuLink || !menu) return;
   const wanted = menuLink; menuLink = null;
-  filters.types.clear(); filters.sizes.clear(); filters.brands.clear(); filters.price = ''; category = 'All';
+  filters.types.clear(); filters.sizes.clear(); filters.brands.clear(); filters.price = ''; filters.facets.clear(); category = 'All';
   if (wanted.category && (menu.categories || []).includes(wanted.category)) category = wanted.category;
   else if (wanted.brand && menu.products.some(p => p.brand === wanted.brand)) filters.brands.add(wanted.brand);
   else message(wanted.brand ? 'That brand isn’t on the menu right now, so here’s the full menu.' : 'That section isn’t on the menu right now, so here’s the full menu.');

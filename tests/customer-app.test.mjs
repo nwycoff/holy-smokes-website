@@ -50,12 +50,12 @@ function syntheticMenu() {
   const pkg = (room, sellable = true, qty = 2, thc = 25) => ({ room,sellable,qty,
     testResults:{uom:'%',totalPotentialPsychoactiveThc:thc} });
   return {pricesIncludeTax:true,menuGroups:[{name:'Screen 1 - Flower',products:[
-    {id:'public-a',name:'Internal Flower Title',brand:'Sample Brand',strain:'Sample Strain',category:'Flower',cannabisType:'Hybrid',variants:[{weight:3.5,uom:'g',price:2000}],
+    {id:'public-a',name:'Internal Flower Title',brand:'Sample Brand',strain:'Sample Strain',category:'Top-Shelf Flower',cannabisType:'Hybrid',variants:[{weight:3.5,uom:'g',price:2000}],
       packages:[pkg('Front',true,2,25),pkg('Back',false,50,99)]},
-    {id:'public-b',name:'Back only',category:'Flower',variants:[{price:100}],packages:[pkg('Back',false)]},
-    {id:'public-c',name:'Not sellable',category:'Flower',variants:[{price:100}],packages:[pkg('Front',false)]},
-    {id:'public-d',name:'Legacy unassigned',category:'Flower',variants:[{price:100}],packages:[pkg(null)]},
-    {id:'public-e',name:'Zero stock',category:'Flower',variants:[{price:100}],packages:[pkg('Front',true,0)]}
+    {id:'public-b',name:'Back only',category:'Top-Shelf Flower',variants:[{price:100}],packages:[pkg('Back',false)]},
+    {id:'public-c',name:'Not sellable',category:'Top-Shelf Flower',variants:[{price:100}],packages:[pkg('Front',false)]},
+    {id:'public-d',name:'Legacy unassigned',category:'Top-Shelf Flower',variants:[{price:100}],packages:[pkg(null)]},
+    {id:'public-e',name:'Zero stock',category:'Top-Shelf Flower',variants:[{price:100}],packages:[pkg('Front',true,0)]}
   ]}]};
 }
 function setup() {
@@ -848,10 +848,10 @@ test('a push subscription cannot be taken over by another account', async () => 
 test('menu cards carry CBD, CBD-rich, photo, plain-text description and price per gram', () => {
   const pkg=(thc,cbd)=>({room:'Front',sellable:true,qty:3,testResults:{uom:'%',totalPotentialPsychoactiveThc:thc,cbd}});
   const input={pricesIncludeTax:true,menuGroups:[{name:'Flower',products:[
-    {id:'p1',name:'Eighth',strain:'Calm Day',category:'Flower',cannabisType:'Indica',image:'https://cdn.example.test/p1.jpg',
+    {id:'p1',name:'Eighth',strain:'Calm Day',category:'Top-Shelf Flower',cannabisType:'Indica',image:'https://cdn.example.test/p1.jpg',
       description:'<p>Smooth&nbsp;and <b>earthy</b>.</p>',variants:[{weight:3.5,uom:'g',price:2000},{weight:1,uom:'oz',price:14000}],packages:[pkg(4,12)]},
-    {id:'p2',name:'Strong One',category:'Flower',image:'javascript:alert(1)',variants:[{price:1500}],packages:[pkg(28,0.1)]},
-    {id:'p3',name:'Http Image',category:'Flower',image:'http://cdn.example.test/p3.jpg',variants:[{price:1500}],packages:[pkg(20,null)]}
+    {id:'p2',name:'Strong One',category:'Top-Shelf Flower',image:'javascript:alert(1)',variants:[{price:1500}],packages:[pkg(28,0.1)]},
+    {id:'p3',name:'Http Image',category:'Top-Shelf Flower',image:'http://cdn.example.test/p3.jpg',variants:[{price:1500}],packages:[pkg(20,null)]}
   ]}]};
   const menu=normalizeMenu(input,stocked(input),Date.now()), [p1,p2,p3]=['p1','p2','p3'].map(id=>menu.products.find(p=>p.id===id));
   assert.equal(p1.cbdRich,true);assert.deepEqual(p1.cbd,[12,12]);assert.equal(p1.image,'https://cdn.example.test/p1.jpg');
@@ -864,10 +864,10 @@ test('menu cards carry CBD, CBD-rich, photo, plain-text description and price pe
 test('availability follows sellable stock in units or grams, and hides sizes stock cannot fill', () => {
   const pkg=(qty,room='Front')=>({room,sellable:room==='Front',qty,testResults:null});
   const input=({pricesIncludeTax:true,menuGroups:[{name:'Flower',products:[
-    {id:'bulk',name:'Bulk',category:'Flower',uom:'Grams',variants:[{weight:3.5,uom:'g',price:2000},{weight:7,uom:'g',price:3800},{weight:14,uom:'g',price:7000}],
+    {id:'bulk',name:'Bulk',category:'Top-Shelf Flower',uom:'Grams',variants:[{weight:3.5,uom:'g',price:2000},{weight:7,uom:'g',price:3800},{weight:14,uom:'g',price:7000}],
       packages:[pkg(6),pkg(4),pkg(500,'Back')]},
-    {id:'jars',name:'Jars',category:'Flower',uom:'Each',variants:[{weight:3.5,uom:'g',price:2500}],packages:[pkg(37)]},
-    {id:'gone',name:'Gone',category:'Flower',uom:'Grams',variants:[{weight:3.5,uom:'g',price:2500}],packages:[pkg(2)]}
+    {id:'jars',name:'Jars',category:'Top-Shelf Flower',uom:'Each',variants:[{weight:3.5,uom:'g',price:2500}],packages:[pkg(37)]},
+    {id:'gone',name:'Gone',category:'Top-Shelf Flower',uom:'Grams',variants:[{weight:3.5,uom:'g',price:2500}],packages:[pkg(2)]}
   ]}]});
   const menu=normalizeMenu(input,stocked(input),Date.now());
   const bulk=menu.products.find(p=>p.id==='bulk'), jars=menu.products.find(p=>p.id==='jars');
@@ -880,7 +880,7 @@ test('availability follows sellable stock in units or grams, and hides sizes sto
 test('orders cannot exceed stock, counting every size of a product together', async () => {
   const s=preorders(), a=await s.linked();
   s.setGF({findMenus:{pricesIncludeTax:true,menuGroups:[{name:'Flower',products:[
-    {id:'public-a',name:'A',strain:'Sample Strain',category:'Flower',uom:'Grams',variants:[{weight:3.5,uom:'g',price:2000},{weight:7,uom:'g',price:3800}],
+    {id:'public-a',name:'A',strain:'Sample Strain',category:'Top-Shelf Flower',uom:'Grams',variants:[{weight:3.5,uom:'g',price:2000},{weight:7,uom:'g',price:3800}],
       packages:[{room:'Front',sellable:true,qty:12,testResults:null}]}]}]}});
   const menu=await (await s.run('menu')).json();
   assert.deepEqual(menu.products[0].variants.map(v=>v.available),[3,1]);assert.equal(menu.products[0].stockUnits,undefined);
@@ -902,7 +902,7 @@ test('products are grouped for purchase limits by GrowFlow category type, fallin
   const input=({pricesIncludeTax:true,menuGroups:[{name:'Edibles and Pre-Rolls',products:[
     {id:'pr',name:'Pre-roll',category:'Pre-Rolls',categoryId:'c1',uom:'Each',unitWeight:1,unitWeightUOM:'Grams',variants:[{price:800}],packages:[pkg()]},
     {id:'gum',name:'Gummies',category:'Gummies',categoryId:'c2',uom:'Each',netWeight:56.699,netWeightUOM:'Grams',unitWeight:100,unitWeightUOM:'Milligrams',variants:[{price:1800}],packages:[pkg()]},
-    {id:'bulk',name:'Bulk',category:'Flower',categoryId:'c3',uom:'Grams',variants:[{weight:3.5,uom:'g',price:2000}],packages:[pkg()]},
+    {id:'bulk',name:'Bulk',category:'Top-Shelf Flower',categoryId:'c3',uom:'Grams',variants:[{weight:3.5,uom:'g',price:2000}],packages:[pkg()]},
     {id:'odd',name:'Mystery',category:'Other',categoryId:'c4',uom:'Each',variants:[{price:500}],packages:[pkg()]}
   ]}]});
   const menu=normalizeMenu(input,stocked(input),Date.now(),new Map([['c4','Concentrate']]));
@@ -1089,12 +1089,12 @@ test('unknown sellability is included but explicit false is excluded even in Fro
 test('total terpenes come from in-stock packages: the lab total, or else the sum, as a range', () => {
   const lab=(extra)=>({uom:'%',totalPotentialPsychoactiveThc:25,...extra});
   const input={pricesIncludeTax:true,menuGroups:[{name:'Flower',products:[
-    {id:'t1',name:'Terps',category:'Flower',variants:[{price:2000}],packages:[
+    {id:'t1',name:'Terps',category:'Top-Shelf Flower',variants:[{price:2000}],packages:[
       {room:'Front',qty:3,testResults:lab({myrcene:0.5222,limonene:0.3054,linalool:0.242,totalTerpenes:'1.9%'})},
       {room:'Front',qty:2,testResults:lab({myrcene:0.6,limonene:0.25,linalool:0.3,alphaBisabolol:0,totalTerpenes:null})},
       {room:'Back',sellable:false,qty:9,testResults:lab({myrcene:5,terpinolene:4,totalTerpenes:'12'})}]},
-    {id:'t2',name:'No terps',category:'Flower',variants:[{price:2000}],packages:[{room:'Front',qty:1,testResults:lab({myrcene:null,totalTerpenes:''})}]},
-    {id:'t3',name:'Wrong unit',category:'Flower',variants:[{price:2000}],packages:[{room:'Front',qty:1,testResults:{uom:'mg/g',myrcene:5}}]}
+    {id:'t2',name:'No terps',category:'Top-Shelf Flower',variants:[{price:2000}],packages:[{room:'Front',qty:1,testResults:lab({myrcene:null,totalTerpenes:''})}]},
+    {id:'t3',name:'Wrong unit',category:'Top-Shelf Flower',variants:[{price:2000}],packages:[{room:'Front',qty:1,testResults:{uom:'mg/g',myrcene:5}}]}
   ]}]};
   const menu=normalizeMenu(input,stocked(input),Date.now()), get=id=>menu.products.find(p=>p.id===id);
   assert.deepEqual(get('t1').terpenes,[1.15,1.9]); // 0.6 + 0.25 + 0.3 = 1.15 where the lab gave no total
@@ -1107,4 +1107,33 @@ test('inventory rows shaped like the live API: Front sellable counts, a non-sell
   IsReturn:false,IsDeleted:false,__type:'Object',className:'StorageLocations'}}});
  const s=setup();inventoryReply(s,[[row('front',5,'Front',true),row('back',7,'Back',false)]]);
  assert.equal((await readSellableInventory(['pkgOne'],s.env,s.deps)).get('pkgOne'),5);
+});
+
+test('menu groups are ignored: GrowFlow categories place products, hidden categories are dropped, Treehouse tab first', () => {
+  const item=(id,category,name=id)=>({id,name,category,variants:[{price:1000}],packages:[{room:'Front',qty:5,testResults:null}]});
+  const input={pricesIncludeTax:true,menuGroups:[{name:'Website and App',products:[
+    item('pr','Infused Blunt','MoonRock Blunt - 2pk - Sample'),item('th','Tree House Small Bud'),item('vape','510 Carts'),
+    item('waste','Waste'),item('nic','Nicotine Products'),item('new','Something New')]}]};
+  const menu=normalizeMenu(input,stocked(input),Date.now());
+  assert.deepEqual(menu.categories,['Treehouse','Flower','Pre-Rolls','Vapes','More']);
+  assert.deepEqual(menu.products.map(p=>p.id).sort(),['new','pr','th','vape']);
+  const get=id=>menu.products.find(p=>p.id===id);
+  assert.deepEqual([get('pr').category,get('pr').facets],['Pre-Rolls',{Type:'Infused',Format:'Blunts',Pack:'Multipacks'}]);
+  assert.deepEqual([get('th').category,get('th').house,get('th').flower],['Flower',true,true]);
+  assert.equal(get('vape').house,undefined);assert.equal(get('new').category,'More');
+});
+
+test('lab panel lists cannabinoids above zero and the five largest terpenes from in-stock packages', () => {
+  const lab=extra=>({uom:'%',totalPotentialPsychoactiveThc:29,...extra});
+  const input={pricesIncludeTax:true,menuGroups:[{name:'All',products:[
+    {id:'l1',name:'Lab',category:'Top-Shelf Flower',variants:[{price:2000}],packages:[
+      {room:'Front',qty:2,testResults:lab({thca:32.13,thc:1.02,cbd:0,cbn:0.04,myrcene:0.52,limonene:0.31,linalool:0.24,humulene:0.11,caryophyllene:0.21,alphaPinene:0.11})},
+      {room:'Front',qty:1,testResults:lab({thca:30.5,thc:0.9,myrcene:0.6})},
+      {room:'Back',sellable:false,qty:9,testResults:lab({thca:90,terpinolene:9})}]},
+    {id:'l2',name:'None',category:'Top-Shelf Flower',variants:[{price:2000}],packages:[{room:'Front',qty:1,testResults:{uom:'mg/g',thca:300}}]}]}]};
+  const menu=normalizeMenu(input,stocked(input),Date.now()), l1=menu.products.find(p=>p.id==='l1');
+  assert.deepEqual(l1.lab.cannabinoids,[{name:'THCa',range:[30.5,32.13]},{name:'Δ9-THC',range:[0.9,1.02]},{name:'CBN',range:[0.04,0.04]}]);
+  assert.deepEqual(l1.lab.terpenes.map(t=>t.name),['Myrcene','Limonene','Linalool','Caryophyllene','Humulene']);
+  assert.deepEqual(l1.lab.terpenes[0].range,[0.52,0.6]);
+  assert.equal(menu.products.find(p=>p.id==='l2').lab,undefined);
 });
