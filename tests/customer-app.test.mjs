@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { readFileSync, readdirSync } from 'node:fs';
 import { handleApp } from '../server/customer-app/index.mjs';
 import { hash } from '../server/customer-app/http.mjs';
-import { normalizeMenu, publicMenu, limitGroup, readSellableInventory } from '../server/customer-app/growflow.mjs';
+import { normalizeMenu, publicMenu, limitGroup, readSellableInventory, rankPopular } from '../server/customer-app/growflow.mjs';
 import { tapToken } from '../server/crm/campaigns.mjs';
 import { encryptPayload, vapidAuthorization, readSubscription, notifyReadyOrders, b64url, fromB64url, READY_MESSAGE } from '../server/customer-app/push.mjs';
 
@@ -1145,4 +1145,14 @@ test('lab panel lists cannabinoids above zero and the five largest terpenes from
   assert.deepEqual(l1.lab.terpenes.map(t=>t.name),['Myrcene','Limonene','Linalool','Caryophyllene','Humulene']);
   assert.deepEqual(l1.lab.terpenes[0].range,[0.52,0.6]);
   assert.equal(menu.products.find(p=>p.id==='l2').lab,undefined);
+});
+
+test('most popular: CRM ranks are renumbered among products on the menu; the menu builder attaches them', async () => {
+  const s=setup();
+  s.env.APP_DB.db.prepare("INSERT INTO app_cache(key, value, updated_at) VALUES ('menu:popularity', ?, ?)")
+    .run(JSON.stringify({updatedAt:Date.now(),ranks:{'gone-product':1,'public-d':2,'public-a':3}}),Date.now());
+  const menu=await (await s.run('menu')).json(), get=id=>menu.products.find(p=>p.id===id);
+  assert.equal(get('public-d').popular,1);assert.equal(get('public-a').popular,2);
+  const none=await rankPopular({APP_DB:{prepare:()=>({bind:()=>({first:async()=>null})})}},{products:[{id:'x'}]});
+  assert.equal(none.products[0].popular,undefined);
 });

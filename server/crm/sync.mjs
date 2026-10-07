@@ -10,7 +10,7 @@ const PAGE = 100, SMALL_PAGE = 25;
 export const FIELDS = {
   orders: 'objectId updatedAt CompletedAt VoidedAt Status Total IsPreOrder Customer { objectId }',
   lines: `objectId updatedAt SoldAt ReturnedAt Status NetPrice Customer { objectId }
-        Brand { objectId Name } ProductCategory { objectId Name Type }`,
+        Brand { objectId Name } ProductCategory { objectId Name Type } Product { objectId }`,
   customers: 'objectId updatedAt createdAt Birthday CustomerType CurrentPoints IsDeleted IsAnon'
 };
 const TYPES = { orders: 'OrdersWhereInput', lines: 'OrderItemsWhereInput', customers: 'CustomersWhereInput' };
@@ -69,7 +69,7 @@ export function lineRow(env, node, now) {
   const category = node.ProductCategory || {};
   return { id: lineId, customerId, sold, now,
     group: limitGroup(category.Type, category.Name) || 'other', categoryId: id(category.objectId), categoryName: text(category.Name),
-    brandId: id(node.Brand?.objectId), brandName: text(node.Brand?.Name),
+    brandId: id(node.Brand?.objectId), brandName: text(node.Brand?.Name), productId: id(node.Product?.objectId),
     netCents: cents(env, node.NetPrice), returned: node.ReturnedAt || /return/i.test(node.Status || '') ? 1 : 0 };
 }
 
@@ -106,14 +106,14 @@ async function apply(env, source, nodes, now) {
         VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, category_group = excluded.category_group
         WHERE (crm_categories.name, crm_categories.category_group) IS NOT (excluded.name, excluded.category_group)`)
         .bind(row.categoryId, row.categoryName, row.group));
-      statements.push(db.prepare(`INSERT INTO crm_lines(id, customer_id, sold_at, category_group, category_id, brand_id, net_cents, returned, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET customer_id = excluded.customer_id, sold_at = excluded.sold_at,
+      statements.push(db.prepare(`INSERT INTO crm_lines(id, customer_id, sold_at, category_group, category_id, brand_id, product_id, net_cents, returned, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET customer_id = excluded.customer_id, sold_at = excluded.sold_at,
         category_group = excluded.category_group, category_id = excluded.category_id, brand_id = excluded.brand_id,
-        net_cents = excluded.net_cents, returned = excluded.returned, updated_at = excluded.updated_at
+        product_id = excluded.product_id, net_cents = excluded.net_cents, returned = excluded.returned, updated_at = excluded.updated_at
         WHERE (crm_lines.customer_id, crm_lines.sold_at, crm_lines.category_group, crm_lines.category_id, crm_lines.brand_id,
-          crm_lines.net_cents, crm_lines.returned) IS NOT (excluded.customer_id, excluded.sold_at, excluded.category_group,
-          excluded.category_id, excluded.brand_id, excluded.net_cents, excluded.returned)`)
-        .bind(row.id, row.customerId, row.sold, row.group, row.categoryId, row.brandId, row.netCents, row.returned, now));
+          crm_lines.product_id, crm_lines.net_cents, crm_lines.returned) IS NOT (excluded.customer_id, excluded.sold_at, excluded.category_group,
+          excluded.category_id, excluded.brand_id, excluded.product_id, excluded.net_cents, excluded.returned)`)
+        .bind(row.id, row.customerId, row.sold, row.group, row.categoryId, row.brandId, row.productId, row.netCents, row.returned, now));
     } else {
       const customerId = id(node?.objectId);
       if (!customerId) continue;

@@ -83,3 +83,8 @@ App users are asked how a visit went, sparingly: a card on the app's Home screen
 - The CRM's **Visit ratings** section shows averages, ratings with customer names (live from GrowFlow; viewing is logged), messages, and **Mark followed up** with a note. The campaign assistant sees the averages.
 - **Phone alerts** in the CRM lists everyone on the CRM's allowed list with switches for assistant updates and low-rating alerts; anyone can change them. Each person first chooses their own record with "Use for my tests". People removed from the allowed list stop getting alerts.
 - Setup: run `crm-migrations/0009_crm_feedback.sql` in `CRM_DB`; set `FEEDBACK_ENABLED=true` and `FEEDBACK_REVIEW_URL` (the Google Business Profile review link) on the Pages project and `FEEDBACK_ENABLED` on the notifier; redeploy both.
+
+
+## Most popular (menu sort)
+
+The sync records which product each sale line was (`crm_lines.product_id`, a GrowFlow product ID; no new token scope: Order items is already read). Every hour the CRM sync Worker ranks products by how often they sold in the last 30 days (returns excluded) and writes only the ranks to the app database (`app_cache` key `menu:popularity`); the app and tablet then offer **Most popular** in Sort by. Setup: run `crm-migrations/0011_crm_line_products.sql` once in `CRM_DB` (it also re-reads the last 35 days of sale lines so recent sales get their product), then redeploy the sync Worker (`npx wrangler deploy [--env live]` in `workers/crm-sync`).

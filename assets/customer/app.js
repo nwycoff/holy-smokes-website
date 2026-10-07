@@ -901,16 +901,25 @@ function renderFilters(base) {
   $('active-filters').hidden = !active.length;
   $('filter-button').textContent = activeFilterCount() ? `Filters (${activeFilterCount()})` : 'Filters';
 }
+// "Most popular" is offered only once the menu carries sales ranks (iPhone Safari ignores
+// hidden options, so it is added and removed rather than hidden).
+function offerPopularSort(select, available) {
+  const option = select.querySelector('option[value="popular"]');
+  if (available && !option) { const add = document.createElement('option'); add.value = 'popular'; add.textContent = 'Most popular'; select.options[0].after(add); }
+  if (!available && option) { if (select.value === 'popular') select.value = 'price'; option.remove(); }
+}
 function sortProducts(list) {
   const min = p => Math.min(...p.variants.map(v => v.priceCents));
   const value = p => Math.min(...p.variants.map(v => v.pricePerGramCents ?? Infinity));
   const by = { name: (a, b) => a.name.localeCompare(b.name), 'price-desc': (a, b) => min(b) - min(a),
-    thc: (a, b) => (b.thc?.[1] ?? -1) - (a.thc?.[1] ?? -1), value: (a, b) => value(a) - value(b) }[$('menu-sort').value]
+    thc: (a, b) => (b.thc?.[1] ?? -1) - (a.thc?.[1] ?? -1), value: (a, b) => value(a) - value(b),
+    popular: (a, b) => (a.popular ?? Infinity) - (b.popular ?? Infinity) || min(a) - min(b) }[$('menu-sort').value]
     || ((a, b) => min(a) - min(b));
   return list.sort((a, b) => by(a, b) || a.name.localeCompare(b.name));
 }
 function renderMenu() {
   const products = menu?.products || [], base = menuBase();
+  offerPopularSort($('menu-sort'), products.some(p => p.popular));
   const visible = sortProducts(base.filter(p => panelFiltersMatch(p) && facetMatch(p)));
   renderFilters(base); renderFacetRows(base);
   $('menu-products').replaceChildren(...visible.map(productCard));

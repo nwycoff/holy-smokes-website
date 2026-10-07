@@ -1,6 +1,7 @@
 import { consumeLimits } from '../rewards.mjs';
 import { AppError, fetchSafe, hash } from './http.mjs';
 import { CBD, classifyProduct, DEPARTMENTS, HOUSE } from './taxonomy.mjs';
+import { POPULARITY_KEY } from '../crm/popularity.mjs';
 
 // Contracts checked against the supplied retailGraphQLSchema.graphql. Live
 // permission/field checks and POS price comparison are required before enabling.
@@ -370,9 +371,18 @@ export function purchaseLimits(env) {
   return Object.fromEntries(Object.entries(LIMIT_GROUPS).map(([group, spec]) => [group, { ...spec,
     max: Number.isFinite(overrides[group]) && overrides[group] >= 0 ? overrides[group] : defaults[group] }]));
 }
+// "Most popular": the CRM's 30-day sales rank (see server/crm/popularity.mjs), renumbered
+// 1, 2, 3… among products on the menu. Products with no recent sales get no rank.
+export async function rankPopular(env, menu) {
+  const row = await env.APP_DB.prepare('SELECT value FROM app_cache WHERE key = ?').bind(POPULARITY_KEY).first().catch(() => null);
+  const ranks = row ? JSON.parse(row.value).ranks || {} : {};
+  menu.products.filter(p => Number.isSafeInteger(ranks[p.id])).sort((a, b) => ranks[a.id] - ranks[b.id])
+    .forEach((p, i) => { p.popular = i + 1; });
+  return menu;
+}
 export async function getMenu(env, deps) {
   const key = await hash(env.APP_LIMIT_SECRET,
-    `menu:v12-departments:${env.GROWFLOW_ORG}:${env.APP_MENU_KEY}:${inventoryStore(env)}:${env.APP_GROWFLOW_TOKEN}`);
+    `menu:v13-popular:${env.GROWFLOW_ORG}:${env.APP_MENU_KEY}:${inventoryStore(env)}:${env.APP_GROWFLOW_TOKEN}`);
   const cached = await env.APP_DB.prepare('SELECT value, updated_at FROM app_cache WHERE key = ?').bind(key).first();
   const age = cached ? deps.now() - cached.updated_at : Infinity;
   const fallback = () => {
@@ -391,6 +401,7 @@ export async function getMenu(env, deps) {
     const types = purchaseLimits(env) ? await getCategoryTypes(env, deps) : new Map();
     const stock = await readSellableInventory(menuPackageIds(result.findMenus), env, deps);
     const menu = normalizeMenu(result.findMenus, stock, deps.now(), types);
+    await rankPopular(env, menu);
     // A small public summary (no stock levels or prices) for the CRM's campaign assistant.
     const summary = { updatedAt: menu.updatedAt, categories: menu.categories,
       products: menu.products.map(p => ({ id: p.id, name: p.name, brand: p.brand, category: p.category })) };

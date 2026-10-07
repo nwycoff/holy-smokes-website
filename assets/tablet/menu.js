@@ -21,10 +21,18 @@ function filtered(products, query, skipGroup = null) {
       && (!query.budget || (query.budget === 'under20' ? v.priceCents < 2000
         : query.budget === '20to40' ? v.priceCents >= 2000 && v.priceCents <= 4000 : v.priceCents > 4000))));
 }
+// "Most popular" is offered only once the menu carries sales ranks (iPhone Safari ignores
+// hidden options, so it is added and removed rather than hidden).
+function offerPopularSort(select, available) {
+  const option = select.querySelector('option[value="popular"]');
+  if (available && !option) { const add = document.createElement('option'); add.value = 'popular'; add.textContent = 'Most popular'; select.options[0].after(add); }
+  if (!available && option) { if (select.value === 'popular') select.value = 'price'; option.remove(); }
+}
 function sorted(products, sort) {
   const min = p => Math.min(...p.variants.map(v => v.priceCents));
   const compare = { name: (a,b) => a.name.localeCompare(b.name), 'price-desc': (a,b) => min(b)-min(a),
-    thc: (a,b) => (b.thc?.[1] ?? -1)-(a.thc?.[1] ?? -1), price: (a,b) => min(a)-min(b) }[sort];
+    thc: (a,b) => (b.thc?.[1] ?? -1)-(a.thc?.[1] ?? -1), price: (a,b) => min(a)-min(b),
+    popular: (a,b) => (a.popular ?? Infinity)-(b.popular ?? Infinity) || min(a)-min(b) }[sort];
   return [...products].sort((a,b) => (compare || (()=>0))(a,b) || a.name.localeCompare(b.name));
 }
 function range(label, r, digits = 1) { return Array.isArray(r) && r.length === 2 && r.every(Number.isFinite)
@@ -102,6 +110,7 @@ function render(preservePosition = false) {
   });
   const categoryScroll = $('categories').scrollLeft;
   $('categories').replaceChildren(...buttons); $('categories').scrollLeft = categoryScroll; renderFacets(products);
+  offerPopularSort($('sort'), products.some(p => p.popular));
   const query = selection(), visible = sorted(filtered(products, query), query.sort);
   $('products').replaceChildren(...visible.map(card)); $('products').setAttribute('aria-busy', String(state.loading && !state.menu));
   $('count').textContent = !state.menu ? state.loading ? 'Getting the menu ready…' : 'Menu temporarily unavailable' : `${visible.length} ${visible.length === 1 ? 'find' : 'finds'}${state.category !== 'All' ? ` · ${state.category}` : ''}`;

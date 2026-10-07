@@ -12,6 +12,7 @@ import { tickAssistant, SYSTEM } from '../server/crm/assistant.mjs';
 import { maybeVerify } from '../server/crm/verify.mjs';
 import { dismissWelcome, sendWelcomeGifts, welcomeForCustomer, welcomeStats } from '../server/crm/welcome.mjs';
 import { addFeedbackMessage, feedbackState, noteGoogle, postponeFeedback, rateVisit, sendRatingRequests } from '../server/crm/feedback.mjs';
+import { publishPopularity } from '../server/crm/popularity.mjs';
 
 class D1 {
   constructor(dir) {
@@ -751,4 +752,20 @@ test('a requested assistant run that never starts stops looking busy after 20 mi
   s.advance(21 * 60000);
   const run = (await (await s.call('assistant')).json()).runs[0];
   assert.equal(run.status, 'failed'); assert.match(run.error, /API key/);
+});
+
+test('sale lines keep their product; popularity publishes 30-day ranks hourly to the app database, never counts', async () => {
+  const s = await setup();
+  const sale = (id, daysAgo, product, extra = {}) => s.line(id, 'A', daysAgo, 1000, 'Flower', 'b1', { Product: { objectId: product }, ...extra });
+  sale('p1', 1, 'prodA'); sale('p2', 2, 'prodA'); sale('p3', 3, 'prodA'); sale('p4', 1, 'prodB'); sale('p5', 2, 'prodB');
+  sale('p6', 1, 'prodC'); sale('p7', 40, 'prodD'); sale('p8', 1, 'prodE', { ReturnedAt: new Date(s.now()).toISOString() });
+  s.line('p9', 'A', 1, 1000, 'Flower', 'b1'); // no product on the line
+  await s.sync();
+  assert.ok(s.gf.queries.some(q => q.query.includes('findOrderItems') && q.query.includes('Product { objectId }')));
+  assert.equal(s.db.prepare("SELECT product_id FROM crm_lines WHERE id = 'p4'").get().product_id, 'prodB');
+  assert.equal(await publishPopularity(s.env, s.now()), true);
+  const row = s.env.APP_DB.db.prepare("SELECT value FROM app_cache WHERE key = 'menu:popularity'").get();
+  assert.deepEqual(JSON.parse(row.value).ranks, { prodA: 1, prodB: 2, prodC: 3 }); // 40 days old and returned are left out
+  assert.equal(await publishPopularity(s.env, s.now() + 30 * 60000), false); // at most hourly
+  assert.equal(await publishPopularity(s.env, s.now() + 61 * 60000), true);
 });
