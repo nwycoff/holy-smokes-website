@@ -184,12 +184,6 @@ controlIds.forEach(id => $(id).addEventListener(id === 'search' ? 'input' : 'cha
 $('reset').addEventListener('click',()=>reset()); $('clear').addEventListener('click',()=>reset()); $('retry').addEventListener('click',()=>void refresh());
 for (const event of ['pointerdown','pointermove','keydown','input','scroll']) document.addEventListener(event,activity,{passive:true});
 document.addEventListener('pointerdown',()=>void keepAwake(),{passive:true});
-$('fullscreen').hidden = !document.fullscreenEnabled;
-$('fullscreen').addEventListener('click',async()=>{
-  try { if (document.fullscreenElement) await document.exitFullscreen(); else await document.documentElement.requestFullscreen(); await keepAwake(); }
-  catch { /* Fullscreen may be controlled by the kiosk browser. */ }
-});
-document.addEventListener('fullscreenchange',()=>{ const active = Boolean(document.fullscreenElement); $('fullscreen').setAttribute('aria-label', active ? 'Exit full screen' : 'Enter full screen'); $('fullscreen').querySelector('span').textContent = active ? 'Exit full screen' : 'Full screen'; });
 let scrollAnchor = null, resizing = false, resizeTimer, viewportWidth = innerWidth;
 addEventListener('scroll',()=>{ lastScroll = Date.now(); if (!resizing && innerWidth === viewportWidth) scrollAnchor = anchor(); },{passive:true});
 // Only a width change (rotation) moves the page back to the product that was in view. Phone
