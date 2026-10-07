@@ -60,11 +60,29 @@ try {
   assert.equal(await page.locator('.product').count(), 1);
   await page.locator('#clear').click();
   assert.equal(await page.locator('.product').count(), 2, 'clearing filters keeps the page heading');
-  await Promise.all([page.waitForURL('**/menu/treehouse'), page.locator('#categories a', { hasText:'Treehouse' }).click()]);
-  await page.waitForSelector('.product');
+  // Headings switch in place: no reload, the screen stays put, and the address and page details follow.
+  await page.evaluate(() => { window.__samePage = true; scrollTo({ top:120, behavior:'instant' }); });
+  const before = await page.evaluate(() => scrollY);
+  await page.locator('#categories a', { hasText:'Treehouse' }).click();
+  await page.waitForURL('**/menu/treehouse');
+  assert.equal(await page.evaluate(() => window.__samePage), true, 'no page reload');
+  assert.equal(await page.evaluate(() => scrollY), before, 'the screen does not jump to the top');
   assert.equal(await page.locator('.product').count(), 1);
   assert.equal(await page.title(), 'Treehouse Products in Ponca City, OK | Treehouse Pharmacy Menu');
-  await page.goto(`${base}/menu`); await page.waitForSelector('.product'); await page.clock.runFor(1000);
+  assert.equal(await page.locator('#menu-title').textContent(), 'Treehouse Products');
+  assert.equal(await page.locator('link[rel="canonical"]').getAttribute('href'), 'https://www.treehousepharmacy.com/menu/treehouse');
+  assert.match(await page.locator('#categories [aria-current="page"]').textContent(), /^Treehouse/);
+  await page.goBack(); await page.waitForURL('**/menu/pre-rolls');
+  assert.equal(await page.locator('.product').count(), 2, 'Back returns to the previous heading');
+  assert.equal(await page.locator('#menu-title').textContent(), 'Pre-Rolls');
+  // Scrolled down into the products: switching brings the products back into view, not the page top.
+  await page.evaluate(() => scrollTo({ top:document.body.scrollHeight, behavior:'instant' }));
+  await page.locator('#categories a', { hasText:/^All/ }).evaluate(a => a.click());
+  await page.waitForURL(url => new URL(url).pathname === '/menu');
+  await page.clock.runFor(2000); await page.waitForTimeout(1200); // smooth scrolling runs on real time
+  const layoutTop = await page.locator('.layout').evaluate(el => el.getBoundingClientRect().top);
+  assert.ok(layoutTop >= 0 && layoutTop < 200, `products in view after switching (layout top ${layoutTop})`);
+  assert.ok(await page.evaluate(() => scrollY) > 0, 'not sent to the top of the page');
   assert.equal(await page.locator('.product-photo').count(), 1, 'product photos show on the website');
   await page.locator('#search').fill('Cart'); await page.clock.runFor(150000);
   assert.equal(await page.locator('#search').inputValue(), 'Cart', 'the website never resets itself after idle time');

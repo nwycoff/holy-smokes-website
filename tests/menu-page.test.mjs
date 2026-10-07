@@ -44,6 +44,10 @@ test('each heading page has its own title, description, canonical, heading and p
   const data = JSON.parse(html.match(/<script type="application\/ld\+json">(.*?)<\/script>/)[1]);
   assert.deepEqual(data[0].itemListElement.map(i => i.name), ['Home', 'Menu', 'Pre-Rolls']);
   assert.equal(data[1].about.address.streetAddress, '1801 N Union St');
+  const pages = JSON.parse(html.match(/<script type="application\/json" id="menu-pages">(.*?)<\/script>/)[1]);
+  assert.deepEqual(Object.keys(pages), ['All', 'Treehouse', 'Flower', 'Pre-Rolls']);
+  assert.equal(pages.Treehouse.title, 'Treehouse Products in Ponca City, OK | Treehouse Pharmacy Menu');
+  assert.equal(pages['Pre-Rolls'].path, '/menu/pre-rolls');
 });
 test('the overview lists every heading and the most popular products first', async () => {
   const html = await (await page('/menu')).text();

@@ -10,7 +10,8 @@ const IDLE_MS = 120000;
 // server with its products already in it, see server/site/menu-page.mjs): headings are plain
 // links, the page's heading comes from <body data-category>, and product photos show.
 const site = document.body.dataset.menu === 'website';
-const pageHeading = site ? document.body.dataset.category || 'All' : 'All';
+// The heading this page is showing; on the website it changes as shoppers switch headings in place.
+let pageHeading = site ? document.body.dataset.category || 'All' : 'All';
 const slugOf = name => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 // Server-built cards stay on screen until the live menu replaces them.
 const prerendered = site && document.getElementById('products').children.length > 0;
@@ -138,6 +139,11 @@ function render(preservePosition = false) {
     if (site && category !== 'More') {
       const link = node('a', category); link.href = category === 'All' ? '/menu' : `/menu/${slugOf(category)}`;
       if (category === state.category) link.setAttribute('aria-current', 'page');
+      link.addEventListener('click', event => {
+        // A plain click switches in place; Ctrl/Cmd/Shift-click and middle-click open the page as usual.
+        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        event.preventDefault(); switchHeading(category, true);
+      });
       link.append(count); return link;
     }
     const button = node('button', category); button.type = 'button'; button.setAttribute('aria-pressed', String(category === state.category));
@@ -188,6 +194,32 @@ async function refresh() {
     else if (menuSignature(state.menu) === before) renderStatus();
     else renderWhenStill();
   }
+}
+// Website: show another heading without reloading. The address, tab title, page heading and intro
+// follow (from the server's #menu-pages details), and the screen stays put: only when the shopper
+// has scrolled past the top of the products does it come back up to them.
+const headingPages = (() => { try { return JSON.parse(document.getElementById('menu-pages')?.textContent || '{}'); } catch { return {}; } })();
+function switchHeading(category, push) {
+  state.category = category; state.selected.clear(); pageHeading = category; render();
+  const details = headingPages[category];
+  if (details) {
+    document.title = details.title;
+    $('menu-title') && ($('menu-title').textContent = details.h1);
+    $('menu-intro') && ($('menu-intro').textContent = details.intro);
+    document.querySelector('meta[name="description"]')?.setAttribute('content', details.description);
+    document.querySelector('link[rel="canonical"]')?.setAttribute('href', `https://www.treehousepharmacy.com${details.path}`);
+    if (push) history.pushState({ category }, '', details.path);
+  }
+  const layout = document.querySelector('.layout'), nav = document.getElementById('mainNav');
+  const top = layout?.getBoundingClientRect().top ?? 0, offset = (nav?.offsetHeight || 0) + 16;
+  if (top < offset) window.scrollTo({ top: window.scrollY + top - offset, behavior: 'smooth' });
+}
+if (site) {
+  history.replaceState({ category: pageHeading }, '', location.href);
+  addEventListener('popstate', event => {
+    const category = event.state?.category ?? Object.keys(headingPages).find(name => headingPages[name].path === location.pathname) ?? 'All';
+    switchHeading(category, false);
+  });
 }
 function reset(automatic = false) {
   // On a website heading page, clearing filters keeps that heading.

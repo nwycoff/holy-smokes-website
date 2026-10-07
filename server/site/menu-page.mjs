@@ -53,11 +53,10 @@ export function cardHtml(p) {
 }
 
 // Everything that differs between Menu pages, from the heading (null = the overview) and the menu.
-export function pageParts(heading, menu) {
+// A heading's address, title, description, page heading and intro (null = the overview).
+export function pageMeta(heading, menu) {
   const products = menu?.products || [];
-  const shown = heading ? products.filter(p => inHeading(p, heading))
-    : [...products].sort((a, b) => (a.popular ?? Infinity) - (b.popular ?? Infinity)).slice(0, OVERVIEW_PRODUCTS);
-  const count = heading ? shown.length : products.length;
+  const count = heading ? products.filter(p => inHeading(p, heading)).length : products.length;
   const path = heading ? `/menu/${slugOf(heading)}` : '/menu';
   const title = heading ? `${heading === HOUSE ? 'Treehouse Products' : heading} in Ponca City, OK | Treehouse Pharmacy Menu`
     : 'Live Menu | Treehouse Pharmacy — Dispensary in Ponca City, OK';
@@ -68,6 +67,15 @@ export function pageParts(heading, menu) {
   const intro = heading
     ? `${menu ? `${count} ${count === 1 ? 'product' : 'products'} on our shelves right now` : 'On our shelves right now'}: ${HOLDS[heading]}. Updated through the day.`
     : 'Everything on our shelves right now — flower, pre-rolls, vapes, concentrates, edibles and more, with lab results — updated through the day.';
+  return { path, title, description, h1, intro };
+}
+
+export function pageParts(heading, menu) {
+  const products = menu?.products || [];
+  const shown = heading ? products.filter(p => inHeading(p, heading))
+    : [...products].sort((a, b) => (a.popular ?? Infinity) - (b.popular ?? Infinity)).slice(0, OVERVIEW_PRODUCTS);
+  const count = heading ? shown.length : products.length;
+  const { path, title, description, h1, intro } = pageMeta(heading, menu);
   // Real links to every heading that has products (all headings when the menu can't be read).
   const linked = HEADINGS.filter(h => !menu || products.some(p => inHeading(p, h)));
   const links = [['All', '/menu', products.length], ...linked.map(h => [h, `/menu/${slugOf(h)}`, products.filter(p => inHeading(p, h)).length])]
@@ -86,7 +94,12 @@ export function pageParts(heading, menu) {
   }];
   const found = `${shown.length} ${shown.length === 1 ? 'find' : 'finds'}${heading ? ` · ${heading}` : ''}`;
   const updated = menu ? `Updated ${new Date(menu.updatedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' })}` : '';
-  return { path, title, description, h1, intro, links, cards, count, heading, structured, found: menu ? found : '', updated };
+  // Every heading page's details, so the browser can switch headings in place (no reload) and
+  // still show the right address, title, heading and intro.
+  const pages = Object.fromEntries([['All', null], ...linked.map(h => [h, h])].map(([name, h]) => {
+    const meta = pageMeta(h, menu); return [name, { path: meta.path, title: meta.title, description: meta.description, h1: meta.h1, intro: meta.intro }];
+  }));
+  return { path, title, description, h1, intro, links, cards, count, heading, structured, found: menu ? found : '', updated, pages };
 }
 
 export function renderPage(template, parts) {
@@ -107,7 +120,7 @@ export function renderPage(template, parts) {
     [/<!--menu:head-->/, () => head],
     [/(<h1 id="menu-title"[^>]*>)[\s\S]*?(<\/h1>)/, (_, open, close) => `${open}${escapeHtml(parts.h1)}${close}`],
     [/(<p id="menu-intro"[^>]*>)[\s\S]*?(<\/p>)/, (_, open, close) => `${open}${escapeHtml(parts.intro)}${close}`],
-    [/(<nav id="categories"[^>]*>)(<\/nav>)/, (_, open, close) => `${open}${parts.links}${close}`],
+    [/(<nav id="categories"[^>]*>)(<\/nav>)/, (_, open, close) => `${open}${parts.links}${close}<script type="application/json" id="menu-pages">${JSON.stringify(parts.pages).replace(/</g, '\\u003c')}</script>`],
     [/(<div id="products"[^>]*>)(<\/div>)/, (_, open, close) => `${parts.cards ? open.replace('aria-busy="true"', 'aria-busy="false"') : open}${parts.cards}${close}`],
     [/(<p id="count"[^>]*>)[\s\S]*?(<\/p>)/, (match, open, close) => parts.found ? `${open}${escapeHtml(parts.found)}${close}` : match],
     [/(<span id="freshness"[^>]*>)[\s\S]*?(<\/span>)/, (match, open, close) => parts.updated ? `${open}${escapeHtml(parts.updated)}${close}` : match],
