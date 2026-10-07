@@ -97,6 +97,16 @@ No third-party advertising tracker, patient details, raw IP address or usable lo
 
 ## Validation and rollout
 
+### Approved production release — October 6, 2026
+
+The owner approved publishing the tested signup, source attribution and Home Screen changes to `main` in `nwycoff/holy-smokes-website`, which supplies the live `holy-smokes-website` Pages project. This release applies the three signup commits to the current main branch and excludes the unrelated welcome-log and CRM assistant changes from the test branch. The exact release passed all 174 backend tests and both browser suites.
+
+Production setup is separate from the completed test setup. In **holy-smokes-website**, inspect the **Production** bindings to identify its actual `APP_DB` and `CRM_DB`; do not use the test databases. Execute `app-migrations/0009_signup.sql` in that `APP_DB` and `crm-migrations/0010_signup_spend.sql` in that `CRM_DB`, then set the Production Text variable `APP_SIGNUP_TRACKING_ENABLED=true` and redeploy. The migrations are additive and repeatable. No additional GrowFlow token or Worker deployment is needed.
+
+Production database/configuration changes have not yet been verified: the deployment session could update GitHub, but Cloudflare dashboard sign-in returned a verification error. The new signup and installation UI can run before these settings are applied; optional attribution failures do not block authentication, account linking, or notification preferences. Keep the QR reporting rollout incomplete until the live config reports `signupTrackingEnabled: true` and the CRM report loads against the migrated live databases. Optional verification-email resend remains a separate setup.
+
+### Test evidence
+
 Local, synthetic checks:
 
 Checked on October 6, 2026: 175 backend tests passed; the existing app browser regression suite and new signup/CRM browser suite passed; Cloudflare Pages Functions compiled successfully; all five SVG QR codes rendered and decoded to their intended URLs. Phone email delivery, real iOS/Android installation and notification delivery still require the protected deployment checks below.
