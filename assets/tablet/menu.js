@@ -1,6 +1,7 @@
+import { classify, matchesFacets, sectionOrder } from './categories.js';
 const $ = id => document.getElementById(id);
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
-const state = { menu: null, category: 'All', loading: false, error: '' };
+const state = { menu: null, category: 'All', loading: false, error: '', excluded: new Set() };
 const controlIds = ['search', 'type', 'brand', 'budget', 'size', 'sort'];
 const IDLE_MS = 120000;
 let idleTimer, toastTimer, wakeLock, wakePending = false;
@@ -10,8 +11,9 @@ function node(tag, text = '', className = '') {
 function selection() { return Object.fromEntries(controlIds.map(id => [id, $(id).value])); }
 function filtered(products, query) {
   const search = query.search.toLocaleLowerCase().trim();
-  return products.filter(p => (state.category === 'All' || p.category === state.category)
-    && (!search || `${p.name} ${p.brand} ${p.category} ${p.type}`.toLocaleLowerCase().includes(search))
+  return products.filter(p => (state.category === 'All' || p.browse.section === state.category)
+    && matchesFacets(p, state.excluded)
+    && (!search || `${p.name} ${p.brand} ${p.category} ${p.sourceCategory || ''} ${Object.values(p.browse.facets).join(' ')} ${p.type}`.toLocaleLowerCase().includes(search))
     && (!query.type || (query.type === 'cbd' ? p.cbdRich : p.type === query.type))
     && (!query.brand || p.brand === query.brand)
     && p.variants.some(v => (!query.size || (p.flower && v.size === query.size))
@@ -28,7 +30,7 @@ function range(label, r) { return Array.isArray(r) && r.length === 2 && r.every(
   ? `${label} ${r[0].toFixed(1)}${r[0] === r[1] ? '' : `–${r[1].toFixed(1)}`}%` : ''; }
 function card(product) {
   const item = node('article', '', 'product'); item.dataset.productId = product.id;
-  const top = node('div', '', 'product-top'); top.append(node('span', product.category, 'product-category'));
+  const top = node('div', '', 'product-top'); top.append(node('span', [product.browse.section, ...Object.values(product.browse.facets).filter(v => v !== 'Not specified')].filter((v,i,a)=>a.indexOf(v)===i).join(' · '), 'product-category'));
   if (product.type || product.cbdRich) top.append(node('span', product.type || 'CBD-rich', `product-type ${product.type || ''}`));
   item.append(top, node('p', product.brand || 'Treehouse selection', 'product-brand'), node('h2', product.name));
   item.append(node('p', [range('Total THC', product.thc), product.cbd?.[1] >= 1 ? range('CBD', product.cbd) : ''].filter(Boolean).join(' · ') || 'Ask us for testing details', 'potency'));
@@ -62,17 +64,17 @@ function restoreAnchor(saved) {
 function render(preservePosition = false) {
   const saved = preservePosition ? anchor() : null;
   const products = state.menu?.products || [];
-  const categories = ['All', ...new Set(products.map(p => p.category))];
+  const categories = ['All', ...[...new Set(products.map(p => p.browse.section))].sort((a,b) => (sectionOrder.indexOf(a)<0?99:sectionOrder.indexOf(a))-(sectionOrder.indexOf(b)<0?99:sectionOrder.indexOf(b)) || a.localeCompare(b))];
   if (!categories.includes(state.category)) state.category = 'All';
   updateOptions('brand', [...new Set(products.map(p => p.brand).filter(Boolean))].sort(), 'All brands');
   updateOptions('size', [...new Map(products.filter(p => p.flower).flatMap(p => p.variants).map(v => [v.size,v.grams || 0])).entries()].sort((a,b)=>a[1]-b[1]).map(([size])=>size), 'All sizes');
   const buttons = categories.map(category => {
     const button = node('button', category); button.type = 'button'; button.setAttribute('aria-pressed', String(category === state.category));
-    button.append(node('span', String(category === 'All' ? products.length : products.filter(p => p.category === category).length)));
-    button.addEventListener('click', () => { state.category = category; render(); }); return button;
+    button.append(node('span', String(category === 'All' ? products.length : products.filter(p => p.browse.section === category).length)));
+    button.addEventListener('click', () => { state.category = category; state.excluded.clear(); render(); }); return button;
   });
   const categoryScroll = $('categories').scrollLeft;
-  $('categories').replaceChildren(...buttons); $('categories').scrollLeft = categoryScroll;
+  $('categories').replaceChildren(...buttons); $('categories').scrollLeft = categoryScroll; renderFacets(products);
   const query = selection(), visible = sorted(filtered(products, query), query.sort);
   $('products').replaceChildren(...visible.map(card)); $('products').setAttribute('aria-busy', String(state.loading && !state.menu));
   $('count').textContent = !state.menu ? state.loading ? 'Getting the menu ready…' : 'Menu temporarily unavailable' : `${visible.length} ${visible.length === 1 ? 'find' : 'finds'}${state.category !== 'All' ? ` · ${state.category}` : ''}`;
@@ -103,7 +105,7 @@ async function refresh() {
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
-    state.menu = result;
+    state.menu = { ...result, products: result.products.map(p => ({...p, browse:classify(p)})) };
     state.error = result.stale ? 'Showing the last available menu. Please confirm availability with your budtender.' : '';
   } catch {
     if (state.menu) state.menu = { ...state.menu, stale:true };
@@ -111,7 +113,7 @@ async function refresh() {
   } finally { state.loading = false; render(true); }
 }
 function reset(automatic = false) {
-  state.category = 'All'; controlIds.forEach(id => { $(id).value = id === 'sort' ? 'price' : ''; });
+  state.category = 'All'; state.excluded.clear(); controlIds.forEach(id => { $(id).value = id === 'sort' ? 'price' : ''; });
   document.activeElement?.blur(); render(); window.scrollTo({top:0,behavior:'instant'}); $('categories').scrollLeft = 0;
   if (automatic) { $('reset-message').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(()=>{ $('reset-message').hidden = true; },3500); }
 }
@@ -140,3 +142,35 @@ addEventListener('online',()=>void refresh());
 document.addEventListener('visibilitychange',()=>{ if (!document.hidden) { reset(); activity(); void refresh(); void keepAwake(); } });
 setInterval(()=>{ if (!document.hidden) void refresh(); },60000);
 activity(); void keepAwake(); void refresh();
+
+
+function renderFacets(products) {
+ const existing = document.getElementById('category-facets');
+ const focus = existing?.contains(document.activeElement) ? document.activeElement?.dataset.facet : null;
+ existing?.remove();
+ if (state.category === 'All') return;
+ const subset = products.filter(p => p.browse.section === state.category);
+ const groups = new Map();
+ for (const p of subset) for (const [key,value] of Object.entries(p.browse.facets)) {
+   if (!groups.has(key)) groups.set(key,new Map());
+   groups.get(key).set(value,(groups.get(key).get(value)||0)+1);
+ }
+ const panel = node('div','','category-facets'); panel.id='category-facets';
+ for (const [key,values] of groups) {
+  if (values.size < 2) continue;
+  const field = node('fieldset'); field.append(node('legend',key));
+  for (const [value,count] of values) {
+   const label=node('label'), input=document.createElement('input'), id=`${key}:${value}`;
+   input.type='checkbox';input.dataset.facet=id;input.checked=!state.excluded.has(id);
+   input.addEventListener('change',()=>{input.checked?state.excluded.delete(id):state.excluded.add(id);render();});
+   label.append(input,node('span',value),node('small',String(count)));field.append(label);
+  }
+  panel.append(field);
+ }
+ if (!panel.children.length) return;
+ const reset=node('button','Show all '+state.category);reset.type='button';
+ reset.addEventListener('click',()=>{state.excluded.clear();render();});panel.append(reset);
+ const selected=$('categories').querySelector('[aria-pressed="true"]');
+ selected.after(panel);
+ if(focus) [...panel.querySelectorAll('input')].find(el=>el.dataset.facet===focus)?.focus();
+}

@@ -216,7 +216,7 @@ export function normalizeMenu(input, location, now, categoryTypes = new Map()) {
       const flower = /flower|smalls|top shelf/i.test(`${p.category} ${category}`);
       const thc = potencyRange(eligiblePackages, 'totalPotentialPsychoactiveThc'), cbd = potencyRange(eligiblePackages, 'cbd');
       products.push({ id: p.id, name: flower ? clean(p.strain) || clean(p.name) : clean(p.name),
-        brand: clean(p.brand), category, flower, type: ['indica', 'sativa', 'hybrid'].includes(normalized(p.cannabisType))
+        brand: clean(p.brand), category, sourceCategory: clean(p.category), flower, type: ['indica', 'sativa', 'hybrid'].includes(normalized(p.cannabisType))
           ? normalized(p.cannabisType) : '', variants, thc, cbd,
         // CBD-rich: tested CBD at least 1% and at least equal to THC (CBD-dominant or balanced).
         cbdRich: Boolean(cbd && cbd[1] >= 1 && cbd[1] >= (thc ? thc[1] : 0)),
@@ -315,7 +315,7 @@ export function purchaseLimits(env) {
 }
 export async function getMenu(env, deps) {
   const key = await hash(env.APP_LIMIT_SECRET,
-    `menu:v6-limits:${env.GROWFLOW_ORG}:${env.APP_MENU_KEY}:${env.APP_FRONT_LOCATION}:${env.APP_GROWFLOW_TOKEN}`);
+    `menu:v7-source-category:${env.GROWFLOW_ORG}:${env.APP_MENU_KEY}:${env.APP_FRONT_LOCATION}:${env.APP_GROWFLOW_TOKEN}`);
   const cached = await env.APP_DB.prepare('SELECT value, updated_at FROM app_cache WHERE key = ?').bind(key).first();
   const age = cached ? deps.now() - cached.updated_at : Infinity;
   const fallback = () => {
@@ -345,3 +345,4 @@ export async function getMenu(env, deps) {
     return fallback();
   }
 }
+

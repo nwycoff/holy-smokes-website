@@ -75,8 +75,36 @@ try {
   assert.ok(await page.locator(`[data-product-id="${before}"]`).evaluate(p=>p.getBoundingClientRect().bottom>0 && p.getBoundingClientRect().top<innerHeight), `${before} should stay visible after rotation (first now ${after})`);
   await page.setViewportSize({width:600,height:960});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  // Category classification and combined facet behavior with synthetic products.
+  const sourceCategories=['Tree House Top Shelf Flower','Tree House Small Bud','Pre-Roll','Pre-Roll Multipack','Infused Pre-Roll','Infused Pre-Roll Multi pk','Infused Shake','Pre-Pack Shake','New unmapped category'];
+  await page.route('**/api/app/menu',async route=>route.fulfill({contentType:'application/json',body:JSON.stringify({...demoMenu,updatedAt:Date.now(),products:sourceCategories.map((sourceCategory,i)=>({...demoMenu.products[0],id:`facet-${i}`,sourceCategory}))})}));
+  await page.evaluate(()=>dispatchEvent(new Event('online')));
+  await page.waitForFunction(()=>document.querySelectorAll('.product').length===9);
+  await page.locator('#categories>button').filter({hasText:'Treehouse'}).click();
+  assert.equal(await page.locator('.product').count(),2);
+  await page.getByRole('checkbox',{name:'Smalls',exact:false}).uncheck();
+  assert.equal(await page.locator('.product').count(),1);
+  assert.match(await page.locator('.product-category').innerText(),/Whole Flower/);
+  await page.setViewportSize({width:1280,height:800});
+  await page.screenshot({path:'/tmp/treehouse-tablet-treehouse-filters.png',fullPage:true});
+  await page.locator('#categories>button').filter({hasText:'Pre-rolls'}).click();
+  assert.equal(await page.locator('.product').count(),4);
+  await page.getByRole('checkbox',{name:'Regular',exact:false}).uncheck();
+  await page.getByRole('checkbox',{name:'Singles',exact:false}).uncheck();
+  assert.equal(await page.locator('.product').count(),1);
+  assert.match(await page.locator('.product-category').innerText(),/Infused.*Multipacks/);
+  await page.setViewportSize({width:800,height:1280});
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  await page.screenshot({path:'/tmp/treehouse-tablet-preroll-filters.png',fullPage:true});
+  await page.locator('#categories>button').filter({hasText:'Shake'}).click();
+  assert.equal(await page.locator('.product').count(),2);
+  await page.getByRole('checkbox',{name:'Regular',exact:false}).uncheck();
+  assert.equal(await page.locator('.product').count(),1);
+  await page.locator('#reset').click();
+  assert.equal(await page.locator('.product').count(),9,'Unknown category remains visible; reset clears subfilters');
   assert.deepEqual(errors,[]);
   assert.deepEqual([...new Set(calls)],['/api/app/menu']);
   assert.equal(await page.evaluate(()=>localStorage.length+sessionStorage.length),0);
   console.log('PASS: landscape/portrait layout, search, filters, same-variant budget matching, idle reset, retry/retention/recovery, rotation position, menu-only requests and no browser storage.');
 } finally {await browser.close(); await new Promise(resolve=>server.close(resolve));}
+

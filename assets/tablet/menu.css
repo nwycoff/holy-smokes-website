@@ -6,3 +6,7 @@
 
 .browse-panel,.selection{min-width:0}.brand img{border-radius:50%}.icon-button{display:flex;align-items:center;gap:7px}.icon-button svg{flex:none}
 @media(max-width:700px){.icon-button span{display:none}.store-note{display:none}}
+
+
+.category-facets{padding:6px 8px 14px 12px;border-left:3px solid #b8c6a5;margin:0 0 8px 10px}.category-facets fieldset{border:0;padding:0;margin:8px 0 14px;min-width:0}.category-facets legend{font-size:11px;font-weight:700;letter-spacing:.6px;color:var(--muted);margin-bottom:4px}.category-facets label{display:flex;gap:9px;align-items:center;min-height:48px;font-size:14px;cursor:pointer}.category-facets input{width:20px;height:20px;min-height:20px;accent-color:var(--green);flex:none}.category-facets small{margin-left:auto;color:var(--muted)}#categories .category-facets button{font-size:12px;text-decoration:underline;padding:8px 0;min-height:44px;color:var(--green);background:transparent}
+@media(max-width:900px){#categories{flex-wrap:wrap;overflow:visible}#categories>button{white-space:normal}.category-facets{order:1;width:100%;display:flex;flex-wrap:wrap;gap:10px 24px;margin:6px 0 0;padding:10px 16px;background:#eeeee3;border-radius:10px}.category-facets fieldset{min-width:150px;flex:1}.category-facets>button{align-self:end}}
