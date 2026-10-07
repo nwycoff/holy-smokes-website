@@ -1,0 +1,26 @@
+/* The website's main header (logo, page links, three-bar menu on smaller screens) for pages that
+   can't load the site's Tailwind styles, such as the points checker (/rewards), whose security
+   policy only allows files from this site. Matches the header on the home, menu and blog pages. */
+.th-nav { background: rgba(245, 240, 232, 0.95); box-shadow: 0 1px 20px rgba(44, 24, 16, 0.08); position: relative; z-index: 20; }
+.th-nav__bar { max-width: 1280px; margin: 0 auto; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.th-nav__brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: #2c1810; font: 20px Georgia, 'DM Serif Display', serif; }
+.th-nav__brand img { width: 40px; height: 40px; border-radius: 50%; }
+.th-nav__brand:hover { color: #2d5016; }
+.th-nav__links { display: flex; align-items: center; gap: 24px; }
+.th-nav__links a { font: 14px Arial, Helvetica, sans-serif; letter-spacing: 0.3px; color: rgba(44, 24, 16, 0.7); text-decoration: none; }
+.th-nav__links a:hover, .th-nav__panel a:hover { color: #2d5016; }
+.th-nav a[aria-current='page'] { color: #2d5016; font-weight: 700; }
+.th-nav .th-nav__home { border: 2px solid rgba(44, 24, 16, 0.15); border-radius: 999px; padding: 10px 22px; font-size: 11px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; color: #2c1810; }
+.th-nav .th-nav__home:hover { border-color: #2d5016; }
+.th-nav__toggle { display: none; background: none; border: 0; padding: 8px; margin: -8px; color: #2c1810; cursor: pointer; }
+.th-nav__panel { border-top: 1px solid rgba(181, 197, 163, 0.25); background: rgba(245, 240, 232, 0.97); }
+.th-nav__panel[hidden] { display: none; }
+.th-nav__panel nav { max-width: 1280px; margin: 0 auto; padding: 18px 24px 24px; display: flex; flex-direction: column; gap: 4px; }
+.th-nav__panel a { font: 16px Arial, Helvetica, sans-serif; color: rgba(44, 24, 16, 0.8); text-decoration: none; padding: 10px 0; }
+.th-nav__panel .th-nav__home { margin-top: 10px; text-align: center; padding: 12px; font-size: 13px; }
+/* Below the widest screens the links fold behind the three-bar button, as on the rest of the site. */
+@media (max-width: 1279px) {
+  .th-nav__links { display: none; }
+  .th-nav__toggle { display: block; }
+}
+@media (min-width: 1280px) { .th-nav__panel { display: none !important; } }
