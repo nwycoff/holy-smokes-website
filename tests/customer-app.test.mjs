@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { readFileSync, readdirSync } from 'node:fs';
 import { handleApp } from '../server/customer-app/index.mjs';
 import { hash } from '../server/customer-app/http.mjs';
-import { normalizeMenu, publicMenu, limitGroup, inventoryBackedMenu, readSellableInventory } from '../server/customer-app/growflow.mjs';
+import { normalizeMenu, publicMenu, limitGroup, readSellableInventory } from '../server/customer-app/growflow.mjs';
 import { tapToken } from '../server/crm/campaigns.mjs';
 import { encryptPayload, vapidAuthorization, readSubscription, notifyReadyOrders, b64url, fromB64url, READY_MESSAGE } from '../server/customer-app/push.mjs';
 
@@ -36,8 +36,18 @@ async function sign(payload) {
   const input = `${b64({alg:'RS256',kid:'local-test-key'})}.${b64(payload)}`;
   return `${input}.${Buffer.from(await crypto.subtle.sign('RSASSA-PKCS1-v1_5',keypair.privateKey,new TextEncoder().encode(input))).toString('base64url')}`;
 }
+// Fixture packages carry room/sellable/qty: the inventory the GrowFlow stub reports for them.
+// stocked() turns those into the package ID → quantity map readSellableInventory would return.
+function stocked(input) {
+  const stock = new Map();
+  for (const g of input.menuGroups) for (const p of g.products) p.packages.forEach((pkg, i) => {
+    pkg.id ||= `${p.id}-pkg-${i}`;
+    stock.set(pkg.id, (stock.get(pkg.id) || 0) + (pkg.sellable === false ? 0 : pkg.qty));
+  });
+  return stock;
+}
 function syntheticMenu() {
-  const pkg = (location, sellable = true, qty = 2, thc = 25) => ({ storageLocation:location,isSellable:sellable,inventoryQty:qty,
+  const pkg = (room, sellable = true, qty = 2, thc = 25) => ({ room,sellable,qty,
     testResults:{uom:'%',totalPotentialPsychoactiveThc:thc} });
   return {pricesIncludeTax:true,menuGroups:[{name:'Screen 1 - Flower',products:[
     {id:'public-a',name:'Internal Flower Title',brand:'Sample Brand',strain:'Sample Strain',category:'Flower',cannabisType:'Hybrid',variants:[{weight:3.5,uom:'g',price:2000}],
@@ -80,7 +90,7 @@ function setup() {
     if (request.query.includes('findMenus') && data.findMenus) {data={...data,findMenus:identified};inventoryMenu=identified;}
     if (request.query.includes('TreehouseSellableInventory')) {
       const ids=request.variables.where.Package.have.objectId.in;
-      data={findInventory:{pageInfo:{hasNextPage:false,endCursor:null},edges:(inventoryMenu || identified).menuGroups.flatMap(g=>g.products.flatMap(p=>p.packages.filter(pkg=>ids.includes(pkg.id)).map(pkg=>({node:{objectId:`row-${pkg.id}`,Qty:pkg.inventoryQty,Package:{objectId:pkg.id},StorageLocation:pkg.storageLocation===null ? null : {Name:pkg.storageLocation,IsSellable:pkg.isSellable,IsDeleted:false,IsWaste:false,IsReturn:false,Store:{objectId:'nhB4pzbWYZ'}}}}))))}};
+      data={findInventory:{pageInfo:{hasNextPage:false,endCursor:null},edges:(inventoryMenu || identified).menuGroups.flatMap(g=>g.products.flatMap(p=>p.packages.filter(pkg=>ids.includes(pkg.id)).map(pkg=>({node:{objectId:`row-${pkg.id}`,Qty:pkg.qty,Package:{objectId:pkg.id},StorageLocation:pkg.room===null ? null : {Name:pkg.room,IsSellable:pkg.sellable,IsDeleted:false,IsWaste:false,IsReturn:false,Store:{objectId:'nhB4pzbWYZ'}}}}))))}};
     }
     return Response.json({data},{status:gfStatus,headers:gfHeaders});
   }};
@@ -305,32 +315,32 @@ test('removing app connection requires recent login and removes every app sessio
   const c=await s.login();const csrfC=await s.seed(c.cookie);s.advance(900001);
   assert.equal((await s.run('remove-link',{method:'POST',cookie:c.cookie,body:{},headers:{'x-treehouse-csrf':csrfC}})).status,403);
 });
-test('menu includes positive sellable front and explicitly unassigned stock', () => {
-  const menu=normalizeMenu(syntheticMenu(),'front',Date.now());assert.equal(menu.products.length,2);
-  assert.ok(menu.products.some(p=>p.id==='public-d'));
+test('menu shows sellable and unassigned inventory and hides non-sellable or empty stock', async () => {
+  const s=setup(), menu=await (await s.run('menu')).json();
+  assert.deepEqual(menu.products.map(p=>p.id).sort(),['public-a','public-d']);
   const p=menu.products.find(p=>p.id==='public-a');assert.equal(p.name,'Sample Strain');assert.equal(p.brand,'Sample Brand');assert.deepEqual(p.thc,[25,25]);
-  assert.equal(p.variants[0].priceCents,2000);assert.equal(p.category,'Flower');
-  assert.ok(!JSON.stringify(menu).includes('inventoryQty'));assert.ok(!JSON.stringify(menu).includes('storageLocation'));
+  assert.equal(p.variants[0].priceCents,2000);assert.equal(p.category,'Flower');assert.equal(p.variants[0].available,2);
+  const text=JSON.stringify(menu);assert.ok(!text.includes('packageIds')&&!text.includes('stockUnits')&&!text.includes('pkg'));
+  const sent=s.calls.map(c=>JSON.parse(c.init.body).query).find(q=>q.includes('findMenus'));
+  assert.ok(!/inventoryQty|isSellable|storageLocation/.test(sent)); // stock comes only from findInventory
 });
-test('package eligibility rejects back, other rooms, missing fields and unusable stock', () => {
-  for (const changes of [
-    {storageLocation:'Back'}, {storageLocation:'Other'}, {storageLocation:undefined},
-    {storageLocation:''}, {storageLocation:{}}, {isSellable:false}, {isSellable:undefined},
-    {inventoryQty:0}, {inventoryQty:-1}, {inventoryQty:NaN}, {inventoryQty:'2'}
-  ]) {
+test('products without positive inventory are hidden', () => {
+  for (const qty of [0, -1, NaN, '2', undefined, null]) {
     const input=syntheticMenu(), product=input.menuGroups[0].products[3];
     input.menuGroups[0].products=[product];
-    Object.assign(product.packages[0],changes);
-    assert.equal(normalizeMenu(input,'Front',Date.now()).products.length,0);
+    const stock=stocked(input);stock.set(product.packages[0].id,qty);
+    assert.equal(normalizeMenu(input,stock,Date.now()).products.length,0);
   }
+  const input=syntheticMenu();stocked(input);
+  assert.equal(normalizeMenu(input,new Map(),Date.now()).products.length,0); // packages missing from inventory
+  assert.throws(()=>normalizeMenu(input,{},Date.now()),/MENU_SHAPE/);
 });
-test('THC uses eligible front and legacy packages and excludes back or non-sellable tests', () => {
+test('THC comes only from packages with sellable stock', () => {
   const input=syntheticMenu(), product=input.menuGroups[0].products[0];
   input.menuGroups[0].products=[product];
-  const pkg=(storageLocation,isSellable,inventoryQty,thc)=>({storageLocation,isSellable,inventoryQty,
-    testResults:{uom:'%',totalPotentialPsychoactiveThc:thc}});
-  product.packages.push(pkg(null,true,3,28),pkg('Back',true,5,90),pkg(null,false,5,80),pkg(null,true,0,70));
-  assert.deepEqual(normalizeMenu(input,'Front',Date.now()).products[0].thc,[25,28]);
+  const pkg=(room,sellable,qty,thc)=>({room,sellable,qty,testResults:{uom:'%',totalPotentialPsychoactiveThc:thc}});
+  product.packages.push(pkg(null,true,3,28),pkg('Back',false,5,90),pkg(null,true,0,70));
+  assert.deepEqual(normalizeMenu(input,stocked(input),Date.now()).products[0].thc,[25,28]);
 });
 test('menu cache and lock share updates across visitors, show delayed data briefly, then hide it', async () => {
   const s=setup();const first=await s.run('menu');assert.equal(first.status,200);await s.run('menu');
@@ -836,14 +846,14 @@ test('a push subscription cannot be taken over by another account', async () => 
 });
 
 test('menu cards carry CBD, CBD-rich, photo, plain-text description and price per gram', () => {
-  const pkg=(thc,cbd)=>({storageLocation:'Front',isSellable:true,inventoryQty:3,testResults:{uom:'%',totalPotentialPsychoactiveThc:thc,cbd}});
+  const pkg=(thc,cbd)=>({room:'Front',sellable:true,qty:3,testResults:{uom:'%',totalPotentialPsychoactiveThc:thc,cbd}});
   const input={pricesIncludeTax:true,menuGroups:[{name:'Flower',products:[
     {id:'p1',name:'Eighth',strain:'Calm Day',category:'Flower',cannabisType:'Indica',image:'https://cdn.example.test/p1.jpg',
       description:'<p>Smooth&nbsp;and <b>earthy</b>.</p>',variants:[{weight:3.5,uom:'g',price:2000},{weight:1,uom:'oz',price:14000}],packages:[pkg(4,12)]},
     {id:'p2',name:'Strong One',category:'Flower',image:'javascript:alert(1)',variants:[{price:1500}],packages:[pkg(28,0.1)]},
     {id:'p3',name:'Http Image',category:'Flower',image:'http://cdn.example.test/p3.jpg',variants:[{price:1500}],packages:[pkg(20,null)]}
   ]}]};
-  const menu=normalizeMenu(input,'Front',Date.now()), [p1,p2,p3]=['p1','p2','p3'].map(id=>menu.products.find(p=>p.id===id));
+  const menu=normalizeMenu(input,stocked(input),Date.now()), [p1,p2,p3]=['p1','p2','p3'].map(id=>menu.products.find(p=>p.id===id));
   assert.equal(p1.cbdRich,true);assert.deepEqual(p1.cbd,[12,12]);assert.equal(p1.image,'https://cdn.example.test/p1.jpg');
   assert.equal(p1.description,'Smooth and earthy .');assert.equal(p1.flower,true);
   assert.deepEqual(p1.variants.map(v=>[v.grams,v.pricePerGramCents]),[[3.5,571],[28.35,494]]);
@@ -851,14 +861,15 @@ test('menu cards carry CBD, CBD-rich, photo, plain-text description and price pe
   assert.equal(p3.image,null);assert.equal(p3.cbd,null);assert.equal(p3.cbdRich,false);
 });
 
-test('availability follows front-room stock in units or grams, and hides sizes stock cannot fill', () => {
-  const pkg=(qty,loc='Front')=>({storageLocation:loc,isSellable:true,inventoryQty:qty,testResults:null});
-  const menu=normalizeMenu({pricesIncludeTax:true,menuGroups:[{name:'Flower',products:[
+test('availability follows sellable stock in units or grams, and hides sizes stock cannot fill', () => {
+  const pkg=(qty,room='Front')=>({room,sellable:room==='Front',qty,testResults:null});
+  const input=({pricesIncludeTax:true,menuGroups:[{name:'Flower',products:[
     {id:'bulk',name:'Bulk',category:'Flower',uom:'Grams',variants:[{weight:3.5,uom:'g',price:2000},{weight:7,uom:'g',price:3800},{weight:14,uom:'g',price:7000}],
       packages:[pkg(6),pkg(4),pkg(500,'Back')]},
     {id:'jars',name:'Jars',category:'Flower',uom:'Each',variants:[{weight:3.5,uom:'g',price:2500}],packages:[pkg(37)]},
     {id:'gone',name:'Gone',category:'Flower',uom:'Grams',variants:[{weight:3.5,uom:'g',price:2500}],packages:[pkg(2)]}
-  ]}]},'Front',Date.now());
+  ]}]});
+  const menu=normalizeMenu(input,stocked(input),Date.now());
   const bulk=menu.products.find(p=>p.id==='bulk'), jars=menu.products.find(p=>p.id==='jars');
   assert.equal(bulk.stockUnits,10);assert.deepEqual(bulk.variants.map(v=>[v.size,v.available]),[['3.5 g',2],['7 g',1]]);
   assert.equal(jars.variants[0].available,37);assert.equal(menu.products.some(p=>p.id==='gone'),false);
@@ -870,7 +881,7 @@ test('orders cannot exceed stock, counting every size of a product together', as
   const s=preorders(), a=await s.linked();
   s.setGF({findMenus:{pricesIncludeTax:true,menuGroups:[{name:'Flower',products:[
     {id:'public-a',name:'A',strain:'Sample Strain',category:'Flower',uom:'Grams',variants:[{weight:3.5,uom:'g',price:2000},{weight:7,uom:'g',price:3800}],
-      packages:[{storageLocation:'Front',isSellable:true,inventoryQty:12,testResults:null}]}]}]}});
+      packages:[{room:'Front',sellable:true,qty:12,testResults:null}]}]}]}});
   const menu=await (await s.run('menu')).json();
   assert.deepEqual(menu.products[0].variants.map(v=>v.available),[3,1]);assert.equal(menu.products[0].stockUnits,undefined);
   s.setGF(null);
@@ -887,20 +898,21 @@ test('products are grouped for purchase limits by GrowFlow category type, fallin
   assert.equal(limitGroup('Edible','Infused Pre-Roll'),'edible'); // Type wins over the name.
   assert.equal(limitGroup('','Drinks'),'edible');assert.equal(limitGroup('','Lotion'),'topical');
   assert.equal(limitGroup('','Seeds'),'seed');assert.equal(limitGroup('','Dab Accessories'),null);assert.equal(limitGroup('','Batteries / Pens'),null);assert.equal(limitGroup('','Papers / Wraps'),null);assert.equal(limitGroup('','Live Badder Buckets - 3.5'),'concentrate');assert.equal(limitGroup('','Infused Pre-Roll'),'flower');assert.equal(limitGroup('','Clones'),'clone');assert.equal(limitGroup('','Accessories'),null);
-  const pkg={storageLocation:'Front',isSellable:true,inventoryQty:50,testResults:null};
-  const menu=normalizeMenu({pricesIncludeTax:true,menuGroups:[{name:'Edibles and Pre-Rolls',products:[
-    {id:'pr',name:'Pre-roll',category:'Pre-Rolls',categoryId:'c1',uom:'Each',unitWeight:1,unitWeightUOM:'Grams',variants:[{price:800}],packages:[pkg]},
-    {id:'gum',name:'Gummies',category:'Gummies',categoryId:'c2',uom:'Each',netWeight:56.699,netWeightUOM:'Grams',unitWeight:100,unitWeightUOM:'Milligrams',variants:[{price:1800}],packages:[pkg]},
-    {id:'bulk',name:'Bulk',category:'Flower',categoryId:'c3',uom:'Grams',variants:[{weight:3.5,uom:'g',price:2000}],packages:[pkg]},
-    {id:'odd',name:'Mystery',category:'Other',categoryId:'c4',uom:'Each',variants:[{price:500}],packages:[pkg]}
-  ]}]},'Front',Date.now(),new Map([['c4','Concentrate']]));
+  const pkg=()=>({room:'Front',sellable:true,qty:50,testResults:null});
+  const input=({pricesIncludeTax:true,menuGroups:[{name:'Edibles and Pre-Rolls',products:[
+    {id:'pr',name:'Pre-roll',category:'Pre-Rolls',categoryId:'c1',uom:'Each',unitWeight:1,unitWeightUOM:'Grams',variants:[{price:800}],packages:[pkg()]},
+    {id:'gum',name:'Gummies',category:'Gummies',categoryId:'c2',uom:'Each',netWeight:56.699,netWeightUOM:'Grams',unitWeight:100,unitWeightUOM:'Milligrams',variants:[{price:1800}],packages:[pkg()]},
+    {id:'bulk',name:'Bulk',category:'Flower',categoryId:'c3',uom:'Grams',variants:[{weight:3.5,uom:'g',price:2000}],packages:[pkg()]},
+    {id:'odd',name:'Mystery',category:'Other',categoryId:'c4',uom:'Each',variants:[{price:500}],packages:[pkg()]}
+  ]}]});
+  const menu=normalizeMenu(input,stocked(input),Date.now(),new Map([['c4','Concentrate']]));
   const use=id=>{const p=menu.products.find(x=>x.id===id);return [p.limitGroup,p.variants[0].limitUse];};
   assert.deepEqual(use('pr'),['flower',1]);assert.deepEqual(use('gum'),['edible',2]);   // 56.699 g net = 2 oz
   assert.deepEqual(use('bulk'),['flower',3.5]);assert.deepEqual(use('odd'),['concentrate',null]); // unknown weight
 });
 test('orders over a store purchase limit are refused with a clear message; limits are off by default', async () => {
   const s=preorders(), a=await s.linked();
-  const pkg={storageLocation:'Front',isSellable:true,inventoryQty:100,testResults:null};
+  const pkg={room:'Front',sellable:true,qty:100,testResults:null};
   s.setGF({findMenus:{pricesIncludeTax:true,menuGroups:[{name:'Concentrates',products:[
     {id:'public-a',name:'Rosin',category:'Concentrates',uom:'Each',unitWeight:4,unitWeightUOM:'Grams',variants:[{price:2000}],packages:[pkg]}]}]}});
   const item=qty=>({items:[{productId:'public-a',size:'Each',priceCents:2000,qty}],license:LICENSE});
@@ -1037,11 +1049,10 @@ function inventoryReply(s,pages) {
   return Response.json({data:{findInventory:{edges,pageInfo:{hasNextPage:calls<pages.length,endCursor:calls<pages.length?'next':null}}}});
  };
 }
-test('authoritative Back inventory hides a product even when menu says Front/sellable',async()=>{
+test('non-sellable Back inventory hides a product',async()=>{
  const s=setup(); inventoryReply(s,[[invRow('back',5,'Back')]]);
- const input=syntheticMenu();input.menuGroups[0].products=[{...input.menuGroups[0].products[0],packages:[{id:'pkgOne',inventoryQty:5,isSellable:true,storageLocation:'Front'}]}];
- const checked=await inventoryBackedMenu(input,s.env,s.deps);
- assert.equal(normalizeMenu(checked,'Front',Date.now()).products.length,0);
+ const input=syntheticMenu();input.menuGroups[0].products=[{...input.menuGroups[0].products[0],packages:[{id:'pkgOne'}]}];
+ assert.equal(normalizeMenu(input,await readSellableInventory(['pkgOne'],s.env,s.deps),Date.now()).products.length,0);
 });
 test('inventory pagination sums only eligible Front rows including negative adjustments',async()=>{
  const s=setup();inventoryReply(s,[[invRow('front',5),invRow('back',500,'Back')],[invRow('negative',-1),invRow('waste',100,'Front',{IsWaste:true}),invRow('other-store',100,'Front',{Store:{objectId:'other'}})]]);

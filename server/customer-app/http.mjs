@@ -75,7 +75,7 @@ export function growflowReady(env) {
 }
 export function menuReady(env) {
   return growflowReady(env) && env.APP_MENU_ENABLED === 'true'
-    && Boolean(env.APP_MENU_KEY?.trim() && env.APP_FRONT_LOCATION?.trim());
+    && Boolean(env.APP_MENU_KEY?.trim());
 }
 export function rewardTiersReady(env) {
   return growflowReady(env) && env.APP_REWARD_TIERS_ENABLED === 'true';

@@ -10,7 +10,7 @@ Customers currently re-enter patient details for each points lookup, and the exi
 - Auth0 hosted login through the maintained `oauth4webapi` library; PKCE, nonce/state, issuer/audience and signature checks; verified email required.
 - Server-side sessions, CSRF-protected changes, session revocation and a one-use, ten-minute enrollment workflow after staff checks identity.
 - Exact linked-customer points lookup. No arbitrary customer IDs or patient searches accepted by the customer endpoint.
-- Shared menu refresh, positive sellable packages in the front room or explicitly unassigned legacy stock, explicit tax flag and package-derived THC.
+- Shared menu refresh, stock from store-scoped GrowFlow inventory (non-sellable locations excluded), explicit tax flag and package-derived THC.
 - Separate D1 migration, owner enrollment CLI, setup guide and browser regression runner.
 
 The current `/rewards` implementation and main website navigation are unchanged. There are no point redemptions, marketing subscriptions, push messages or purchase-history reads.
@@ -35,7 +35,7 @@ Screenshots in `docs/customer-app-*.png` contain fictional data only.
 
 ## Remaining test gates
 
-Auth0 tenant setup, email delivery/recovery, protected Cloudflare test deployment, new D1 binding and separate GrowFlow read token. Confirm the actual API front-room value, package eligibility, prices/tax and a consenting customer's points. Real iPhone/Android installation and complete account recovery/deletion procedures require owner testing before a public launch.
+Auth0 tenant setup, email delivery/recovery, protected Cloudflare test deployment, new D1 binding and separate GrowFlow read token. Confirm package eligibility, prices/tax and a consenting customer's points. Real iPhone/Android installation and complete account recovery/deletion procedures require owner testing before a public launch.
 
 Enrollment currently uses an owner-held secret through a terminal tool. Individual staff roles and a staff-facing enrollment page are a later rollout step; do not distribute that secret to customers or general staff. The setup guide supports Cloudflare Access service credentials for this protected test tool.
 

@@ -15,7 +15,7 @@ export const MENU_QUERY = `query TreehouseMobileMenu($menuKey: String!) {
       id name brand strain cannabisType category categoryId image description uom
       unitWeight unitWeightUOM netWeight netWeightUOM
       variants { weight uom price }
-      packages { id inventoryQty isSellable storageLocation
+      packages { id
         testResults { uom totalPotentialPsychoactiveThc cbd }
       }
     } }
@@ -175,9 +175,22 @@ function imageUrl(value) {
 }
 const plainText = value => typeof value === 'string'
   ? value.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 400) : '';
-export function normalizeMenu(input, location, now, categoryTypes = new Map()) {
+// Package IDs on the published menu, for the inventory lookup.
+export function menuPackageIds(input) {
+  if (!Array.isArray(input?.menuGroups)) throw new AppError('MENU_SHAPE');
+  return input.menuGroups.flatMap(group => {
+    if (!Array.isArray(group?.products)) throw new AppError('MENU_SHAPE');
+    return group.products.flatMap(product => {
+      if (!Array.isArray(product?.packages)) throw new AppError('MENU_SHAPE');
+      return product.packages.map(pkg => pkg?.id);
+    });
+  });
+}
+// The published menu decides what is sold and at what price; `stock` (package ID → sellable
+// quantity, from readSellableInventory) decides what is on hand right now.
+export function normalizeMenu(input, stock, now, categoryTypes = new Map()) {
   if (!input || !Array.isArray(input.menuGroups) || typeof input.pricesIncludeTax !== 'boolean'
-    || !clean(location)) throw new AppError('MENU_SHAPE');
+    || !(stock instanceof Map)) throw new AppError('MENU_SHAPE');
   const seen = new Set(), products = [], categories = [];
   for (const group of input.menuGroups) {
     if (!group || !Array.isArray(group.products) || typeof group.name !== 'string') throw new AppError('MENU_SHAPE');
@@ -185,12 +198,10 @@ export function normalizeMenu(input, location, now, categoryTypes = new Map()) {
     for (const p of group.products) {
       if (!p || typeof p.id !== 'string' || !clean(p.name)) throw new AppError('MENU_SHAPE');
       if (seen.has(p.id)) continue;
-      // inventoryBackedMenu supplies eligible quantities and normalized location flags.
-      // This guard also supports legacy/demo callers that pass menu packages directly.
-      const eligiblePackages = (Array.isArray(p.packages) ? p.packages : []).filter(pkg =>
-        pkg?.isSellable === true && (pkg.storageLocation === null
-          || (typeof pkg.storageLocation === 'string' && normalized(pkg.storageLocation) === normalized(location)))
-        && typeof pkg.inventoryQty === 'number' && Number.isFinite(pkg.inventoryQty) && pkg.inventoryQty > 0);
+      const packageIds = [...new Set((Array.isArray(p.packages) ? p.packages : []).map(pkg => pkg?.id).filter(id => typeof id === 'string'))];
+      const quantity = id => { const qty = stock.get(id); return Number.isFinite(qty) && qty > 0 ? qty : 0; };
+      const eligiblePackages = packageIds.filter(id => quantity(id) > 0)
+        .map(id => ({ qty: quantity(id), testResults: p.packages.find(pkg => pkg?.id === id).testResults }));
       if (!eligiblePackages.length) continue;
       const variants = (Array.isArray(p.variants) ? p.variants : []).filter(v => v
         && Number.isSafeInteger(v.price) && v.price >= 0).map(v => {
@@ -201,7 +212,7 @@ export function normalizeMenu(input, location, now, categoryTypes = new Map()) {
       });
       // Eligible stock: package quantities are units for "Each" products and grams for
       // "Grams" products. A size is orderable only while stock covers at least one of it.
-      const stockUnits = eligiblePackages.reduce((sum, pkg) => sum + pkg.inventoryQty, 0);
+      const stockUnits = eligiblePackages.reduce((sum, pkg) => sum + pkg.qty, 0);
       const byWeight = normalized(p.uom) === 'grams';
       const stocked = variants.map(v => {
         const per = byWeight && v.grams ? v.grams : 1;
@@ -216,7 +227,7 @@ export function normalizeMenu(input, location, now, categoryTypes = new Map()) {
       const flower = /flower|smalls|top shelf/i.test(`${p.category} ${category}`);
       const thc = potencyRange(eligiblePackages, 'totalPotentialPsychoactiveThc'), cbd = potencyRange(eligiblePackages, 'cbd');
       products.push({ id: p.id, name: flower ? clean(p.strain) || clean(p.name) : clean(p.name),
-        packageIds: [...new Set((p.packages || []).map(pkg => pkg.id).filter(Boolean))],
+        packageIds,
         brand: clean(p.brand), category, sourceCategory: clean(p.category), flower, type: ['indica', 'sativa', 'hybrid'].includes(normalized(p.cannabisType))
           ? normalized(p.cannabisType) : '', variants, thc, cbd,
         // CBD-rich: tested CBD at least 1% and at least equal to THC (CBD-dominant or balanced).
@@ -316,7 +327,7 @@ export function purchaseLimits(env) {
 }
 export async function getMenu(env, deps) {
   const key = await hash(env.APP_LIMIT_SECRET,
-    `menu:v8-authoritative-inventory:${env.GROWFLOW_ORG}:${env.APP_MENU_KEY}:${env.APP_FRONT_LOCATION}:${inventoryStore(env)}:${env.APP_GROWFLOW_TOKEN}`);
+    `menu:v9-inventory:${env.GROWFLOW_ORG}:${env.APP_MENU_KEY}:${inventoryStore(env)}:${env.APP_GROWFLOW_TOKEN}`);
   const cached = await env.APP_DB.prepare('SELECT value, updated_at FROM app_cache WHERE key = ?').bind(key).first();
   const age = cached ? deps.now() - cached.updated_at : Infinity;
   const fallback = () => {
@@ -333,8 +344,8 @@ export async function getMenu(env, deps) {
     // The full menu (hundreds of products with photos and weights) can take GrowFlow a while.
     const result = await queryGrowflow(env, deps, MENU_QUERY, { menuKey: env.APP_MENU_KEY }, env.APP_GROWFLOW_TOKEN, 25000);
     const types = purchaseLimits(env) ? await getCategoryTypes(env, deps) : new Map();
-    const checked = await inventoryBackedMenu(result.findMenus, env, deps);
-    const menu = normalizeMenu(checked, env.APP_FRONT_LOCATION, deps.now(), types);
+    const stock = await readSellableInventory(menuPackageIds(result.findMenus), env, deps);
+    const menu = normalizeMenu(result.findMenus, stock, deps.now(), types);
     // A small public summary (no stock levels or prices) for the CRM's campaign assistant.
     const summary = { updatedAt: menu.updatedAt, categories: menu.categories,
       products: menu.products.map(p => ({ id: p.id, name: p.name, brand: p.brand, category: p.category })) };
@@ -348,8 +359,6 @@ export async function getMenu(env, deps) {
   }
 }
 
-
-
 // Store object ID verified against the owner's inventory diagnostic on 2026-10-07.
 // Explicit store scoping prevents similarly named rooms at another store contributing stock.
 export const inventoryStore = env => env.APP_INVENTORY_STORE_ID || 'nhB4pzbWYZ';
@@ -361,7 +370,7 @@ export const INVENTORY_QUERY = `query TreehouseSellableInventory($where: Invento
 }`;
 export async function readSellableInventory(ids, env, deps) {
   const unique = [...new Set(ids)];
-  if (!clean(env.APP_FRONT_LOCATION) || unique.some(id => typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(id)))
+  if (unique.some(id => typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(id)))
     throw new AppError('INVENTORY_SHAPE');
   const quantities = new Map(unique.map(id => [id, 0])), seen = new Set();
   let requests = 0;
@@ -396,26 +405,6 @@ export async function readSellableInventory(ids, env, deps) {
     } while (true);
   }
   return new Map([...quantities].map(([id,qty]) => [id, Math.max(0,qty)]));
-}
-export async function inventoryBackedMenu(menu, env, deps) {
-  if (!Array.isArray(menu?.menuGroups)) throw new AppError('MENU_SHAPE');
-  const ids = [];
-  for (const group of menu.menuGroups) {
-    if (!Array.isArray(group.products)) throw new AppError('MENU_SHAPE');
-    for (const product of group.products) {
-      if (!Array.isArray(product.packages)) throw new AppError('MENU_SHAPE');
-      for (const pkg of product.packages) ids.push(pkg.id);
-    }
-  }
-  const quantities = await readSellableInventory(ids, env, deps);
-  return { ...menu, menuGroups: menu.menuGroups.map(group => ({ ...group, products: group.products.map(product => {
-    const seen = new Set();
-    return { ...product, packages: product.packages.filter(pkg => {
-      if (seen.has(pkg.id)) return false;
-      seen.add(pkg.id); return true;
-    }).map(pkg => ({ ...pkg, inventoryQty: quantities.get(pkg.id) || 0,
-      storageLocation: env.APP_FRONT_LOCATION, isSellable: (quantities.get(pkg.id) || 0) > 0 })) };
-  }) })) };
 }
 export async function verifyPreorderInventory(menu, drawn, env, deps) {
   const products = [...drawn.keys()].map(id => menu.products.find(p => p.id === id));

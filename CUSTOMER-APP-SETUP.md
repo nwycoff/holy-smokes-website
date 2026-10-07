@@ -80,7 +80,6 @@ Generate the two independent random app secrets locally, save them in Bitwarden,
 | `GROWFLOW_PATIENT_ID_FIELDS` | Text | `PatientLicenseNumber,MedicalLicenseNumber,CustomerStateLicense` |
 | `APP_MENU_ENABLED` | Text | `false` until menu validation is complete |
 | `APP_MENU_KEY` | Secret | Published menu's access key |
-| `APP_FRONT_LOCATION` | Text | Keep `Front`; retained for normalization, not eligibility |
 | `APP_PREORDER_ENABLED` | Text | `false` until step 6 is complete |
 | `APP_PREORDER_TOKEN` | Secret | **Another separate token** with only the Create preorders scope; must differ from `APP_GROWFLOW_TOKEN` |
 

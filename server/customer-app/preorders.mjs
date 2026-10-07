@@ -142,7 +142,7 @@ export async function placePreorder(env, deps, s, input, limit) {
   if ((await currentPreorder(env, deps, s))?.open) throw new AppError('OPEN_ORDER', 409);
   const menu = await getMenu(env, deps);
   if (menu.stale) throw new AppError('MENU_STALE');
-  // Every size of a product draws on the same front-room stock (e.g. 2 × 3.5 g + 1 × 7 g = 14 g).
+  // Every size of a product draws on the same sellable stock (e.g. 2 × 3.5 g + 1 × 7 g = 14 g).
   const drawn = new Map();
   const lines = items.map(item => {
     const product = menu.products.find(p => p.id === item.productId);
