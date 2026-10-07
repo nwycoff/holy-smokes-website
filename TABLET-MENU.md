@@ -9,6 +9,7 @@ Same-origin cookies are permitted so existing Cloudflare Access protection conti
 - Portrait: categories and filters above the product cards.
 - Search, category, type, brand, budget, flower size, and sorting stay selected during rotation. The previously visible product remains in view.
 - Size and budget filters must match the same variant; cards show all available sizes and prices.
+- Category sub-filters (e.g. Pre-rolls: Type, Format, Pack) start unchecked, showing everything. Checking narrows: any checked value within a group, and every group that has a check. Counts show what each box would add; boxes that would show nothing are disabled. Blunt pack size comes from the product name ("2pk", "2 pk", "(2 Pack)"); otherwise blunts count as singles.
 - Every 60 seconds while visible, refresh the public menu. Retry transient errors once; retain the last loaded menu with a warning on failure. An initial failure offers Try again.
 - After two minutes without touch, pointer, key, input, or scroll activity, clear all selections, restore price sorting, dismiss the keyboard, and return to the top. Start over does this immediately.
 - Full screen is available where supported. The page requests a screen wake lock and reacquires it when visible. Device power saving or browser restrictions may override it.

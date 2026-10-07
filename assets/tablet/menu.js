@@ -1,7 +1,7 @@
 import { classify, matchesFacets, sectionOrder } from './categories.js';
 const $ = id => document.getElementById(id);
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
-const state = { menu: null, category: 'All', loading: false, error: '', excluded: new Set() };
+const state = { menu: null, category: 'All', loading: false, error: '', selected: new Set() };
 const controlIds = ['search', 'type', 'brand', 'budget', 'size', 'sort'];
 const IDLE_MS = 120000;
 let idleTimer, toastTimer, wakeLock, wakePending = false;
@@ -9,10 +9,11 @@ function node(tag, text = '', className = '') {
   const item = document.createElement(tag); item.textContent = text; if (className) item.className = className; return item;
 }
 function selection() { return Object.fromEntries(controlIds.map(id => [id, $(id).value])); }
-function filtered(products, query) {
+// skipGroup leaves one facet group out, for that group's counts.
+function filtered(products, query, skipGroup = null) {
   const search = query.search.toLocaleLowerCase().trim();
   return products.filter(p => (state.category === 'All' || p.browse.section === state.category)
-    && matchesFacets(p, state.excluded)
+    && matchesFacets(p, state.selected, skipGroup)
     && (!search || `${p.name} ${p.brand} ${p.category} ${p.sourceCategory || ''} ${Object.values(p.browse.facets).join(' ')} ${p.type}`.toLocaleLowerCase().includes(search))
     && (!query.type || (query.type === 'cbd' ? p.cbdRich : p.type === query.type))
     && (!query.brand || p.brand === query.brand)
@@ -72,7 +73,7 @@ function render(preservePosition = false) {
   const buttons = categories.map(category => {
     const button = node('button', category); button.type = 'button'; button.setAttribute('aria-pressed', String(category === state.category));
     button.append(node('span', String(category === 'All' ? products.length : products.filter(p => p.browse.section === category).length)));
-    button.addEventListener('click', () => { state.category = category; state.excluded.clear(); render(); }); return button;
+    button.addEventListener('click', () => { state.category = category; state.selected.clear(); render(); }); return button;
   });
   const categoryScroll = $('categories').scrollLeft;
   $('categories').replaceChildren(...buttons); $('categories').scrollLeft = categoryScroll; renderFacets(products);
@@ -114,7 +115,7 @@ async function refresh() {
   } finally { state.loading = false; render(true); }
 }
 function reset(automatic = false) {
-  state.category = 'All'; state.excluded.clear(); controlIds.forEach(id => { $(id).value = id === 'sort' ? 'price' : ''; });
+  state.category = 'All'; state.selected.clear(); controlIds.forEach(id => { $(id).value = id === 'sort' ? 'price' : ''; });
   document.activeElement?.blur(); render(); window.scrollTo({top:0,behavior:'instant'}); $('categories').scrollLeft = 0;
   if (automatic) { $('reset-message').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(()=>{ $('reset-message').hidden = true; },3500); }
 }
@@ -145,32 +146,36 @@ setInterval(()=>{ if (!document.hidden) void refresh(); },60000);
 activity(); void keepAwake(); void refresh();
 
 
+// Boxes start unchecked (everything shows); checking narrows. Each count is what checking
+// that box would show given the other groups and filters; boxes that would show nothing are disabled.
 function renderFacets(products) {
  const existing = document.getElementById('category-facets');
  const focus = existing?.contains(document.activeElement) ? document.activeElement?.dataset.facet : null;
  existing?.remove();
  if (state.category === 'All') return;
- const subset = products.filter(p => p.browse.section === state.category);
  const groups = new Map();
- for (const p of subset) for (const [key,value] of Object.entries(p.browse.facets)) {
-   if (!groups.has(key)) groups.set(key,new Map());
-   groups.get(key).set(value,(groups.get(key).get(value)||0)+1);
+ for (const p of products.filter(p => p.browse.section === state.category)) for (const [key,value] of Object.entries(p.browse.facets)) {
+   if (!groups.has(key)) groups.set(key,new Set());
+   groups.get(key).add(value);
  }
+ const query = selection();
  const panel = node('div','','category-facets'); panel.id='category-facets';
  for (const [key,values] of groups) {
   if (values.size < 2) continue;
   const field = node('fieldset'); field.append(node('legend',key));
-  for (const [value,count] of values) {
+  const others = filtered(products, query, key);
+  for (const value of values) {
    const label=node('label'), input=document.createElement('input'), id=`${key}:${value}`;
-   input.type='checkbox';input.dataset.facet=id;input.checked=!state.excluded.has(id);
-   input.addEventListener('change',()=>{input.checked?state.excluded.delete(id):state.excluded.add(id);render();});
+   const count = others.filter(p => p.browse.facets[key] === value).length;
+   input.type='checkbox';input.dataset.facet=id;input.checked=state.selected.has(id);input.disabled=!count && !input.checked;
+   input.addEventListener('change',()=>{input.checked?state.selected.add(id):state.selected.delete(id);render();});
    label.append(input,node('span',value),node('small',String(count)));field.append(label);
   }
   panel.append(field);
  }
  if (!panel.children.length) return;
- const reset=node('button','Show all '+state.category);reset.type='button';
- reset.addEventListener('click',()=>{state.excluded.clear();render();});panel.append(reset);
+ const reset=node('button','Show all '+state.category);reset.type='button';reset.hidden=!state.selected.size;
+ reset.addEventListener('click',()=>{state.selected.clear();render();});panel.append(reset);
  const selected=$('categories').querySelector('[aria-pressed="true"]');
  selected.after(panel);
  if(focus) [...panel.querySelectorAll('input')].find(el=>el.dataset.facet===focus)?.focus();

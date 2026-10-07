@@ -1,5 +1,6 @@
 // Exact GrowFlow category names from the owner-supplied 2026-10-07 export.
-// Unknown categories remain visible. Never infer infusion from price, THC, or names.
+// Unknown categories remain visible. Never infer infusion from price, THC, or names. The one
+// thing read from names is pack size, for categories marked packFromName (see packOf).
 export const categoryMap = {
   "10,000mg Edibles": {
     "section": "Edibles",
@@ -174,8 +175,9 @@ export const categoryMap = {
     "facets": {
       "Type": "Infused",
       "Format": "Blunts",
-      "Pack": "Not specified"
-    }
+      "Pack": "Singles"
+    },
+    "packFromName": true
   },
   "Infused Flower": {
     "section": "Infused Flower",
@@ -547,10 +549,28 @@ export const categoryMap = {
   }
 };
 export const sectionOrder = ['Treehouse','Flower','Smalls','Shake','Pre-rolls','Infused Flower','Vapes','Edibles','Concentrates','Other Products'];
+// "2pk", "2 pk", "2-pack", "(2 Pack)", "7pk": two or more is a multipack.
+const PACK = /\b(\d{1,2})\s*-?\s*(?:pk|pack)s?\b/i;
+export function packOf(name) {
+ const match = PACK.exec(String(name || ''));
+ return match && Number(match[1]) >= 2 ? 'Multipacks' : null;
+}
 export function classify(product) {
  const match = categoryMap[product.sourceCategory];
- return match || {section:product.sourceCategory || product.category || 'Other Products',facets:{}};
+ if (!match) return {section:product.sourceCategory || product.category || 'Other Products',facets:{}};
+ const facets = {...match.facets};
+ if (match.packFromName) facets.Pack = packOf(product.name) || facets.Pack;
+ return {section:match.section,facets};
 }
-export function matchesFacets(product, excluded) {
- return Object.entries(product.browse.facets).every(([key,value]) => !excluded.has(`${key}:${value}`));
+// Checked values narrow the list: within a group any checked value matches; across groups
+// every group with something checked must match. A group with nothing checked allows all.
+export function matchesFacets(product, selected, skipGroup = null) {
+ const groups = new Map();
+ for (const id of selected) {
+  const at = id.indexOf(':'), key = id.slice(0, at);
+  if (key === skipGroup) continue;
+  if (!groups.has(key)) groups.set(key, new Set());
+  groups.get(key).add(id.slice(at + 1));
+ }
+ return [...groups].every(([key, values]) => values.has(product.browse.facets[key]));
 }
