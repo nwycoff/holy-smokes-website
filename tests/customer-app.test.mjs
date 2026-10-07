@@ -1112,15 +1112,24 @@ test('inventory rows shaped like the live API: Front sellable counts, a non-sell
 test('menu groups are ignored: GrowFlow categories place products, hidden categories are dropped, Treehouse tab first', () => {
   const item=(id,category,name=id)=>({id,name,category,variants:[{price:1000}],packages:[{room:'Front',qty:5,testResults:null}]});
   const input={pricesIncludeTax:true,menuGroups:[{name:'Website and App',products:[
-    item('pr','Infused Blunt','MoonRock Blunt - 2pk - Sample'),item('th','Tree House Small Bud'),item('vape','510 Carts'),
+    item('pr','Infused Blunt','MoonRock Blunt - 2pk - Sample'),item('th','Tree House Small Bud'),item('vape','510 Carts'),item('tf','Top-Shelf Flower'),
     item('waste','Waste'),item('nic','Nicotine Products'),item('new','Something New')]}]};
   const menu=normalizeMenu(input,stocked(input),Date.now());
-  assert.deepEqual(menu.categories,['Treehouse','Flower','Pre-Rolls','Vapes','More']);
-  assert.deepEqual(menu.products.map(p=>p.id).sort(),['new','pr','th','vape']);
+  assert.deepEqual(menu.categories,['Treehouse','Flower','Smalls','Pre-Rolls','Vapes','More']);
+  assert.deepEqual(menu.products.map(p=>p.id).sort(),['new','pr','tf','th','vape']);
   const get=id=>menu.products.find(p=>p.id===id);
   assert.deepEqual([get('pr').category,get('pr').facets],['Pre-Rolls',{Type:'Infused',Format:'Blunts',Pack:'Multipacks'}]);
-  assert.deepEqual([get('th').category,get('th').house,get('th').flower],['Flower',true,true]);
-  assert.equal(get('vape').house,undefined);assert.equal(get('new').category,'More');
+  assert.deepEqual([get('th').category,get('th').house,get('th').flower,get('th').also],['Smalls',true,true,['Treehouse']]);
+  assert.equal(get('vape').house,undefined);assert.deepEqual(get('vape').also,[]);assert.equal(get('new').category,'More');
+});
+test('CBD-rich cannabis is also listed under CBD & Hemp, next to hemp CBD products', () => {
+  const item=(id,category,thc,cbd)=>({id,name:id,category,variants:[{price:1000}],packages:[{room:'Front',qty:5,
+    testResults:{uom:'%',totalPotentialPsychoactiveThc:thc,cbd}}]});
+  const input={pricesIncludeTax:true,menuGroups:[{name:'Everything',products:[item('rich','Top-Shelf Flower',6,12),item('high','Top-Shelf Flower',28,0.1),
+    item('tinct','Tincture',10,10),item('hemp','CBD',0,20)]}]};
+  const menu=normalizeMenu(input,stocked(input),Date.now()), get=id=>menu.products.find(p=>p.id===id);
+  assert.deepEqual(menu.categories,['Flower','Tinctures & Capsules','CBD & Hemp']);
+  assert.deepEqual([get('rich').also,get('high').also,get('tinct').also,get('hemp').also],[['CBD & Hemp'],[],['CBD & Hemp'],[]]);
 });
 
 test('lab panel lists cannabinoids above zero and the five largest terpenes from in-stock packages', () => {

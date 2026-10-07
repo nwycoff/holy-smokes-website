@@ -1,12 +1,12 @@
 // Fictional design data only. Never imported on the live app route.
 export const demoMenu = {
   updatedAt: 0, stale: false, pricesIncludeTax: true,
-  categories: ['Flower', 'Concentrates', 'Vapes', 'Edibles'],
+  categories: ['Flower', 'Smalls', 'Vapes', 'Concentrates', 'Edibles', 'CBD & Hemp'],
   products: [
     { id:'demo-1', facets:{Style:'Whole flower',Packaging:'Pre-packed'}, brand:'Sample Garden', name:'Golden Hour', category:'Flower', limitGroup:'flower', flower:true, type:'hybrid', thc:[24.2,24.2], cbd:null, cbdRich:false,
       terpenes:[1.62,1.62],
       variants:[{size:'3.5 g',priceCents:1500,grams:3.5,pricePerGramCents:429,available:2,limitUse:3.5}], description:'Bright, citrusy and easygoing.' },
-    { id:'demo-2', facets:{Style:'Smalls',Packaging:'Bulk'}, brand:'Sample Garden', name:'Sunday Slowdown', category:'Flower', limitGroup:'flower', flower:true, type:'indica', thc:[26.5,26.5], cbd:null, cbdRich:false,
+    { id:'demo-2', facets:{Style:'Smalls',Packaging:'Bulk'}, brand:'Sample Garden', name:'Sunday Slowdown', category:'Smalls', limitGroup:'flower', flower:true, type:'indica', thc:[26.5,26.5], cbd:null, cbdRich:false,
       terpenes:[1.88,2.05],
       lab:{cannabinoids:[{name:'THCa',range:[28.9,29.6]},{name:'Δ9-THC',range:[0.8,1.1]},{name:'CBN',range:[0.04,0.04]}],terpenes:[{name:'Myrcene',range:[0.86,0.9]},{name:'Linalool',range:[0.24,0.31]},{name:'Caryophyllene',range:[0.21,0.22]},{name:'Humulene',range:[0.14,0.14]},{name:'Limonene',range:[0.1,0.12]}]},
       variants:[{size:'3.5 g',priceCents:2000,grams:3.5,pricePerGramCents:571,available:10,limitUse:3.5}] },
@@ -18,7 +18,7 @@ export const demoMenu = {
       variants:[{size:'1 g',priceCents:3000,grams:1,pricePerGramCents:3000,available:10,limitUse:1}] },
     { id:'demo-6', facets:{Strength:'Up to 100mg'}, brand:'Example Kitchen', name:'Peach Gummies', category:'Edibles', limitGroup:'edible', type:'', thc:null, cbd:null, cbdRich:false,
       variants:[{size:'10 pieces',priceCents:1800,grams:null,pricePerGramCents:null,available:10,limitUse:0.353}] },
-    { id:'demo-7', facets:{Style:'Whole flower',Packaging:'Pre-packed'}, brand:'Prairie Sample Farms', name:'Easy Balance', category:'Flower', limitGroup:'flower', flower:true, type:'hybrid', thc:[6.2,6.2], cbd:[11.8,11.8], cbdRich:true,
+    { id:'demo-7', also:['CBD & Hemp'], facets:{Style:'Whole flower',Packaging:'Pre-packed'}, brand:'Prairie Sample Farms', name:'Easy Balance', category:'Flower', limitGroup:'flower', flower:true, type:'hybrid', thc:[6.2,6.2], cbd:[11.8,11.8], cbdRich:true,
       variants:[{size:'3.5 g',priceCents:2200,grams:3.5,pricePerGramCents:629,available:10,limitUse:3.5},{size:'14 g',priceCents:7000,grams:14,pricePerGramCents:500,available:10,limitUse:14}],
       description:'A gentle 1:2 THC to CBD flower.' }
   ]

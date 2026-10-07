@@ -1,8 +1,9 @@
 // Departments, sub-filter facets and the house-brand flag come from the server
 // (server/customer-app/taxonomy.mjs), so the tablet and the app group products the same way.
-export const HOUSE = 'Treehouse';
+// A product shows under its own heading and any extra tabs it is also listed under
+// (Treehouse for house products, CBD & Hemp for CBD-rich products).
 export function inSection(product, section) {
- return section === 'All' || (section === HOUSE ? product.house === true : product.category === section);
+ return section === 'All' || product.category === section || (Array.isArray(product.also) && product.also.includes(section));
 }
 // Checked values narrow: within a group any checked value matches; across groups every group
 // with something checked must match. A group with nothing checked allows all.

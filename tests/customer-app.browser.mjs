@@ -38,7 +38,7 @@ try {
     await page.locator('#menu-products .product-card').first().waitFor();
     if(width===390) await page.screenshot({path:fileURLToPath(new URL('../docs/customer-app-menu.png',import.meta.url))});
     await page.getByRole('button',{name:'Flower',exact:true}).click();
-    assert.equal(await page.locator('#menu-products .product-card').count(),4);
+    assert.equal(await page.locator('#menu-products .product-card').count(),3); // Smalls has its own heading now
     await page.locator('#filter-button').click();await page.getByRole('button',{name:/^Under \$20/}).click();
     assert.equal(await page.locator('#menu-products .product-card').count(),1);
     await page.getByRole('button',{name:/^Show 1 product/}).click();

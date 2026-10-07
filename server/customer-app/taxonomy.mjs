@@ -4,16 +4,21 @@
 // Unknown categories land in "More" so new products never disappear; hidden categories are
 // never shown to customers. Infusion is never read from names; the only thing read from a
 // name is a blunt's pack size ("2pk", "(2 Pack)").
-export const DEPARTMENTS = ['Flower', 'Pre-Rolls', 'Vapes', 'Concentrates', 'Edibles', 'Tinctures & Topicals',
-  'CBD & Hemp', 'Seeds & Clones', 'Accessories', 'More'];
-// The house brand gets its own first tab (its products also stay in Flower).
+// Headings follow what medical shoppers look for first: flower by grade (Flower, Smalls, Shake),
+// then pre-rolls, vapes, concentrates, edibles, and the non-smokable options patients ask about.
+export const DEPARTMENTS = ['Flower', 'Smalls', 'Shake', 'Pre-Rolls', 'Vapes', 'Concentrates', 'Edibles',
+  'Tinctures & Capsules', 'Topicals & Patches', 'CBD & Hemp', 'Seeds & Clones', 'Accessories', 'More'];
+// Extra tabs that list products from several headings: the house brand, and CBD-rich products
+// (tested CBD at least 1% and at least equal to THC) alongside hemp CBD.
 export const HOUSE = 'Treehouse';
+export const CBD = 'CBD & Hemp';
 
 // Not for sale (waste), not for under-21 patients (nicotine), or not sold (samples).
 export const HIDDEN = new Set(['Waste', 'Waste - Disposable', 'waste - pre-roll multi pk', 'Nicotine Products',
   'Sample- Flower', 'Pre-Pack Flower Samples']);
 
-const flower = (Style, Packaging, house = false) => ({ department: 'Flower', facets: { Style, Packaging }, house });
+const GRADE = { 'Whole flower': 'Flower', 'Infused flower': 'Flower', Smalls: 'Smalls', Shake: 'Shake', 'Infused shake': 'Shake' };
+const flower = (Style, Packaging, house = false) => ({ department: GRADE[Style], facets: { Style, Packaging }, house });
 const preRoll = (Type, Format, Pack, packFromName = false) => ({ department: 'Pre-Rolls', facets: { Type, Format, Pack }, packFromName });
 const dept = (department, key, value) => ({ department, facets: { [key]: value } });
 
@@ -32,9 +37,9 @@ export const CATEGORIES = {
   'Pre-Pack Smalls - 28g': flower('Smalls', 'Pre-packed'),
   'Shake': flower('Shake', 'Bulk'),
   'Pre-Pack Shake': flower('Shake', 'Pre-packed'),
-  'Infused Flower': flower('Infused', 'Pre-packed'),
-  'Moonrocks': flower('Infused', 'Pre-packed'),
-  'Infused Shake': flower('Infused', 'Pre-packed'),
+  'Infused Flower': flower('Infused flower', 'Pre-packed'),
+  'Moonrocks': flower('Infused flower', 'Pre-packed'),
+  'Infused Shake': flower('Infused shake', 'Pre-packed'),
   'Tree House Top Shelf Flower': flower('Whole flower', 'Bulk', true),
   'Tree House Small Bud': flower('Smalls', 'Bulk', true),
   'Pre-Pack Tree House Flower 3.5g': flower('Whole flower', 'Pre-packed', true),
@@ -83,11 +88,11 @@ export const CATEGORIES = {
   '2000mg-5000mg Edibles': dept('Edibles', 'Strength', '2,000–5,000mg'),
   '10,000mg Edibles': dept('Edibles', 'Strength', '10,000mg'),
 
-  'Tincture': dept('Tinctures & Topicals', 'Style', 'Tinctures'),
-  'Capsule': dept('Tinctures & Topicals', 'Style', 'Capsules'),
-  'Topical': dept('Tinctures & Topicals', 'Style', 'Topicals'),
-  'Transdermal Patch': dept('Tinctures & Topicals', 'Style', 'Patches'),
-  'Suppository': dept('Tinctures & Topicals', 'Style', 'Suppositories'),
+  'Tincture': dept('Tinctures & Capsules', 'Style', 'Tinctures'),
+  'Capsule': dept('Tinctures & Capsules', 'Style', 'Capsules'),
+  'Topical': dept('Topicals & Patches', 'Style', 'Topicals'),
+  'Transdermal Patch': dept('Topicals & Patches', 'Style', 'Patches'),
+  'Suppository': dept('Tinctures & Capsules', 'Style', 'Suppositories'),
 
   'CBD': dept('CBD & Hemp', 'Style', 'CBD'),
   'Delta 8 Products': dept('CBD & Hemp', 'Style', 'Delta 8'),

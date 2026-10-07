@@ -1,6 +1,6 @@
 import { consumeLimits } from '../rewards.mjs';
 import { AppError, fetchSafe, hash } from './http.mjs';
-import { classifyProduct, DEPARTMENTS, HOUSE } from './taxonomy.mjs';
+import { CBD, classifyProduct, DEPARTMENTS, HOUSE } from './taxonomy.mjs';
 
 // Contracts checked against the supplied retailGraphQLSchema.graphql. Live
 // permission/field checks and POS price comparison are required before enabling.
@@ -262,23 +262,26 @@ export function normalizeMenu(input, stock, now, categoryTypes = new Map()) {
       for (const v of stocked) v.limitUse = limitUse(group, p, v);
       variants.splice(0, variants.length, ...stocked);
       seen.add(p.id);
-      const category = placed.department, flower = category === 'Flower';
+      const category = placed.department, flower = ['Flower', 'Smalls', 'Shake'].includes(category);
       const thc = potencyRange(eligiblePackages, 'totalPotentialPsychoactiveThc'), cbd = potencyRange(eligiblePackages, 'cbd');
       const terpenes = terpeneRange(eligiblePackages), lab = labPanel(eligiblePackages);
+      // CBD-rich: tested CBD at least 1% and at least equal to THC (CBD-dominant or balanced).
+      const cbdRich = Boolean(cbd && cbd[1] >= 1 && cbd[1] >= (thc ? thc[1] : 0));
       products.push({ id: p.id, name: flower ? clean(p.strain) || clean(p.name) : clean(p.name),
         packageIds,
         brand: clean(p.brand), category, facets: placed.facets, ...(placed.house ? { house: true } : {}),
+        // Extra tabs this product is also listed under.
+        also: [...(placed.house ? [HOUSE] : []), ...(cbdRich && category !== CBD ? [CBD] : [])],
         sourceCategory: clean(p.category), flower, type: ['indica', 'sativa', 'hybrid'].includes(normalized(p.cannabisType))
           ? normalized(p.cannabisType) : '', variants, thc, cbd, terpenes, ...(lab ? { lab } : {}),
-        // CBD-rich: tested CBD at least 1% and at least equal to THC (CBD-dominant or balanced).
-        cbdRich: Boolean(cbd && cbd[1] >= 1 && cbd[1] >= (thc ? thc[1] : 0)),
+        cbdRich,
         image: imageUrl(p.image), description: plainText(p.description), stockUnits, limitGroup: group });
     }
   }
   products.sort((a, b) => Math.min(...a.variants.map(v => v.priceCents)) - Math.min(...b.variants.map(v => v.priceCents))
     || a.name.localeCompare(b.name));
   const categories = [...(products.some(p => p.house) ? [HOUSE] : []),
-    ...DEPARTMENTS.filter(d => products.some(p => p.category === d))];
+    ...DEPARTMENTS.filter(d => products.some(p => p.category === d || p.also.includes(d)))];
   return { products, categories, pricesIncludeTax: input.pricesIncludeTax, updatedAt: now, stale: false };
 }
 

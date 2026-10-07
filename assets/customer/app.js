@@ -822,8 +822,9 @@ function empty(text) { const box = el('div', '', 'empty-state'); box.append(el('
 // Menu filters: strain type, flower size, price band and brand, shown in a panel with
 // removable chips for whatever is active. Options list only what the current menu has.
 const filters = { types: new Set(), sizes: new Set(), brands: new Set(), price: '', facets: new Set() };
-// Departments come from the server; "Treehouse" is the house-brand tab (those products are also in Flower).
-const inCategory = (p, name) => name === 'All' || (name === 'Treehouse' ? p.house === true : p.category === name);
+// Headings come from the server. A product shows under its own heading and any extra tabs it is
+// also listed under (Treehouse for house products, CBD & Hemp for CBD-rich products).
+const inCategory = (p, name) => name === 'All' || p.category === name || (Array.isArray(p.also) && p.also.includes(name));
 // Department sub-filters ("Style:Smalls", "Pack:Multipacks"): any checked value within a group,
 // every group with a check. skipGroup leaves one group out, for that group's counts.
 function facetMatch(p, skipGroup = null) {

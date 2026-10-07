@@ -80,7 +80,7 @@ try {
   const entries=[['Tree House Top Shelf Flower'],['Tree House Small Bud'],['Pre-Roll'],['Pre-Roll Multipack'],['Infused Pre-Roll'],['Infused Pre-Roll Multi pk'],
     ['Infused Shake'],['Pre-Pack Shake'],['New unmapped category'],['Infused Blunt','MoonRock Blunt - 2pk - Sample'],['Infused Blunt','Sample Blunt | 2.5g'],['Waste']];
   const placedProducts=entries.map(([sourceCategory,name=demoMenu.products[0].name],i)=>{const placed=classifyProduct(sourceCategory,name);
-    return placed && {...demoMenu.products[0],id:`facet-${i}`,name,sourceCategory,category:placed.department,facets:placed.facets,...(placed.house?{house:true}:{})};}).filter(Boolean);
+    return placed && {...demoMenu.products[0],id:`facet-${i}`,name,sourceCategory,category:placed.department,facets:placed.facets,also:placed.house?[HOUSE]:[],...(placed.house?{house:true}:{})};}).filter(Boolean);
   const placedCategories=[HOUSE,...DEPARTMENTS.filter(d=>placedProducts.some(p=>p.category===d))];
   await page.route('**/api/app/menu',async route=>route.fulfill({contentType:'application/json',body:JSON.stringify({...demoMenu,updatedAt:Date.now(),categories:placedCategories,products:placedProducts})}));
   await page.evaluate(()=>dispatchEvent(new Event('online')));
@@ -112,9 +112,9 @@ try {
   await page.setViewportSize({width:800,height:1280});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
   await page.screenshot({path:'/tmp/treehouse-tablet-preroll-filters.png',fullPage:true});
-  await page.locator('#categories>button').filter({hasText:'Flower'}).first().click();
-  assert.equal(await page.locator('.product').count(),4,'Flower includes Treehouse, infused and shake');
-  await page.getByRole('checkbox',{name:'Shake',exact:false}).check();
+  await page.locator('#categories>button').filter({hasText:'Shake'}).click();
+  assert.equal(await page.locator('.product').count(),2,'Shake heading: regular and infused shake');
+  await page.getByRole('checkbox',{name:'Infused shake',exact:false}).check();
   assert.equal(await page.locator('.product').count(),1);
   await page.locator('#reset').click();
   assert.equal(await page.locator('.product').count(),11,'Unknown category remains visible (More); waste is never shown; reset clears subfilters');

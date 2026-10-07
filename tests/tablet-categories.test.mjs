@@ -3,18 +3,21 @@ import assert from 'node:assert/strict';
 import {inSection,matchesFacets} from '../assets/tablet/categories.js';
 import {classifyProduct,packOf,CATEGORIES,HIDDEN,DEPARTMENTS} from '../server/customer-app/taxonomy.mjs';
 
-test('GrowFlow categories land in industry-standard departments; Treehouse stays in Flower too',()=>{
+test('GrowFlow categories land in medical-shopper headings; flower splits by grade',()=>{
  for (const [category,department,facets,house=false] of [
   ['Tree House Top Shelf Flower','Flower',{Style:'Whole flower',Packaging:'Bulk'},true],
-  ['Pre-Pack Tree House Smalls 14g','Flower',{Style:'Smalls',Packaging:'Pre-packed'},true],
-  ['Pre-Pack Smalls - 14g','Flower',{Style:'Smalls',Packaging:'Pre-packed'}],
-  ['Moonrocks','Flower',{Style:'Infused',Packaging:'Pre-packed'}],
+  ['Pre-Pack Tree House Smalls 14g','Smalls',{Style:'Smalls',Packaging:'Pre-packed'},true],
+  ['Pre-Pack Smalls - 14g','Smalls',{Style:'Smalls',Packaging:'Pre-packed'}],
+  ['Shake','Shake',{Style:'Shake',Packaging:'Bulk'}],
+  ['Infused Shake','Shake',{Style:'Infused shake',Packaging:'Pre-packed'}],
+  ['Moonrocks','Flower',{Style:'Infused flower',Packaging:'Pre-packed'}],
+  ['Tincture','Tinctures & Capsules',{Style:'Tinctures'}],
   ['Infused Pre-Roll Multi pk','Pre-Rolls',{Type:'Infused',Format:'Joints',Pack:'Multipacks'}],
   ['Disposable Carts','Vapes',{Style:'Disposables'}],
   ['Cured - 7g','Concentrates',{Style:'Cured resin'}],
   ['Live Diamonds 7g','Concentrates',{Style:'Diamonds'}],
   ['2000mg-5000mg Edibles','Edibles',{Strength:'2,000–5,000mg'}],
-  ['Transdermal Patch','Tinctures & Topicals',{Style:'Patches'}],
+  ['Transdermal Patch','Topicals & Patches',{Style:'Patches'}],
   ['Delta 8 Products','CBD & Hemp',{Style:'Delta 8'}],
   ['Clone','Seeds & Clones',{Style:'Clones'}],
   ['Puffco','Accessories',{Style:'Dab tools'}]])
@@ -34,7 +37,7 @@ test('blunt pack size comes from the name; other categories keep their own pack;
  assert.equal(classifyProduct('Infused Pre-Roll','Infused Pre-Roll 5pk').facets.Pack,'Singles');
  assert.equal(classifyProduct('Pre-Roll','Infused super pre-roll').facets.Type,'Regular');
 });
-test('checked filters narrow: any value within a group, every group across; Treehouse tab uses the house flag',()=>{
+test('checked filters narrow: any value within a group, every group across; extra tabs list products too',()=>{
  const p={category:'Pre-Rolls',facets:{Type:'Infused',Format:'Joints',Pack:'Multipacks'}};
  assert.equal(matchesFacets(p,new Set()),true);
  assert.equal(matchesFacets(p,new Set(['Pack:Multipacks'])),true);
@@ -42,7 +45,7 @@ test('checked filters narrow: any value within a group, every group across; Tree
  assert.equal(matchesFacets(p,new Set(['Type:Regular','Pack:Multipacks'])),false);
  assert.equal(matchesFacets(p,new Set(['Type:Regular','Pack:Multipacks']),'Type'),true);
  assert.equal(matchesFacets(p,new Set(['Format:Blunts'])),false);
- const house={category:'Flower',house:true};
- assert.equal(inSection(house,'Treehouse'),true);assert.equal(inSection(house,'Flower'),true);assert.equal(inSection(p,'Treehouse'),false);
+ const house={category:'Smalls',house:true,also:['Treehouse']};
+ assert.equal(inSection(house,'Treehouse'),true);assert.equal(inSection(house,'Smalls'),true);assert.equal(inSection(house,'Flower'),false);assert.equal(inSection(p,'Treehouse'),false);
  assert.equal(inSection(p,'All'),true);
 });
