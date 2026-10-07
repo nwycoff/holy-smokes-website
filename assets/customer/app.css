@@ -512,6 +512,74 @@ h3 {
   color: var(--cream);
   border-color: var(--forest);
 }
+.product-card .lab {
+  margin: -16px 0 18px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.lab summary {
+  cursor: pointer;
+  color: var(--forest);
+  font-weight: 600;
+  padding: 8px 0;
+}
+.lab-section {
+  margin-top: 6px;
+}
+.lab-title {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  margin-bottom: 3px;
+}
+.lab-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 10px;
+  align-items: center;
+  padding: 3px 0;
+}
+.lab-row strong {
+  font-weight: 600;
+  color: var(--ink);
+}
+.lab-bar {
+  grid-column: 1 / -1;
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: #9db48b;
+}
+.lab-note {
+  margin-top: 6px;
+  font-size: 10px;
+}
+.facet-filters {
+  display: grid;
+  gap: 2px;
+  margin-top: -6px;
+}
+.facet-row {
+  align-items: center;
+  padding: 2px 0 8px;
+}
+.facet-row .facet-label {
+  flex: none;
+  min-width: 52px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.facet-row button {
+  min-height: 38px;
+  padding: 8px 14px;
+}
+.facet-row button:disabled {
+  opacity: 0.45;
+}
 .results-heading {
   display: flex;
   justify-content: space-between;

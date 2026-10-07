@@ -1,5 +1,7 @@
 import { consumeLimits } from '../rewards.mjs';
 import { AppError, fetchSafe, hash } from './http.mjs';
+import { CBD, classifyProduct, DEPARTMENTS, HOUSE } from './taxonomy.mjs';
+import { POPULARITY_KEY } from '../crm/popularity.mjs';
 
 // Contracts checked against the supplied retailGraphQLSchema.graphql. Live
 // permission/field checks and POS price comparison are required before enabling.
@@ -15,8 +17,9 @@ export const MENU_QUERY = `query TreehouseMobileMenu($menuKey: String!) {
       id name brand strain cannabisType category categoryId image description uom
       unitWeight unitWeightUOM netWeight netWeightUOM
       variants { weight uom price }
-      packages { inventoryQty isSellable storageLocation
-        testResults { uom totalPotentialPsychoactiveThc cbd }
+      packages { id
+        testResults { uom totalPotentialPsychoactiveThc thc thca cbd cbda cbn cbc totalTerpenes myrcene limonene caryophyllene linalool humulene
+          alphaPinene betaPinene terpinolene alphaBisabolol caryophylleneOxide eucalyptol alphaTerpinene cisNerolidol transNerolidol }
       }
     } }
   }
@@ -55,7 +58,9 @@ export async function queryGrowflow(env, deps, query, variables, token = env.APP
   const backoff = await env.APP_DB.prepare('SELECT until_at FROM rewards_backoff WHERE key = ?').bind(key).first();
   if (backoff?.until_at > deps.now()) throw new AppError('GROWFLOW_BACKOFF');
   if (!await consumeLimits(env.APP_DB, env.APP_LIMIT_SECRET,
-    [{ subject: 'app-growflow', window: 60000, max: 30 }], deps.now())) throw new AppError('GROWFLOW_LIMIT', 429);
+    // GrowFlow allows 120 requests a minute per token; a full menu refresh (menu plus stock for
+    // about a thousand products) uses 20-30, so the app keeps 90 for itself.
+    [{ subject: 'app-growflow', window: 60000, max: 90 }], deps.now())) throw new AppError('GROWFLOW_LIMIT', 429);
   try {
     return await sendGrowflow(env, deps, key, query, variables, token, timeoutMs);
   } catch (error) {
@@ -115,13 +120,48 @@ const clean = value => typeof value === 'string' ? value.trim().slice(0, 250) : 
 const normalized = value => clean(value).toLocaleLowerCase('en-US');
 // Percentage lab results across the eligible packages, as [min, max]; null unless every
 // package reports a valid percentage (conflicting tests show as a range).
+const inPercent = t => ['%', 'percent', 'percentage', 'pct'].includes(normalized(t?.uom));
 function potencyRange(packages, field) {
   const values = packages.map(p => {
     const t = p.testResults, v = t?.[field];
-    return ['%', 'percent', 'percentage', 'pct'].includes(normalized(t?.uom))
-      && typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 100 ? v : null;
+    return inPercent(t) && typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 100 ? v : null;
   });
   return values.length && values.every(v => v !== null) ? [Math.min(...values), Math.max(...values)] : null;
+}
+// Named terpenes in GrowFlow's menu lab results (added up when a lab gave no total), with the
+// names shown in the lab panel.
+const TERPENE_NAMES = { myrcene: 'Myrcene', limonene: 'Limonene', caryophyllene: 'Caryophyllene', linalool: 'Linalool',
+  humulene: 'Humulene', alphaPinene: 'α-Pinene', betaPinene: 'β-Pinene', terpinolene: 'Terpinolene', alphaBisabolol: 'Bisabolol',
+  caryophylleneOxide: 'Caryophyllene oxide', eucalyptol: 'Eucalyptol', alphaTerpinene: 'α-Terpinene',
+  cisNerolidol: 'cis-Nerolidol', transNerolidol: 'trans-Nerolidol' };
+export const TERPENES = Object.keys(TERPENE_NAMES);
+const CANNABINOIDS = { thca: 'THCa', thc: 'Δ9-THC', cbd: 'CBD', cbda: 'CBDa', cbn: 'CBN', cbc: 'CBC' };
+const spread = values => [Math.round(Math.min(...values) * 100) / 100, Math.round(Math.max(...values) * 100) / 100];
+// The tap-to-open lab panel: each cannabinoid reported above zero, and the five largest
+// terpenes, as [min, max] percentage ranges across the in-stock packages that report them.
+function labPanel(packages) {
+  const tested = packages.map(p => p.testResults).filter(inPercent);
+  const rangeOf = key => {
+    const values = tested.map(t => t[key]).filter(v => typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 100);
+    return values.length ? spread(values) : null;
+  };
+  const rows = names => Object.entries(names).map(([key, name]) => ({ name, range: rangeOf(key) })).filter(row => row.range);
+  const cannabinoids = rows(CANNABINOIDS);
+  const terpenes = rows(TERPENE_NAMES).sort((a, b) => b.range[1] - a.range[1] || a.name.localeCompare(b.name)).slice(0, 5);
+  return cannabinoids.length || terpenes.length ? { cannabinoids, terpenes } : null;
+}
+// Total terpenes across the in-stock packages that report any, as a [min, max] percentage
+// range like THC: the lab's totalTerpenes when given, otherwise the sum of the named terpenes.
+function terpeneRange(packages) {
+  const totals = packages.map(p => p.testResults).filter(inPercent).map(t => {
+    const stated = typeof t.totalTerpenes === 'number' ? t.totalTerpenes
+      : /^\s*\d+(\.\d+)?\s*%?\s*$/.test(String(t.totalTerpenes ?? '')) ? parseFloat(t.totalTerpenes) : NaN;
+    if (stated > 0 && stated <= 100) return stated;
+    const sum = TERPENES.map(k => t[k]).filter(v => typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 100)
+      .reduce((total, v) => total + v, 0);
+    return sum > 0 && sum <= 100 ? sum : null;
+  }).filter(v => v !== null);
+  return totals.length ? spread(totals) : null;
 }
 const GRAMS = { g: 1, gram: 1, grams: 1, gr: 1, oz: 28.3495, ounce: 28.3495, ounces: 28.3495 };
 const GRAMS_PER = { grams: 1, g: 1, milligrams: 0.001, mg: 0.001, oz: 28.3495 };
@@ -175,22 +215,35 @@ function imageUrl(value) {
 }
 const plainText = value => typeof value === 'string'
   ? value.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 400) : '';
-export function normalizeMenu(input, location, now, categoryTypes = new Map()) {
+// Package IDs on the published menu, for the inventory lookup.
+export function menuPackageIds(input) {
+  if (!Array.isArray(input?.menuGroups)) throw new AppError('MENU_SHAPE');
+  return input.menuGroups.flatMap(group => {
+    if (!Array.isArray(group?.products)) throw new AppError('MENU_SHAPE');
+    return group.products.flatMap(product => {
+      if (!Array.isArray(product?.packages)) throw new AppError('MENU_SHAPE');
+      return product.packages.map(pkg => pkg?.id);
+    });
+  });
+}
+// The published menu decides what is sold and at what price; `stock` (package ID → sellable
+// quantity, from readSellableInventory) decides what is on hand right now. Menu group names
+// are ignored: each product's GrowFlow category places it (taxonomy.mjs).
+export function normalizeMenu(input, stock, now, categoryTypes = new Map()) {
   if (!input || !Array.isArray(input.menuGroups) || typeof input.pricesIncludeTax !== 'boolean'
-    || !clean(location)) throw new AppError('MENU_SHAPE');
-  const seen = new Set(), products = [], categories = [];
+    || !(stock instanceof Map)) throw new AppError('MENU_SHAPE');
+  const seen = new Set(), products = [];
   for (const group of input.menuGroups) {
     if (!group || !Array.isArray(group.products) || typeof group.name !== 'string') throw new AppError('MENU_SHAPE');
-    const category = clean(group.name).replace(/^Screen\s*\d+\s*[-–—:]\s*/i, '') || 'More products';
     for (const p of group.products) {
       if (!p || typeof p.id !== 'string' || !clean(p.name)) throw new AppError('MENU_SHAPE');
       if (seen.has(p.id)) continue;
-      // Include the configured front room and explicitly unassigned legacy packages.
-      // Missing/malformed fields never fall back to aggregate inventory.
-      const eligiblePackages = (Array.isArray(p.packages) ? p.packages : []).filter(pkg =>
-        pkg?.isSellable === true && (pkg.storageLocation === null
-          || (typeof pkg.storageLocation === 'string' && normalized(pkg.storageLocation) === normalized(location)))
-        && typeof pkg.inventoryQty === 'number' && Number.isFinite(pkg.inventoryQty) && pkg.inventoryQty > 0);
+      const placed = classifyProduct(clean(p.category), clean(p.name));
+      if (!placed) continue;
+      const packageIds = [...new Set((Array.isArray(p.packages) ? p.packages : []).map(pkg => pkg?.id).filter(id => typeof id === 'string'))];
+      const quantity = id => { const qty = stock.get(id); return Number.isFinite(qty) && qty > 0 ? qty : 0; };
+      const eligiblePackages = packageIds.filter(id => quantity(id) > 0)
+        .map(id => ({ qty: quantity(id), testResults: p.packages.find(pkg => pkg?.id === id).testResults }));
       if (!eligiblePackages.length) continue;
       const variants = (Array.isArray(p.variants) ? p.variants : []).filter(v => v
         && Number.isSafeInteger(v.price) && v.price >= 0).map(v => {
@@ -199,9 +252,9 @@ export function normalizeMenu(input, location, now, categoryTypes = new Map()) {
         return { priceCents: v.price, size: weighed ? `${v.weight} ${clean(v.uom)}` : 'Each', weight: weighed ? v.weight : null,
           grams: grams ? Math.round(grams * 100) / 100 : null, pricePerGramCents: grams ? Math.round(v.price / grams) : null };
       });
-      // Front-room stock: package quantities are units for "Each" products and grams for
+      // Eligible stock: package quantities are units for "Each" products and grams for
       // "Grams" products. A size is orderable only while stock covers at least one of it.
-      const stockUnits = eligiblePackages.reduce((sum, pkg) => sum + pkg.inventoryQty, 0);
+      const stockUnits = eligiblePackages.reduce((sum, pkg) => sum + pkg.qty, 0);
       const byWeight = normalized(p.uom) === 'grams';
       const stocked = variants.map(v => {
         const per = byWeight && v.grams ? v.grams : 1;
@@ -212,19 +265,26 @@ export function normalizeMenu(input, location, now, categoryTypes = new Map()) {
       for (const v of stocked) v.limitUse = limitUse(group, p, v);
       variants.splice(0, variants.length, ...stocked);
       seen.add(p.id);
-      if (!categories.includes(category)) categories.push(category);
-      const flower = /flower|smalls|top shelf/i.test(`${p.category} ${category}`);
+      const category = placed.department, flower = ['Flower', 'Smalls', 'Shake'].includes(category);
       const thc = potencyRange(eligiblePackages, 'totalPotentialPsychoactiveThc'), cbd = potencyRange(eligiblePackages, 'cbd');
+      const terpenes = terpeneRange(eligiblePackages), lab = labPanel(eligiblePackages);
+      // CBD-rich: tested CBD at least 1% and at least equal to THC (CBD-dominant or balanced).
+      const cbdRich = Boolean(cbd && cbd[1] >= 1 && cbd[1] >= (thc ? thc[1] : 0));
       products.push({ id: p.id, name: flower ? clean(p.strain) || clean(p.name) : clean(p.name),
-        brand: clean(p.brand), category, flower, type: ['indica', 'sativa', 'hybrid'].includes(normalized(p.cannabisType))
-          ? normalized(p.cannabisType) : '', variants, thc, cbd,
-        // CBD-rich: tested CBD at least 1% and at least equal to THC (CBD-dominant or balanced).
-        cbdRich: Boolean(cbd && cbd[1] >= 1 && cbd[1] >= (thc ? thc[1] : 0)),
+        packageIds,
+        brand: clean(p.brand), category, facets: placed.facets, ...(placed.house ? { house: true } : {}),
+        // Extra tabs this product is also listed under.
+        also: [...(placed.house ? [HOUSE] : []), ...(cbdRich && category !== CBD ? [CBD] : [])],
+        sourceCategory: clean(p.category), flower, type: ['indica', 'sativa', 'hybrid'].includes(normalized(p.cannabisType))
+          ? normalized(p.cannabisType) : '', variants, thc, cbd, terpenes, ...(lab ? { lab } : {}),
+        cbdRich,
         image: imageUrl(p.image), description: plainText(p.description), stockUnits, limitGroup: group });
     }
   }
   products.sort((a, b) => Math.min(...a.variants.map(v => v.priceCents)) - Math.min(...b.variants.map(v => v.priceCents))
     || a.name.localeCompare(b.name));
+  const categories = [...(products.some(p => p.house) ? [HOUSE] : []),
+    ...DEPARTMENTS.filter(d => products.some(p => p.category === d || p.also.includes(d)))];
   return { products, categories, pricesIncludeTax: input.pricesIncludeTax, updatedAt: now, stale: false };
 }
 
@@ -275,7 +335,7 @@ export async function getRewards(env, deps) {
 // What customers see: exact inventory stays on the server. Availability is capped at 10,
 // the most one order can hold, so the app can limit quantities without revealing stock.
 export function publicMenu(menu) {
-  return { ...menu, products: menu.products.map(({ stockUnits, ...p }) => ({ ...p,
+  return { ...menu, products: menu.products.map(({ stockUnits, packageIds, ...p }) => ({ ...p,
     variants: p.variants.map(({ unitsEach, available, ...v }) => ({ ...v, available: Math.min(available, 10) })) })) };
 }
 // Product category Types (e.g. "Flower", "Edible") for purchase limits. Needs the Product
@@ -313,9 +373,18 @@ export function purchaseLimits(env) {
   return Object.fromEntries(Object.entries(LIMIT_GROUPS).map(([group, spec]) => [group, { ...spec,
     max: Number.isFinite(overrides[group]) && overrides[group] >= 0 ? overrides[group] : defaults[group] }]));
 }
+// "Most popular": the CRM's 30-day sales rank (see server/crm/popularity.mjs), renumbered
+// 1, 2, 3… among products on the menu. Products with no recent sales get no rank.
+export async function rankPopular(env, menu) {
+  const row = await env.APP_DB.prepare('SELECT value FROM app_cache WHERE key = ?').bind(POPULARITY_KEY).first().catch(() => null);
+  const ranks = row ? JSON.parse(row.value).ranks || {} : {};
+  menu.products.filter(p => Number.isSafeInteger(ranks[p.id])).sort((a, b) => ranks[a.id] - ranks[b.id])
+    .forEach((p, i) => { p.popular = i + 1; });
+  return menu;
+}
 export async function getMenu(env, deps) {
   const key = await hash(env.APP_LIMIT_SECRET,
-    `menu:v6-limits:${env.GROWFLOW_ORG}:${env.APP_MENU_KEY}:${env.APP_FRONT_LOCATION}:${env.APP_GROWFLOW_TOKEN}`);
+    `menu:v13-popular:${env.GROWFLOW_ORG}:${env.APP_MENU_KEY}:${inventoryStore(env)}:${env.APP_GROWFLOW_TOKEN}`);
   const cached = await env.APP_DB.prepare('SELECT value, updated_at FROM app_cache WHERE key = ?').bind(key).first();
   const age = cached ? deps.now() - cached.updated_at : Infinity;
   const fallback = () => {
@@ -332,7 +401,9 @@ export async function getMenu(env, deps) {
     // The full menu (hundreds of products with photos and weights) can take GrowFlow a while.
     const result = await queryGrowflow(env, deps, MENU_QUERY, { menuKey: env.APP_MENU_KEY }, env.APP_GROWFLOW_TOKEN, 25000);
     const types = purchaseLimits(env) ? await getCategoryTypes(env, deps) : new Map();
-    const menu = normalizeMenu(result.findMenus, env.APP_FRONT_LOCATION, deps.now(), types);
+    const stock = await readSellableInventory(menuPackageIds(result.findMenus), env, deps);
+    const menu = normalizeMenu(result.findMenus, stock, deps.now(), types);
+    await rankPopular(env, menu);
     // A small public summary (no stock levels or prices) for the CRM's campaign assistant.
     const summary = { updatedAt: menu.updatedAt, categories: menu.categories,
       products: menu.products.map(p => ({ id: p.id, name: p.name, brand: p.brand, category: p.category })) };
@@ -343,5 +414,67 @@ export async function getMenu(env, deps) {
   } catch (error) {
     deps.report(`MENU_REFRESH_${error?.code || 'ERROR'}${error?.category ? `_${error.category}` : ''}`);
     return fallback();
+  }
+}
+
+// Store object ID verified against the owner's inventory diagnostic on 2026-10-07.
+// Explicit store scoping prevents similarly named rooms at another store contributing stock.
+export const inventoryStore = env => env.APP_INVENTORY_STORE_ID || 'nhB4pzbWYZ';
+export const INVENTORY_QUERY = `query TreehouseSellableInventory($where: InventoryWhereInput!, $after: String) {
+  findInventory(first: 100, where: $where, after: $after) {
+    pageInfo { hasNextPage endCursor }
+    edges { node { objectId Qty StorageLocation Package { objectId } } }
+  }
+}`;
+export async function readSellableInventory(ids, env, deps) {
+  const unique = [...new Set(ids)];
+  if (unique.some(id => typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(id)))
+    throw new AppError('INVENTORY_SHAPE');
+  const quantities = new Map(unique.map(id => [id, 0])), seen = new Set();
+  let requests = 0;
+  // One batch of up to 100 package IDs, following its pages.
+  const readBatch = async batch => {
+    const cursors = new Set();
+    let after = null;
+    do {
+      if (++requests > 60) throw new AppError('INVENTORY_PAGE_LIMIT');
+      const data = await queryGrowflow(env, deps, INVENTORY_QUERY, {
+        where: { Package: { have: { objectId: { in: batch } } },
+          Store: { have: { objectId: { equalTo: inventoryStore(env) } } } }, after
+      });
+      const page = data?.findInventory;
+      if (!Array.isArray(page?.edges) || typeof page.pageInfo?.hasNextPage !== 'boolean') throw new AppError('INVENTORY_SHAPE');
+      for (const { node: row } of page.edges) {
+        if (!row || typeof row.objectId !== 'string' || seen.has(row.objectId) || !batch.includes(row.Package?.objectId)
+          || !Number.isFinite(row.Qty)) throw new AppError('INVENTORY_SHAPE');
+        seen.add(row.objectId);
+        const location = row.StorageLocation;
+        // Owner policy: unknown/unassigned sellability is allowed; explicit false is excluded.
+        // Query is store-scoped; reject any contradictory embedded store identity.
+        if (location?.IsSellable === false || location?.IsDeleted === true
+          || location?.IsWaste === true || location?.IsReturn === true
+          || (location?.Store?.objectId && location.Store.objectId !== inventoryStore(env))) continue;
+        const id = row.Package.objectId;
+        quantities.set(id, quantities.get(id) + row.Qty);
+      }
+      if (!page.pageInfo.hasNextPage) break;
+      const next = page.pageInfo.endCursor;
+      if (typeof next !== 'string' || !next || cursors.has(next)) throw new AppError('INVENTORY_PAGINATION');
+      cursors.add(next); after = next;
+    } while (true);
+  };
+  // Four batches at a time, so a full menu's stock (a thousand-plus packages) takes seconds.
+  const batches = [];
+  for (let start = 0; start < unique.length; start += 100) batches.push(unique.slice(start, start + 100));
+  for (let i = 0; i < batches.length; i += 4) await Promise.all(batches.slice(i, i + 4).map(readBatch));
+  return new Map([...quantities].map(([id,qty]) => [id, Math.max(0,qty)]));
+}
+export async function verifyPreorderInventory(menu, drawn, env, deps) {
+  const products = [...drawn.keys()].map(id => menu.products.find(p => p.id === id));
+  if (products.some(p => !Array.isArray(p?.packageIds) || !p.packageIds.length)) throw new AppError('INVENTORY_UNAVAILABLE');
+  const quantities = await readSellableInventory(products.flatMap(p => p.packageIds), env, deps);
+  for (const product of products) {
+    const available = [...new Set(product.packageIds)].reduce((sum,id) => sum + (quantities.get(id) || 0), 0);
+    if (drawn.get(product.id) > available + 1e-9) throw new AppError('OUT_OF_STOCK', 409);
   }
 }

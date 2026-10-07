@@ -48,7 +48,6 @@ Start with every switch **off** (`false` or absent):
 | `GROWFLOW_ORG` | `holysmokesdispensary` |
 | `GROWFLOW_PATIENT_ID_FIELDS` | `PatientLicenseNumber,MedicalLicenseNumber,CustomerStateLicense` |
 | `APP_MENU_KEY` | Secret: the published menu's key |
-| `APP_FRONT_LOCATION` | Same front-room value as the test project |
 | `APP_MENU_ENABLED`, `APP_PREORDER_ENABLED`, `APP_REWARD_TIERS_ENABLED`, `APP_PUSH_ENABLED`, `APP_STAFF_ENABLED` | `false` until section 4 |
 | `APP_VAPID_PUBLIC_KEY` | Public half of the live key pair |
 | `APP_STAFF_ACCESS_ISSUER`, `APP_STAFF_ACCESS_AUD`, `APP_STAFF_EMAILS` | From the live staff Access application |
@@ -63,7 +62,7 @@ Redeploy after each change (Deployments → latest → Retry deployment) and che
 
 1. [ ] `APP_ENABLED=true`: sign in, and link the owner's account with a staff-page code.
 2. [ ] `APP_STAFF_ENABLED=true`: approved staff can sign in at `/staff/`; an unapproved email cannot.
-3. [ ] `APP_MENU_ENABLED=true`: menu matches the front-room selection and prices.
+3. [ ] `APP_MENU_ENABLED=true`: menu matches sellable stock and prices; back stock in non-sellable locations is hidden.
 4. [ ] `APP_REWARD_TIERS_ENABLED=true`: reward list matches GrowFlow (amounts in dollars, e.g. $10, not $1,000).
 5. [ ] `APP_PREORDER_ENABLED=true`: place one supervised order, check it in Sales → Pre-Orders, cancel it.
    - [ ] `APP_PURCHASE_LIMITS_ENABLED=true` at the same time: the order screen shows "Purchase limits this order", and a cart over 84 g flower is stopped.

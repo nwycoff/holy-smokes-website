@@ -102,7 +102,6 @@ export async function sendWelcomeGifts(env, deps) {
   let sent = 0;
   const { results: due = [] } = await env.CRM_DB.prepare(`SELECT customer_id FROM crm_welcome_gifts WHERE sent_at IS NULL AND created_at > ?
     AND customer_id IN (SELECT value FROM json_each(?)) LIMIT 20`).bind(now - 2 * DAY, JSON.stringify(subscribers.map(r => r.customer_id))).run();
-  if (!due.length) deps.report?.('WELCOME_NONE_DUE');
   for (const { customer_id: id } of due) {
     // Claim before sending so two runs can't both send it.
     const claim = await env.CRM_DB.prepare('UPDATE crm_welcome_gifts SET sent_at = ? WHERE customer_id = ? AND sent_at IS NULL RETURNING code')

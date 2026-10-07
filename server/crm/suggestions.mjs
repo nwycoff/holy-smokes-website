@@ -27,6 +27,10 @@ export async function requestRun(env, user, kind, now) {
 }
 export async function assistantView(env, now, user) {
   const db = env.CRM_DB;
+  // A run the assistant Worker never picked up (usually no API key yet) shouldn't look busy forever.
+  await db.prepare(`UPDATE crm_assistant_runs SET status = 'failed', finished_at = ?,
+    error = 'Didn’t start. The assistant may not have its API key yet.' WHERE status = 'requested' AND created_at < ?`)
+    .bind(now, now - 20 * 60000).run();
   const { results: suggestions = [] } = await db.prepare(`SELECT id, kind, title, reasoning, payload, status, decided_by, decided_at, decision_note, created_at
     FROM crm_suggestions WHERE status = 'open' OR decided_at >= ? ORDER BY status = 'open' DESC, created_at DESC LIMIT 40`).bind(now - 30 * DAY).run();
   const { results: runs = [] } = await db.prepare(`SELECT id, kind, trigger, requested_by, model, status, summary, cost_micro, turns, error, created_at, finished_at

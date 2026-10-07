@@ -38,7 +38,18 @@ try {
     await page.locator('#menu-products .product-card').first().waitFor();
     if(width===390) await page.screenshot({path:fileURLToPath(new URL('../docs/customer-app-menu.png',import.meta.url))});
     await page.getByRole('button',{name:'Flower',exact:true}).click();
-    assert.equal(await page.locator('#menu-products .product-card').count(),4);
+    assert.equal(await page.locator('#menu-products .product-card').count(),3); // Smalls has its own heading now
+    // Sub-filter rows: "All" is lit by default; picking a value narrows; "All" resets the row.
+    // (Every demo flower is whole flower, so a one-value Style row is not shown.)
+    assert.equal(await page.locator('.facet-row[aria-label="Style"]').count(),0);
+    const packRow=page.locator('.facet-row[aria-label="Packaging"]');
+    assert.equal(await packRow.getByRole('button',{name:/^All \(3\)/}).getAttribute('aria-pressed'),'true');
+    await packRow.getByRole('button',{name:/^Bulk/}).click();
+    assert.equal(await packRow.getByRole('button',{name:/^All/}).getAttribute('aria-pressed'),'false');
+    assert.equal(await page.locator('#menu-products .product-card').count(),1);
+    await packRow.getByRole('button',{name:/^All/}).click();
+    assert.equal(await page.locator('#menu-products .product-card').count(),3);
+    assert.equal(await packRow.getByRole('button',{name:/^All/}).getAttribute('aria-pressed'),'true');
     await page.locator('#filter-button').click();await page.getByRole('button',{name:/^Under \$20/}).click();
     assert.equal(await page.locator('#menu-products .product-card').count(),1);
     await page.getByRole('button',{name:/^Show 1 product/}).click();
