@@ -10,14 +10,41 @@
   <link rel="icon" href="images/img6.png" type="image/png">
   <link rel="stylesheet" href="assets/rewards.css">
   <script src="assets/rewards.js" type="module"></script>
+  <link rel="stylesheet" href="/assets/menu/nav.css">
+  <script src="/assets/menu/nav.js" type="module"></script>
 </head>
 <body>
-  <header class="site-header">
-    <a class="brand" href="index.html" aria-label="Treehouse Pharmacy home">
-      <img src="images/img6.png" alt="" width="48" height="48">
-      <span>Treehouse Pharmacy<small>PONCA CITY, OKLAHOMA</small></span>
-    </a>
-    <a class="back-link" href="index.html">Back to website <span aria-hidden="true">↗</span></a>
+  <header class="th-nav">
+    <div class="th-nav__bar">
+      <a class="th-nav__brand" href="/"><img src="/images/img6.png" alt="Treehouse Pharmacy Logo" width="40" height="40"><span>Treehouse Pharmacy</span></a>
+      <nav class="th-nav__links" aria-label="Site">
+        <a href="/#deals">Deals</a>
+        <a href="/menu">Menu</a>
+        <a href="/#visit">Visit</a>
+        <a href="/#reviews">Reviews</a>
+        <a href="/#gallery">Gallery</a>
+        <a href="/blog">Blog</a>
+        <a href="/rewards" aria-current="page">My Points</a>
+        <a href="/app/?from=website#order">Order Online</a>
+        <a class="th-nav__home" href="/">Back to Home</a>
+      </nav>
+      <button class="th-nav__toggle" type="button" aria-controls="th-nav-panel" aria-expanded="false" aria-label="Open menu">
+        <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+      </button>
+    </div>
+    <div class="th-nav__panel" id="th-nav-panel" hidden>
+      <nav aria-label="Site menu">
+        <a href="/#deals">Deals</a>
+        <a href="/menu">Menu</a>
+        <a href="/#visit">Visit</a>
+        <a href="/#reviews">Reviews</a>
+        <a href="/#gallery">Gallery</a>
+        <a href="/blog">Blog</a>
+        <a href="/rewards" aria-current="page">My Points</a>
+        <a href="/app/?from=website#order">Order Online</a>
+        <a class="th-nav__home" href="/">Back to Home</a>
+      </nav>
+    </div>
   </header>
 
   <main class="rewards-layout">

@@ -342,11 +342,23 @@ test('THC comes only from packages with sellable stock', () => {
   product.packages.push(pkg(null,true,3,28),pkg('Back',false,5,90),pkg(null,true,0,70));
   assert.deepEqual(normalizeMenu(input,stocked(input),Date.now()).products[0].thc,[25,28]);
 });
-test('menu cache and lock share updates across visitors, show delayed data briefly, then hide it', async () => {
+test('menu cache and lock share updates across visitors; a failing refresh is only labelled delayed after 3 minutes, then hidden', async () => {
   const s=setup();const first=await s.run('menu');assert.equal(first.status,200);await s.run('menu');
   assert.equal(s.calls.length,2);s.advance(60001);s.setGF({},429,{'retry-after':'120'});
-  const stale=await (await s.run('menu')).json();assert.equal(stale.stale,true);assert.equal(s.calls.length,3);
-  await s.run('menu');assert.equal(s.calls.length,3);s.advance(300001);assert.equal((await s.run('menu')).status,503);
+  const recent=await (await s.run('menu')).json();assert.equal(recent.stale,false);assert.equal(s.calls.length,3); // refreshed in the background
+  await s.run('menu');assert.equal(s.calls.length,3); // one refresh at a time
+  s.advance(120000);const delayed=await (await s.run('menu')).json();assert.equal(delayed.stale,true);
+  s.advance(120000);assert.equal((await s.run('menu')).status,503);
+});
+test('visitors get the saved menu at once while it refreshes in the background', async () => {
+  const s=setup();const first=await (await s.run('menu')).json();s.advance(60001);
+  let release;const gate=new Promise(r=>{release=r;});const original=s.deps.fetch;
+  s.deps.fetch=async(...args)=>{await gate;return original(...args);};
+  const pending=[];const req=new Request('https://preview.example.test/api/app/menu',{headers:{origin:'https://preview.example.test','sec-fetch-site':'same-origin','cf-connecting-ip':'192.0.2.9'}});
+  const res=await handleApp({env:s.env,request:req,waitUntil:p=>pending.push(p)},s.deps);
+  const body=await res.json();assert.equal(body.updatedAt,first.updatedAt);assert.equal(body.stale,false); // answered before GrowFlow replied
+  release();await Promise.all(pending);
+  const after=await (await s.run('menu')).json();assert.ok(after.updatedAt>first.updatedAt,'the background refresh saved a new menu');
 });
 test('API backoff honors quota headers and limits prevent repeated patient requests', async () => {
   const s=setup(),a=await s.login();await s.seed(a.cookie);s.setGF(null,200,{'ratelimit-remaining':'20','ratelimit-reset':'120'});
@@ -530,7 +542,7 @@ test('incomplete customer records cannot place orders', async () => {
 });
 test('orders are refused while the menu is delayed', async () => {
   const s=preorders(), a=await s.linked();
-  assert.equal((await s.run('menu')).status,200);s.advance(60001);s.setGF({},429,{'retry-after':'1'});
+  assert.equal((await s.run('menu')).status,200);s.advance(180001);s.setGF({},429,{'retry-after':'1'});
   assert.equal((await a.place(flower(1))).status,503);assert.equal(s.mutations().length,0);
 });
 
@@ -932,7 +944,7 @@ test('orders over a store purchase limit are refused with a clear message; limit
 test('orders refused locally (delayed menu) do not use up the per-account attempt limit', async () => {
   const s=preorders(), a=await s.linked();
   s.advance(3600000-(s.deps.now()%3600000)+1000);
-  assert.equal((await s.run('menu')).status,200);s.advance(60001);s.setGF({},429,{'retry-after':'1'});
+  assert.equal((await s.run('menu')).status,200);s.advance(180001);s.setGF({},429,{'retry-after':'1'});
   for (let i=0;i<7;i++) assert.equal((await a.place(flower(1))).status,503); // "menu is updating"
   s.setGF(null);s.advance(60001);
   assert.equal((await a.place(flower(1))).status,200);assert.equal(s.mutations().length,1);
@@ -940,7 +952,7 @@ test('orders refused locally (delayed menu) do not use up the per-account attemp
 test('a failed menu refresh logs why (e.g. a timeout)', async () => {
   const s=setup();assert.equal((await s.run('menu')).status,200);s.advance(60001);
   s.deps.fetch=async()=>{ const e=new Error('The operation timed out'); e.name='TimeoutError'; throw e; };
-  const stale=await (await s.run('menu')).json();assert.equal(stale.stale,true);
+  const recent=await (await s.run('menu')).json();assert.equal(recent.stale,false); // the saved copy is still recent
   assert.ok(s.codes.includes('MENU_REFRESH_GROWFLOW_HTTP_TIMEOUT'),s.codes.join(' '));
 });
 

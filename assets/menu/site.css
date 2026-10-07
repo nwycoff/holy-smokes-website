@@ -39,13 +39,14 @@
 .th-menu .selection { min-width: 0; }
 .th-menu .eyebrow { font-size: 11px; font-weight: 600; letter-spacing: 2.5px; color: var(--moss); margin: 0 0 12px; }
 .th-menu #categories { display: flex; flex-direction: column; gap: 6px; }
-.th-menu #categories button {
+.th-menu #categories :is(button, a) {
+  color: inherit; text-decoration: none;
   text-align: left; border: 1px solid transparent; background: transparent; border-radius: 12px; padding: 11px 14px;
   min-height: 46px; display: flex; justify-content: space-between; gap: 12px; align-items: center; font-size: 15px;
 }
-.th-menu #categories button:hover { background: var(--soft); }
-.th-menu #categories button span { font-size: 12px; opacity: 0.7; }
-.th-menu #categories button[aria-pressed='true'] { color: #f5f0e8; background: var(--canopy); }
+.th-menu #categories :is(button, a):hover { background: var(--soft); }
+.th-menu #categories :is(button, a) span { font-size: 12px; opacity: 0.7; }
+.th-menu #categories :is(button[aria-pressed='true'], a[aria-current='page']) { color: #f5f0e8; background: var(--canopy); }
 
 /* Sub-filters under the chosen heading */
 .th-menu .category-facets { padding: 6px 8px 12px 12px; border-left: 3px solid #b5c5a3; margin: 2px 0 8px 10px; }
@@ -127,8 +128,8 @@
   .th-menu #categories { flex-direction: row; flex-wrap: wrap; gap: 8px; }
   .th-menu .refine summary { margin-bottom: 10px; }
   .th-menu .refine[open] { display: grid; }
-  .th-menu #categories button { flex: none; border-color: var(--line); border-radius: 999px; min-height: 42px; padding: 8px 14px; font-size: 14px; }
-  .th-menu #categories button span { margin-left: 2px; }
+  .th-menu #categories :is(button, a) { flex: none; border-color: var(--line); border-radius: 999px; min-height: 42px; padding: 8px 14px; font-size: 14px; }
+  .th-menu #categories :is(button, a) span { margin-left: 2px; }
   .th-menu .category-facets {
     order: 1; width: 100%; display: flex; flex-wrap: wrap; gap: 6px 24px; margin: 6px 0 0; padding: 10px 16px;
     background: var(--soft); border: 0; border-radius: 12px;
@@ -141,7 +142,7 @@
 @media (max-width: 580px) {
   /* One swipeable row of headings; the chosen heading's sub-filters drop below it. */
   .th-menu #categories { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 6px; scrollbar-width: thin; }
-  .th-menu #categories > button { white-space: nowrap; }
+  .th-menu #categories > :is(button, a) { white-space: nowrap; }
   .th-menu .category-facets { margin-top: 10px; padding: 10px 12px; gap: 2px; }
   /* Compact pills instead of a tall checkbox list */
   .th-menu .category-facets fieldset { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 6px; min-width: 100%; }
