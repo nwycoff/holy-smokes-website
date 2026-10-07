@@ -198,6 +198,12 @@ function renderFacets(products) {
   if (values.size < 2) continue;
   const field = node('fieldset'); field.append(node('legend',key));
   const others = filtered(products, query, key);
+  // "All" is checked while nothing in this group is picked; checking it clears the group.
+  const picked = [...state.selected].filter(id => id.startsWith(`${key}:`));
+  const allLabel = node('label'), allInput = document.createElement('input');
+  allInput.type='checkbox';allInput.dataset.facet=`${key}:*`;allInput.checked=!picked.length;
+  allInput.addEventListener('change',()=>{picked.forEach(id=>state.selected.delete(id));render();});
+  allLabel.append(allInput,node('span','All'),node('small',String(others.length)));field.append(allLabel);
   for (const value of values) {
    const label=node('label'), input=document.createElement('input'), id=`${key}:${value}`;
    const count = others.filter(p => p.facets?.[key] === value).length;

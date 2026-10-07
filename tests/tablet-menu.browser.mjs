@@ -94,8 +94,14 @@ try {
   await page.screenshot({path:'/tmp/treehouse-tablet-treehouse-filters.png',fullPage:true});
   await page.locator('#categories>button').filter({hasText:'Pre-Rolls'}).click();
   assert.equal(await page.locator('.product').count(),6);
+  const packAll=page.locator('#category-facets fieldset',{hasText:'Pack'}).getByRole('checkbox',{name:/^All/});
+  assert.equal(await packAll.isChecked(),true,'All is checked while nothing in the group is picked');
   await page.getByRole('checkbox',{name:'Multipacks',exact:false}).check();
   assert.equal(await page.locator('.product').count(),3,'Multipacks alone: regular, infused and 2-pack blunts');
+  assert.equal(await packAll.isChecked(),false);
+  await packAll.check();
+  assert.equal(await page.locator('.product').count(),6,'All clears the group');
+  await page.getByRole('checkbox',{name:'Multipacks',exact:false}).check();
   await page.getByRole('checkbox',{name:'Infused',exact:false}).check();
   assert.equal(await page.locator('.product').count(),2);
   await page.getByRole('checkbox',{name:'Blunts',exact:false}).check();

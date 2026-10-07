@@ -862,7 +862,10 @@ function renderFacetRows(base) {
   const rows = [...groups].filter(([, values]) => values.size > 1).map(([key, values]) => {
     const row = el('div', '', 'filter-row facet-row'); row.setAttribute('role', 'group'); row.setAttribute('aria-label', key);
     const others = base.filter(p => panelFiltersMatch(p) && facetMatch(p, key));
-    row.append(el('span', key, 'facet-label'), ...[...values].map(value => {
+    // "All" is lit while nothing in this row is picked; tapping it clears the row.
+    const picked = [...filters.facets].filter(id => id.startsWith(`${key}:`));
+    const all = chip('All', !picked.length, () => { picked.forEach(id => filters.facets.delete(id)); renderMenu(); }, others.length);
+    row.append(el('span', key, 'facet-label'), all, ...[...values].map(value => {
       const id = `${key}:${value}`, count = others.filter(p => p.facets?.[key] === value).length;
       const b = chip(value, filters.facets.has(id), () => toggle(filters.facets, id), count);
       b.disabled = !count && !filters.facets.has(id); return b;
