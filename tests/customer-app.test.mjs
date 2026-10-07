@@ -1086,19 +1086,25 @@ test('unknown sellability is included but explicit false is excluded even in Fro
  assert.equal((await readSellableInventory(['pkgOne'],s.env,s.deps)).get('pkgOne'),3);
 });
 
-test('terpenes come from in-stock packages: top three as ranges, GrowFlow total or else the sum', () => {
+test('total terpenes come from in-stock packages: the lab total, or else the sum, as a range', () => {
   const lab=(extra)=>({uom:'%',totalPotentialPsychoactiveThc:25,...extra});
   const input={pricesIncludeTax:true,menuGroups:[{name:'Flower',products:[
     {id:'t1',name:'Terps',category:'Flower',variants:[{price:2000}],packages:[
-      {room:'Front',qty:3,testResults:lab({myrcene:0.5222,limonene:0.3054,linalool:0.242,humulene:0.1118,caryophyllene:0.2133,totalTerpenes:'1.9%'})},
+      {room:'Front',qty:3,testResults:lab({myrcene:0.5222,limonene:0.3054,linalool:0.242,totalTerpenes:'1.9%'})},
       {room:'Front',qty:2,testResults:lab({myrcene:0.6,limonene:0.25,linalool:0.3,alphaBisabolol:0,totalTerpenes:null})},
       {room:'Back',sellable:false,qty:9,testResults:lab({myrcene:5,terpinolene:4,totalTerpenes:'12'})}]},
     {id:'t2',name:'No terps',category:'Flower',variants:[{price:2000}],packages:[{room:'Front',qty:1,testResults:lab({myrcene:null,totalTerpenes:''})}]},
     {id:'t3',name:'Wrong unit',category:'Flower',variants:[{price:2000}],packages:[{room:'Front',qty:1,testResults:{uom:'mg/g',myrcene:5}}]}
   ]}]};
   const menu=normalizeMenu(input,stocked(input),Date.now()), get=id=>menu.products.find(p=>p.id===id);
-  assert.deepEqual(get('t1').terpenes,{total:[1.15,1.9],top:[ // 0.6 + 0.25 + 0.3 = 1.15 when the lab gave no total
-    {name:'Myrcene',range:[0.52,0.6]},{name:'Limonene',range:[0.25,0.31]},{name:'Linalool',range:[0.24,0.3]}]});
+  assert.deepEqual(get('t1').terpenes,[1.15,1.9]); // 0.6 + 0.25 + 0.3 = 1.15 where the lab gave no total
   assert.equal(get('t2').terpenes,null);assert.equal(get('t3').terpenes,null);
-  assert.deepEqual(publicMenu(menu).products.find(p=>p.id==='t1').terpenes,get('t1').terpenes);
+  assert.deepEqual(publicMenu(menu).products.find(p=>p.id==='t1').terpenes,[1.15,1.9]);
+});
+test('inventory rows shaped like the live API: Front sellable counts, a non-sellable room does not',async()=>{
+ const row=(id,qty,name,sellable)=>({node:{objectId:id,Qty:qty,Package:{objectId:'pkgOne'},StorageLocation:{objectId:`loc-${id}`,
+  Store:{__type:'Pointer',className:'Stores',objectId:'nhB4pzbWYZ'},Name:name,IsSellable:sellable,IsDefault:false,IsWaste:false,
+  IsReturn:false,IsDeleted:false,__type:'Object',className:'StorageLocations'}}});
+ const s=setup();inventoryReply(s,[[row('front',5,'Front',true),row('back',7,'Back',false)]]);
+ assert.equal((await readSellableInventory(['pkgOne'],s.env,s.deps)).get('pkgOne'),5);
 });

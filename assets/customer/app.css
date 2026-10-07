@@ -404,17 +404,10 @@ h3 {
   margin-bottom: 10px;
   overflow-wrap: anywhere;
 }
-.product-thc,
-.product-terpenes {
+.product-thc {
   font-size: 11px;
   color: var(--muted);
   margin-bottom: 22px;
-}
-.product-terpenes span {
-  white-space: nowrap;
-}
-.product-thc:has(+ .product-terpenes:not([hidden])) {
-  margin-bottom: 4px;
 }
 .product-variants {
   margin-top: auto;
@@ -891,8 +884,7 @@ details summary {
   .product-name {
     font-size: 22px;
   }
-  .product-thc,
-  .product-terpenes {
+  .product-thc {
     font-size: 10px;
   }
   .variant strong {
