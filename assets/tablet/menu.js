@@ -4,11 +4,17 @@ const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: '
 const state = { menu: null, category: 'All', loading: false, error: '', selected: new Set() };
 const controlIds = ['search', 'type', 'brand', 'budget', 'size', 'sort'];
 const IDLE_MS = 120000;
-// The same browse-only menu runs on the counter tablet (/tablet/) and the website's Menu page
+// The same browse-only menu runs on the counter tablet (/tablet/) and the website's Menu pages
 // (<body data-menu="website">). Only the tablet resets itself after two idle minutes and keeps
-// the screen awake; only the website shows product photos and keeps the heading in the address
-// (/menu?category=Flower) so it can be linked to.
+// the screen awake. On the website each heading is its own page (/menu/pre-rolls, built on the
+// server with its products already in it, see server/site/menu-page.mjs): headings are plain
+// links, the page's heading comes from <body data-category>, and product photos show.
 const site = document.body.dataset.menu === 'website';
+const pageHeading = site ? document.body.dataset.category || 'All' : 'All';
+const slugOf = name => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+// Server-built cards stay on screen until the live menu replaces them.
+const prerendered = site && document.getElementById('products').children.length > 0;
+state.category = pageHeading;
 let idleTimer, toastTimer, wakeLock, wakePending = false;
 function node(tag, text = '', className = '') {
   const item = document.createElement(tag); item.textContent = text; if (className) item.className = className; return item;
@@ -127,9 +133,16 @@ function render(preservePosition = false) {
   updateOptions('brand', [...new Set(products.map(p => p.brand).filter(Boolean))].sort(), 'All brands');
   updateOptions('size', [...new Map(products.filter(p => p.flower).flatMap(p => p.variants).map(v => [v.size,v.grams || 0])).entries()].sort((a,b)=>a[1]-b[1]).map(([size])=>size), 'All sizes');
   const buttons = categories.map(category => {
+    const count = node('span', String(products.filter(p => inSection(p, category)).length));
+    // Website: a link to the heading's own page ("More", new categories without a page, stays in place).
+    if (site && category !== 'More') {
+      const link = node('a', category); link.href = category === 'All' ? '/menu' : `/menu/${slugOf(category)}`;
+      if (category === state.category) link.setAttribute('aria-current', 'page');
+      link.append(count); return link;
+    }
     const button = node('button', category); button.type = 'button'; button.setAttribute('aria-pressed', String(category === state.category));
-    button.append(node('span', String(products.filter(p => inSection(p, category)).length)));
-    button.addEventListener('click', () => { state.category = category; state.selected.clear(); render(); rememberCategory(); }); return button;
+    button.append(count);
+    button.addEventListener('click', () => { state.category = category; state.selected.clear(); render(); }); return button;
   });
   const categoryScroll = $('categories').scrollLeft;
   $('categories').replaceChildren(...buttons); $('categories').scrollLeft = categoryScroll; renderFacets(products);
@@ -137,7 +150,7 @@ function render(preservePosition = false) {
   const query = selection(), visible = sorted(filtered(products, query), query.sort);
   $('products').replaceChildren(...visible.map(card)); $('products').setAttribute('aria-busy', String(state.loading && !state.menu));
   $('count').textContent = !state.menu ? state.loading ? 'Getting the menu ready…' : 'Menu temporarily unavailable' : `${visible.length} ${visible.length === 1 ? 'find' : 'finds'}${state.category !== 'All' ? ` · ${state.category}` : ''}`;
-  $('clear').hidden = state.category === 'All' && !controlIds.filter(id => id !== 'sort').some(id => query[id]);
+  $('clear').hidden = state.category === pageHeading && !state.selected.size && !controlIds.filter(id => id !== 'sort').some(id => query[id]);
   renderStatus();
   $('empty').hidden = visible.length > 0;
   $('empty-title').textContent = state.menu ? products.length ? 'No matching finds.' : 'The selection is being updated.' : state.loading ? 'A few good finds are on the way.' : 'Let’s check with your budtender.';
@@ -149,7 +162,7 @@ function render(preservePosition = false) {
 async function refresh() {
   if (state.loading) return;
   const before = menuSignature(state.menu), first = !state.menu;
-  state.loading = true; if (first) render();
+  state.loading = true; if (first && !prerendered) render();
   try {
     let result;
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -176,15 +189,10 @@ async function refresh() {
     else renderWhenStill();
   }
 }
-function rememberCategory() {
-  if (!site) return;
-  const url = new URL(location.href);
-  if (state.category === 'All') url.searchParams.delete('category'); else url.searchParams.set('category', state.category);
-  history.replaceState(null, '', url);
-}
 function reset(automatic = false) {
-  state.category = 'All'; state.selected.clear(); controlIds.forEach(id => { $(id).value = id === 'sort' ? 'price' : ''; });
-  document.activeElement?.blur(); render(); rememberCategory(); $('categories').scrollLeft = 0;
+  // On a website heading page, clearing filters keeps that heading.
+  state.category = pageHeading; state.selected.clear(); controlIds.forEach(id => { $(id).value = id === 'sort' ? 'price' : ''; });
+  document.activeElement?.blur(); render(); $('categories').scrollLeft = 0;
   if (!site) window.scrollTo({top:0,behavior:'instant'});
   if (automatic) { $('reset-message').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(()=>{ $('reset-message').hidden = true; },3500); }
 }
@@ -214,9 +222,6 @@ addEventListener('resize',()=>{
 addEventListener('online',()=>void refresh());
 document.addEventListener('visibilitychange',()=>{ if (document.hidden) return; if (!site) { reset(); activity(); void keepAwake(); } void refresh(); });
 setInterval(()=>{ if (!document.hidden) void refresh(); },60000);
-// A linked heading (/menu?category=Flower) opens on that heading once the menu has it.
-const linkedCategory = site ? new URL(location.href).searchParams.get('category') : null;
-if (linkedCategory) state.category = linkedCategory;
 if (!site) { activity(); void keepAwake(); }
 void refresh();
 
@@ -257,7 +262,7 @@ function renderFacets(products) {
  if (!panel.children.length) return;
  const reset=node('button','Show all '+state.category);reset.type='button';reset.hidden=!state.selected.size;
  reset.addEventListener('click',()=>{state.selected.clear();render();});panel.append(reset);
- const selected=$('categories').querySelector('[aria-pressed="true"]');
+ const selected=$('categories').querySelector('[aria-pressed="true"], [aria-current="page"]');
  // Under the chosen heading; on the website's phone layout the headings are one swipeable row, so below it.
  if (site && matchMedia('(max-width: 580px)').matches) $('categories').after(panel); else selected.after(panel);
  if(focus) [...panel.querySelectorAll('input')].find(el=>el.dataset.facet===focus)?.focus();
