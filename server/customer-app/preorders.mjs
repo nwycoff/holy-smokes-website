@@ -1,7 +1,7 @@
 import { AppError, randomToken } from './http.mjs';
 import { rewardTiersReady } from './http.mjs';
 import { licenseMemoryReady, openLicense, saveLicense, forgetLicense } from './license.mjs';
-import { CREATE_PREORDER, PREORDER_CUSTOMER_QUERY, PREORDER_STATUS, eligibleCustomer, getMenu, getRewards, purchaseLimits,
+import { CREATE_PREORDER, PREORDER_CUSTOMER_QUERY, PREORDER_STATUS, eligibleCustomer, verifyPreorderInventory, getMenu, getRewards, purchaseLimits,
   queryGrowflow, singleCustomer } from './growflow.mjs';
 
 // Pickup only, paid in store. The server rebuilds every line and the total from the
@@ -206,6 +206,9 @@ export async function placePreorder(env, deps, s, input, limit) {
   }
   const fullNote = [rewardLine, note].filter(Boolean).join(' | ');
 
+  // Uncached inventory check immediately before claiming/submitting. Never trust menu location flags.
+  await verifyPreorderInventory(menu, drawn, env, deps);
+
   // Claim the account's single open-order slot before sending anything to GrowFlow.
   const id = randomToken(), now = deps.now();
   const claimed = await env.APP_DB.prepare(`INSERT OR IGNORE INTO app_preorders
@@ -251,3 +254,4 @@ async function unconfirmed(env, id) {
   await env.APP_DB.prepare(`UPDATE app_preorders SET status = 'Unconfirmed' WHERE id = ?`).bind(id).run();
   throw new AppError('PREORDER_UNCONFIRMED');
 }
+

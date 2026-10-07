@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { readFileSync, readdirSync } from 'node:fs';
 import { handleApp } from '../server/customer-app/index.mjs';
 import { hash } from '../server/customer-app/http.mjs';
-import { normalizeMenu, publicMenu, limitGroup } from '../server/customer-app/growflow.mjs';
+import { normalizeMenu, publicMenu, limitGroup, inventoryBackedMenu, readSellableInventory } from '../server/customer-app/growflow.mjs';
 import { tapToken } from '../server/crm/campaigns.mjs';
 import { encryptPayload, vapidAuthorization, readSubscription, notifyReadyOrders, b64url, fromB64url, READY_MESSAGE } from '../server/customer-app/push.mjs';
 
@@ -42,14 +42,14 @@ function syntheticMenu() {
   return {pricesIncludeTax:true,menuGroups:[{name:'Screen 1 - Flower',products:[
     {id:'public-a',name:'Internal Flower Title',brand:'Sample Brand',strain:'Sample Strain',category:'Flower',cannabisType:'Hybrid',variants:[{weight:3.5,uom:'g',price:2000}],
       packages:[pkg('Front',true,2,25),pkg('Back',false,50,99)]},
-    {id:'public-b',name:'Back only',category:'Flower',variants:[{price:100}],packages:[pkg('Back')]},
+    {id:'public-b',name:'Back only',category:'Flower',variants:[{price:100}],packages:[pkg('Back',false)]},
     {id:'public-c',name:'Not sellable',category:'Flower',variants:[{price:100}],packages:[pkg('Front',false)]},
     {id:'public-d',name:'Legacy unassigned',category:'Flower',variants:[{price:100}],packages:[pkg(null)]},
     {id:'public-e',name:'Zero stock',category:'Flower',variants:[{price:100}],packages:[pkg('Front',true,0)]}
   ]}]};
 }
 function setup() {
-  let now = Date.now(), nonce, subject = 'auth0|test-one', claims = {}, gfStatus = 200, gfHeaders = {}, gfData;
+  let now = Date.now(), nonce, subject = 'auth0|test-one', claims = {}, gfStatus = 200, gfHeaders = {}, gfData, inventoryMenu;
   const calls = [], codes = [];
   const env = { APP_ENABLED:'true',APP_ALLOWED_HOSTS:'preview.example.test',APP_DB:new D1(),
     APP_LIMIT_SECRET:'synthetic-application-secret-longer-than-32-characters',
@@ -73,7 +73,15 @@ function setup() {
     assert.equal(url,'https://retail.growflow.com/c/integrations/graphql');
     assert.equal(init.headers.Authorization,'Bearer gfr_synthetic_test_only');
     const request = JSON.parse(init.body);
-    const data = gfData || (request.query.includes('findMenus') ? {findMenus:syntheticMenu()} : {findCustomers:{pageInfo:{hasNextPage:false},edges:[{node:{objectId:'CustomerOne',CurrentPoints:123.5}}]}});
+    const rawMenu = gfData?.findMenus || syntheticMenu();
+    const identified = { ...rawMenu, menuGroups: rawMenu.menuGroups.map(g=>({...g,products:g.products.map(p=>({...p,
+      packages:p.packages.map((pkg,i)=>({...pkg,id:pkg.id || `${p.id}-pkg-${i}`}))}))})) };
+    let data = gfData || (request.query.includes('findMenus') ? {findMenus:identified} : {findCustomers:{pageInfo:{hasNextPage:false},edges:[{node:{objectId:'CustomerOne',CurrentPoints:123.5}}]}});
+    if (request.query.includes('findMenus') && data.findMenus) {data={...data,findMenus:identified};inventoryMenu=identified;}
+    if (request.query.includes('TreehouseSellableInventory')) {
+      const ids=request.variables.where.Package.have.objectId.in;
+      data={findInventory:{pageInfo:{hasNextPage:false,endCursor:null},edges:(inventoryMenu || identified).menuGroups.flatMap(g=>g.products.flatMap(p=>p.packages.filter(pkg=>ids.includes(pkg.id)).map(pkg=>({node:{objectId:`row-${pkg.id}`,Qty:pkg.inventoryQty,Package:{objectId:pkg.id},StorageLocation:pkg.storageLocation===null ? null : {Name:pkg.storageLocation,IsSellable:pkg.isSellable,IsDeleted:false,IsWaste:false,IsReturn:false,Store:{objectId:'nhB4pzbWYZ'}}}}))))}};
+    }
     return Response.json({data},{status:gfStatus,headers:gfHeaders});
   }};
   async function run(route, {method='GET',body,headers={},cookie='',origin='https://preview.example.test'}={}) {
@@ -326,9 +334,9 @@ test('THC uses eligible front and legacy packages and excludes back or non-sella
 });
 test('menu cache and lock share updates across visitors, show delayed data briefly, then hide it', async () => {
   const s=setup();const first=await s.run('menu');assert.equal(first.status,200);await s.run('menu');
-  assert.equal(s.calls.length,1);s.advance(60001);s.setGF({},429,{'retry-after':'120'});
-  const stale=await (await s.run('menu')).json();assert.equal(stale.stale,true);assert.equal(s.calls.length,2);
-  await s.run('menu');assert.equal(s.calls.length,2);s.advance(300001);assert.equal((await s.run('menu')).status,503);
+  assert.equal(s.calls.length,2);s.advance(60001);s.setGF({},429,{'retry-after':'120'});
+  const stale=await (await s.run('menu')).json();assert.equal(stale.stale,true);assert.equal(s.calls.length,3);
+  await s.run('menu');assert.equal(s.calls.length,3);s.advance(300001);assert.equal((await s.run('menu')).status,503);
 });
 test('API backoff honors quota headers and limits prevent repeated patient requests', async () => {
   const s=setup(),a=await s.login();await s.seed(a.cookie);s.setGF(null,200,{'ratelimit-remaining':'20','ratelimit-reset':'120'});
@@ -1015,4 +1023,54 @@ test('visit ratings stay off until enabled and need a linked account', async () 
   assert.equal((await s.run('feedback/rate',{method:'POST',cookie:a.cookie,body:{orderId:'x',rating:5},headers:{'x-treehouse-csrf':csrfA}})).status,403);
   assert.deepEqual((await (await s.run('session',{cookie:b.cookie})).json()).feedback,{visit:null,ask:false});
   assert.equal((await rate()).status,409); // no recent visit to rate
+});
+
+
+const invRow=(id,qty,name='Front',extra={})=>({node:{objectId:id,Qty:qty,Package:{objectId:'pkgOne'},StorageLocation:{Name:name,IsSellable:name==='Front',IsDeleted:false,IsWaste:false,IsReturn:false,Store:{objectId:'nhB4pzbWYZ'},...extra}}});
+function inventoryReply(s,pages) {
+ let calls=0;
+ s.deps.fetch=async(target,init)=>{
+  const body=JSON.parse(init.body);
+  assert.equal(body.variables.where.Store.have.objectId.equalTo,'nhB4pzbWYZ');
+  assert.equal(body.variables.after,calls ? 'next' : null);
+  const edges=pages[calls++];
+  return Response.json({data:{findInventory:{edges,pageInfo:{hasNextPage:calls<pages.length,endCursor:calls<pages.length?'next':null}}}});
+ };
+}
+test('authoritative Back inventory hides a product even when menu says Front/sellable',async()=>{
+ const s=setup(); inventoryReply(s,[[invRow('back',5,'Back')]]);
+ const input=syntheticMenu();input.menuGroups[0].products=[{...input.menuGroups[0].products[0],packages:[{id:'pkgOne',inventoryQty:5,isSellable:true,storageLocation:'Front'}]}];
+ const checked=await inventoryBackedMenu(input,s.env,s.deps);
+ assert.equal(normalizeMenu(checked,'Front',Date.now()).products.length,0);
+});
+test('inventory pagination sums only eligible Front rows including negative adjustments',async()=>{
+ const s=setup();inventoryReply(s,[[invRow('front',5),invRow('back',500,'Back')],[invRow('negative',-1),invRow('waste',100,'Front',{IsWaste:true}),invRow('other-store',100,'Front',{Store:{objectId:'other'}})]]);
+ assert.equal((await readSellableInventory(['pkgOne'],s.env,s.deps)).get('pkgOne'),4);
+});
+test('uncached preorder inventory check blocks moved stock and permission failures before mutation',async()=>{
+ for(const denied of [false,true]){
+  const s=preorders(),a=await s.linked();
+  assert.equal((await s.run('menu')).status,200);
+  const original=s.deps.fetch;
+  s.deps.fetch=async(target,init)=>{
+   if(JSON.parse(init.body || '{}').query?.includes('TreehouseSellableInventory'))
+    return Response.json(denied ? {errors:[{message:'Insufficient Permissions'}]} : {data:{findInventory:{pageInfo:{hasNextPage:false},edges:[]}}});
+   return original(target,init);
+  };
+  const response=await a.place(flower(1));
+  assert.equal(response.status,denied?503:409);assert.equal(s.mutations().length,0);
+ }
+});
+test('unassigned inventory is allowed while explicitly deleted inventory is excluded',async()=>{
+ const s=setup();inventoryReply(s,[[{node:{objectId:'null-room',Qty:5,Package:{objectId:'pkgOne'},StorageLocation:null}},invRow('deleted',5,'Front',{IsDeleted:true})]]);
+ assert.equal((await readSellableInventory(['pkgOne'],s.env,s.deps)).get('pkgOne'),5);
+});
+
+test('split room stock counts 3 sellable units and excludes 2 non-sellable units',async()=>{
+ const s=setup();inventoryReply(s,[[invRow('front',3),invRow('back',2,'Back')]]);
+ assert.equal((await readSellableInventory(['pkgOne'],s.env,s.deps)).get('pkgOne'),3);
+});
+test('unknown sellability is included but explicit false is excluded even in Front',async()=>{
+ const s=setup();inventoryReply(s,[[invRow('unknown',3,'Front',{IsSellable:null}),invRow('false',2,'Front',{IsSellable:false})]]);
+ assert.equal((await readSellableInventory(['pkgOne'],s.env,s.deps)).get('pkgOne'),3);
 });

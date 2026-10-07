@@ -15,7 +15,7 @@ export const MENU_QUERY = `query TreehouseMobileMenu($menuKey: String!) {
       id name brand strain cannabisType category categoryId image description uom
       unitWeight unitWeightUOM netWeight netWeightUOM
       variants { weight uom price }
-      packages { inventoryQty isSellable storageLocation
+      packages { id inventoryQty isSellable storageLocation
         testResults { uom totalPotentialPsychoactiveThc cbd }
       }
     } }
@@ -185,8 +185,8 @@ export function normalizeMenu(input, location, now, categoryTypes = new Map()) {
     for (const p of group.products) {
       if (!p || typeof p.id !== 'string' || !clean(p.name)) throw new AppError('MENU_SHAPE');
       if (seen.has(p.id)) continue;
-      // Include the configured front room and explicitly unassigned legacy packages.
-      // Missing/malformed fields never fall back to aggregate inventory.
+      // inventoryBackedMenu supplies eligible quantities and normalized location flags.
+      // This guard also supports legacy/demo callers that pass menu packages directly.
       const eligiblePackages = (Array.isArray(p.packages) ? p.packages : []).filter(pkg =>
         pkg?.isSellable === true && (pkg.storageLocation === null
           || (typeof pkg.storageLocation === 'string' && normalized(pkg.storageLocation) === normalized(location)))
@@ -199,7 +199,7 @@ export function normalizeMenu(input, location, now, categoryTypes = new Map()) {
         return { priceCents: v.price, size: weighed ? `${v.weight} ${clean(v.uom)}` : 'Each', weight: weighed ? v.weight : null,
           grams: grams ? Math.round(grams * 100) / 100 : null, pricePerGramCents: grams ? Math.round(v.price / grams) : null };
       });
-      // Front-room stock: package quantities are units for "Each" products and grams for
+      // Eligible stock: package quantities are units for "Each" products and grams for
       // "Grams" products. A size is orderable only while stock covers at least one of it.
       const stockUnits = eligiblePackages.reduce((sum, pkg) => sum + pkg.inventoryQty, 0);
       const byWeight = normalized(p.uom) === 'grams';
@@ -216,6 +216,7 @@ export function normalizeMenu(input, location, now, categoryTypes = new Map()) {
       const flower = /flower|smalls|top shelf/i.test(`${p.category} ${category}`);
       const thc = potencyRange(eligiblePackages, 'totalPotentialPsychoactiveThc'), cbd = potencyRange(eligiblePackages, 'cbd');
       products.push({ id: p.id, name: flower ? clean(p.strain) || clean(p.name) : clean(p.name),
+        packageIds: [...new Set((p.packages || []).map(pkg => pkg.id).filter(Boolean))],
         brand: clean(p.brand), category, sourceCategory: clean(p.category), flower, type: ['indica', 'sativa', 'hybrid'].includes(normalized(p.cannabisType))
           ? normalized(p.cannabisType) : '', variants, thc, cbd,
         // CBD-rich: tested CBD at least 1% and at least equal to THC (CBD-dominant or balanced).
@@ -275,7 +276,7 @@ export async function getRewards(env, deps) {
 // What customers see: exact inventory stays on the server. Availability is capped at 10,
 // the most one order can hold, so the app can limit quantities without revealing stock.
 export function publicMenu(menu) {
-  return { ...menu, products: menu.products.map(({ stockUnits, ...p }) => ({ ...p,
+  return { ...menu, products: menu.products.map(({ stockUnits, packageIds, ...p }) => ({ ...p,
     variants: p.variants.map(({ unitsEach, available, ...v }) => ({ ...v, available: Math.min(available, 10) })) })) };
 }
 // Product category Types (e.g. "Flower", "Edible") for purchase limits. Needs the Product
@@ -315,7 +316,7 @@ export function purchaseLimits(env) {
 }
 export async function getMenu(env, deps) {
   const key = await hash(env.APP_LIMIT_SECRET,
-    `menu:v7-source-category:${env.GROWFLOW_ORG}:${env.APP_MENU_KEY}:${env.APP_FRONT_LOCATION}:${env.APP_GROWFLOW_TOKEN}`);
+    `menu:v8-authoritative-inventory:${env.GROWFLOW_ORG}:${env.APP_MENU_KEY}:${env.APP_FRONT_LOCATION}:${inventoryStore(env)}:${env.APP_GROWFLOW_TOKEN}`);
   const cached = await env.APP_DB.prepare('SELECT value, updated_at FROM app_cache WHERE key = ?').bind(key).first();
   const age = cached ? deps.now() - cached.updated_at : Infinity;
   const fallback = () => {
@@ -332,7 +333,8 @@ export async function getMenu(env, deps) {
     // The full menu (hundreds of products with photos and weights) can take GrowFlow a while.
     const result = await queryGrowflow(env, deps, MENU_QUERY, { menuKey: env.APP_MENU_KEY }, env.APP_GROWFLOW_TOKEN, 25000);
     const types = purchaseLimits(env) ? await getCategoryTypes(env, deps) : new Map();
-    const menu = normalizeMenu(result.findMenus, env.APP_FRONT_LOCATION, deps.now(), types);
+    const checked = await inventoryBackedMenu(result.findMenus, env, deps);
+    const menu = normalizeMenu(checked, env.APP_FRONT_LOCATION, deps.now(), types);
     // A small public summary (no stock levels or prices) for the CRM's campaign assistant.
     const summary = { updatedAt: menu.updatedAt, categories: menu.categories,
       products: menu.products.map(p => ({ id: p.id, name: p.name, brand: p.brand, category: p.category })) };
@@ -346,3 +348,81 @@ export async function getMenu(env, deps) {
   }
 }
 
+
+
+// Store object ID verified against the owner's inventory diagnostic on 2026-10-07.
+// Explicit store scoping prevents similarly named rooms at another store contributing stock.
+export const inventoryStore = env => env.APP_INVENTORY_STORE_ID || 'nhB4pzbWYZ';
+export const INVENTORY_QUERY = `query TreehouseSellableInventory($where: InventoryWhereInput!, $after: String) {
+  findInventory(first: 100, where: $where, after: $after) {
+    pageInfo { hasNextPage endCursor }
+    edges { node { objectId Qty StorageLocation Package { objectId } } }
+  }
+}`;
+export async function readSellableInventory(ids, env, deps) {
+  const unique = [...new Set(ids)];
+  if (!clean(env.APP_FRONT_LOCATION) || unique.some(id => typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(id)))
+    throw new AppError('INVENTORY_SHAPE');
+  const quantities = new Map(unique.map(id => [id, 0])), seen = new Set();
+  let requests = 0;
+  for (let start = 0; start < unique.length; start += 100) {
+    const batch = unique.slice(start, start + 100), cursors = new Set();
+    let after = null;
+    do {
+      if (++requests > 30) throw new AppError('INVENTORY_PAGE_LIMIT');
+      const data = await queryGrowflow(env, deps, INVENTORY_QUERY, {
+        where: { Package: { have: { objectId: { in: batch } } },
+          Store: { have: { objectId: { equalTo: inventoryStore(env) } } } }, after
+      });
+      const page = data?.findInventory;
+      if (!Array.isArray(page?.edges) || typeof page.pageInfo?.hasNextPage !== 'boolean') throw new AppError('INVENTORY_SHAPE');
+      for (const { node: row } of page.edges) {
+        if (!row || typeof row.objectId !== 'string' || seen.has(row.objectId) || !batch.includes(row.Package?.objectId)
+          || !Number.isFinite(row.Qty)) throw new AppError('INVENTORY_SHAPE');
+        seen.add(row.objectId);
+        const location = row.StorageLocation;
+        // Owner policy: unknown/unassigned sellability is allowed; explicit false is excluded.
+        // Query is store-scoped; reject any contradictory embedded store identity.
+        if (location?.IsSellable === false || location?.IsDeleted === true
+          || location?.IsWaste === true || location?.IsReturn === true
+          || (location?.Store?.objectId && location.Store.objectId !== inventoryStore(env))) continue;
+        const id = row.Package.objectId;
+        quantities.set(id, quantities.get(id) + row.Qty);
+      }
+      if (!page.pageInfo.hasNextPage) break;
+      const next = page.pageInfo.endCursor;
+      if (typeof next !== 'string' || !next || cursors.has(next)) throw new AppError('INVENTORY_PAGINATION');
+      cursors.add(next); after = next;
+    } while (true);
+  }
+  return new Map([...quantities].map(([id,qty]) => [id, Math.max(0,qty)]));
+}
+export async function inventoryBackedMenu(menu, env, deps) {
+  if (!Array.isArray(menu?.menuGroups)) throw new AppError('MENU_SHAPE');
+  const ids = [];
+  for (const group of menu.menuGroups) {
+    if (!Array.isArray(group.products)) throw new AppError('MENU_SHAPE');
+    for (const product of group.products) {
+      if (!Array.isArray(product.packages)) throw new AppError('MENU_SHAPE');
+      for (const pkg of product.packages) ids.push(pkg.id);
+    }
+  }
+  const quantities = await readSellableInventory(ids, env, deps);
+  return { ...menu, menuGroups: menu.menuGroups.map(group => ({ ...group, products: group.products.map(product => {
+    const seen = new Set();
+    return { ...product, packages: product.packages.filter(pkg => {
+      if (seen.has(pkg.id)) return false;
+      seen.add(pkg.id); return true;
+    }).map(pkg => ({ ...pkg, inventoryQty: quantities.get(pkg.id) || 0,
+      storageLocation: env.APP_FRONT_LOCATION, isSellable: (quantities.get(pkg.id) || 0) > 0 })) };
+  }) })) };
+}
+export async function verifyPreorderInventory(menu, drawn, env, deps) {
+  const products = [...drawn.keys()].map(id => menu.products.find(p => p.id === id));
+  if (products.some(p => !Array.isArray(p?.packageIds) || !p.packageIds.length)) throw new AppError('INVENTORY_UNAVAILABLE');
+  const quantities = await readSellableInventory(products.flatMap(p => p.packageIds), env, deps);
+  for (const product of products) {
+    const available = [...new Set(product.packageIds)].reduce((sum,id) => sum + (quantities.get(id) || 0), 0);
+    if (drawn.get(product.id) > available + 1e-9) throw new AppError('OUT_OF_STOCK', 409);
+  }
+}

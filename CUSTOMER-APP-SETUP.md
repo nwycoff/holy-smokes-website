@@ -12,8 +12,8 @@ This branch adds `/app/` and a clearly labelled `/app/demo/`. It does not change
 - Seven-day, revocable, opaque HttpOnly secure sessions. Provider tokens are discarded after login. Account data is cleared from the page on backgrounding/sign-out.
 - Owner-issued, one-use connection codes after an in-person identity check. Codes expire after ten minutes; database stores their HMAC, not the usable code. A customer record can belong to only one app account.
 - Points lookup uses only the customer ID attached to that server-side session. Browser callers cannot supply another customer's ID.
-- Menu requires `isSellable: true` and positive package stock, with either the configured GrowFlow front storage location or an explicit `null` location for legacy unassigned stock. Back and other named rooms, missing fields and malformed locations are excluded. METRC room names are not used.
-- Brand followed by strain for flower, falling back to product name. Prices are provider variant prices in cents, with the menu's explicit tax flag. THC comes only from eligible front-room or unassigned packages; conflicting tests appear as a range. Individual terpene enrichment is not included in this first mobile release; the TV application is unchanged.
+- Menu availability uses store-scoped `findInventory` quantities. Explicitly non-sellable, deleted, waste and return locations are excluded. Unknown sellability and unassigned inventory are allowed by owner policy; room names and METRC rooms do not determine eligibility.
+- Brand followed by strain for flower, falling back to product name. Prices are provider variant prices in cents, with the menu's explicit tax flag. THC comes only from eligible packages; conflicting tests appear as a range. Individual terpene enrichment is not included in this first mobile release; the TV application is unchanged.
 
 ## Review without any secrets
 
@@ -75,16 +75,16 @@ Generate the two independent random app secrets locally, save them in Bitwarden,
 | `APP_AUTH_CLIENT_SECRET` | Secret | Auth0 application client secret |
 | `APP_LIMIT_SECRET` | Secret | New random value, at least 32 characters |
 | `APP_ENROLLMENT_SECRET` | Secret | Different random value, at least 32 characters; owner only |
-| `APP_GROWFLOW_TOKEN` | Secret | **Separate test token**, with Customers and Menus read scopes only |
+| `APP_GROWFLOW_TOKEN` | Secret | **Separate test token**, with Customers, Menus and **Packages & inventory** read scopes |
 | `GROWFLOW_ORG` | Text | `holysmokesdispensary` |
 | `GROWFLOW_PATIENT_ID_FIELDS` | Text | `PatientLicenseNumber,MedicalLicenseNumber,CustomerStateLicense` |
 | `APP_MENU_ENABLED` | Text | `false` until menu validation is complete |
 | `APP_MENU_KEY` | Secret | Published menu's access key |
-| `APP_FRONT_LOCATION` | Text | Exact `packages.storageLocation` value verified from the API for the front room |
+| `APP_FRONT_LOCATION` | Text | Keep `Front`; retained for normalization, not eligibility |
 | `APP_PREORDER_ENABLED` | Text | `false` until step 6 is complete |
 | `APP_PREORDER_TOKEN` | Secret | **Another separate token** with only the Create preorders scope; must differ from `APP_GROWFLOW_TOKEN` |
 
-GrowFlow token and menu key are different credentials. No create/write scope is needed. Store names shown in the dashboard do not prove whether `storageLocation` returns a name or identifier; inspect the selected menu response privately before setting it. A wrong/missing value results in no eligible products, never a fallback to back-room stock.
+GrowFlow token and menu key are different credentials. No create/write scope is needed to read inventory. Optional `APP_INVENTORY_STORE_ID` defaults to `nhB4pzbWYZ`, verified from the owner’s inventory diagnostic. Other stores must set their own ID.
 
 Keep all `REWARDS_*` settings and the live points token unchanged. This feature uses its own `APP_*` settings and database. Rebuild/redeploy the test project after changing variables/bindings as needed by Pages. There is no production rollout in these steps.
 
@@ -104,8 +104,8 @@ The initial owner tool is deliberately not a public staff portal. Before wider s
 The query is based on the supplied schema, not a completed live test of these exact new requests. Confirm on the test token:
 
 - The menu scope returns all intended groups and the documented package/variant fields.
-- Front/sellable and legacy unassigned/sellable packages appear; back-room packages do not, even if marked sellable. Check a product present in both rooms.
-- The configured front value is exact. Missing sellability/location fields, other named rooms and zero stock stay hidden; an explicit null location is allowed only with sellable positive stock.
+- Check split stock: 3 sellable Front units plus 2 non-sellable Back units must allow only 3. An item with only non-sellable stock disappears.
+- Unknown sellability and unassigned inventory are allowed. Explicit non-sellable status is excluded regardless of room name; zero eligible stock stays hidden.
 - Price, package size, tax flag and THC match the approved customer menu/POS. This version uses `variants.price`, not an invented medical-price or weight-tier calculation.
 - If different strains share a product, fix that source record instead of inventing labels.
 
@@ -192,7 +192,7 @@ The menu has a **Filters** panel (strain type including **CBD-rich**, flower siz
 - **CBD-rich** means tested CBD of at least 1% and at least equal to THC (CBD-dominant or balanced), from percentage lab results on eligible packages.
 - Price per gram uses variant weights in grams or ounces. Prices stay GrowFlow's regular `variants.price` (tax included for this store), not `priceMedical`.
 - Photos must be `https` URLs; the `/app/*` Content-Security-Policy allows `https:` images for this. Descriptions are shown as plain text (tags stripped, 400 characters).
-- **Stock limits:** each size's availability comes from front-room package quantities (units for GrowFlow "Each" products, grams for "Grams" products; a 3.5 g size on 10 g of stock allows 2). Sizes stock cannot fill are hidden, cards say "Only N left" at 5 or fewer, and the cart stops at what is available. The server re-checks at order time, counting all sizes of a product together, and refuses anything over stock (`OUT_OF_STOCK`). Customers never see exact inventory: availability is capped at 10 in the app. GrowFlow only deducts stock when staff attach packages, so two customers ordering the last item within the same minute can still both succeed; staff resolve that at fulfillment.
+- **Stock limits:** each size's availability comes from eligible inventory quantities (units for GrowFlow "Each" products, grams for "Grams" products; a 3.5 g size on 10 g of stock allows 2). Sizes stock cannot fill are hidden, cards say "Only N left" at 5 or fewer, and the cart stops at what is available. The server performs an uncached inventory query immediately before submission, counting all sizes of a product together, and refuses anything over stock (`OUT_OF_STOCK`). Customers never see exact inventory: availability is capped at 10 in the app. GrowFlow only deducts stock when staff attach packages, so two customers ordering the last item within the same minute can still both succeed; staff resolve that at fulfillment.
 - **Purchase limits (per order):** GrowFlow's API does not expose the store's Medical Purchase Limits, so the app mirrors them: flower 84 g and concentrate 28 g (unit weight), edible 72 oz (net weight; OMMA does not separate liquid edibles), topical 72 oz (unit weight), seed 10 and clone 6. Turn on with `APP_PURCHASE_LIMITS_ENABLED=true`; if GrowFlow's limits change, override any group with `APP_PURCHASE_LIMITS` as JSON, e.g. `{"flower":84,"concentrate":28}`. Products are grouped by their GrowFlow product category **Type** (needs the **Product categories** read scope on `APP_GROWFLOW_TOKEN`; cached an hour) and otherwise by category name keywords (pre-roll, cartridge, gummies…). Items with an unknown weight or group are not counted; the POS still enforces limits, including any over time, at checkout. The cart stops additions over a limit, the order screen shows usage ("7 of 84 g flower"), and the server refuses orders over a limit.
 - There are no effect-based filters ("sleepy", "energetic"): GrowFlow has no such data, and Oklahoma rules limit effect and health claims.
 
@@ -227,3 +227,10 @@ Campaign sending, birthday automation, redemption, delivery and pickup-time slot
 - OAuth/OIDC implementation: https://github.com/panva/oauth4webapi
 - Cloudflare transactional batches: https://developers.cloudflare.com/d1/worker-api/d1-database/
 - Apple Home Screen web push: https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/
+
+
+## Inventory authority correction (2026-10-07)
+
+Menu package location/sellability can disagree with actual GrowFlow inventory. The app and tablet now join menu package IDs to paginated, store-scoped `findInventory` results and sum eligible quantities. Unknown location/sellability is allowed by owner policy. An API failure is not an unknown status: failed or incomplete inventory reads block new preorders. Previously verified menus may be displayed with a stale warning for up to five minutes, but stale menus cannot be ordered from.
+
+The v8 cache discards older menu-derived availability. The app token needs **Packages & inventory** read access; no database migration is required. Preorder validation does not reserve stock atomically: simultaneous customers can still request the same stock until GrowFlow allocates packages.
