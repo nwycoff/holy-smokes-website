@@ -91,29 +91,11 @@
     ::-webkit-scrollbar-thumb { background: #B5C5A3; border-radius: 4px; }
     ::-webkit-scrollbar-thumb:hover { background: #8BA872; }
 
-    /* GrowFlow Menu Fix CSS */
-    #growflow-embedded-menu-container {
-      width: 100% !important;
-      overflow: visible !important;
-      min-width: 100% !important;
-    }
-    #growflow-embedded-menu-container .product-card {
-      overflow: visible !important;
-    }
-    #growflow-embedded-menu-container .product-card-actions {
-      overflow: visible !important;
-      position: relative !important;
-      z-index: 10 !important;
-    }
-    #growflow-embedded-menu-container .add-to-cart-button {
-      overflow: visible !important;
-      position: relative !important;
-      z-index: 10 !important;
-      width: auto !important;
-    }
   </style>
+  <link rel="stylesheet" href="/assets/menu/site.css" />
+  <script type="module" src="/assets/tablet/menu.js"></script>
 </head>
-<body>
+<body data-menu="website">
 
   <!-- ============================================================ -->
   <!-- NAVIGATION -->
@@ -173,19 +155,42 @@
       <h1 class="font-display text-4xl md:text-6xl text-bark mb-4">Live Menu</h1>
       <div class="section-divider mb-6"></div>
       <p class="font-body text-bark/50 text-base max-w-lg mx-auto">
-        Explore our full selection of flower, edibles, concentrates, and more — updated in real time with today's best cannabis deals in Kay County.
+        Everything on our shelves right now — flower, pre-rolls, vapes, concentrates, edibles and more, with lab results — updated through the day.
       </p>
     </div>
   </section>
 
   <!-- ============================================================ -->
-  <!-- GROWFLOW LIVE MENU -->
+  <!-- LIVE MENU (shared with the app and the counter tablet: assets/tablet/menu.js) -->
   <!-- ============================================================ -->
   <section class="pb-24 md:pb-32 bg-cream">
     <div class="max-w-7xl mx-auto px-6">
-      <div class="bg-white rounded-2xl border border-sage/15 p-4 md:p-8 fade-in" style="animation-delay: 0.2s;">
-        <!-- GrowFlow Live Menu Embed -->
-        <div><script async id="growflow-embedded-menu" src="https://retail.growflow.com/c/holysmokesdispensary/menu-embedv2.js" data-client-id="holysmokesdispensary" data-menu-id="3a088197-4337-408e-8669-c31937074af0"></script></div>
+      <div class="th-menu">
+        <div class="order-cta">
+          <p><strong>Want it held for pickup?</strong><span>Order ahead in the free My Treehouse app, then pay in store.</span></p>
+          <a href="/app/?from=website#menu">Order ahead in the app →</a>
+        </div>
+        <div class="layout">
+          <aside class="browse-panel" aria-label="Browse and filter products">
+            <p class="eyebrow browse-label">BROWSE THE MENU</p>
+            <nav id="categories" aria-label="Product categories"></nav>
+            <details class="refine" id="refine"><summary><h2>Narrow it down</h2></summary>
+              <label>Strain type<select id="type"><option value="">All types</option><option value="indica">Indica</option><option value="sativa">Sativa</option><option value="hybrid">Hybrid</option><option value="cbd">CBD-rich</option></select></label>
+              <label>Brand<select id="brand"><option value="">All brands</option></select></label>
+              <label>Budget<select id="budget"><option value="">Any price</option><option value="under20">Under $20</option><option value="20to40">$20–$40</option><option value="over40">Over $40</option></select></label>
+              <label>Flower size<select id="size"><option value="">All sizes</option></select></label>
+            </details>
+          </aside>
+          <section class="selection" aria-label="Available products">
+            <div class="toolbar"><label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Search strains, brands, or products" aria-label="Search strains, brands, or products" maxlength="100" autocomplete="off" autocapitalize="off" /></label><label class="sort">Sort by<select id="sort"><option value="price">Price: low to high</option><option value="price-desc">Price: high to low</option><option value="name">Name: A to Z</option><option value="thc">Highest THC</option></select></label></div>
+            <div class="results"><p id="count" role="status">Getting the menu ready…</p><button id="clear" type="button" hidden>Clear filters ×</button><span id="freshness">Checking availability</span></div>
+            <div id="notice" class="notice" role="status" hidden></div>
+            <div id="products" class="products" aria-busy="true"></div>
+            <div id="empty" class="empty" hidden><h2 id="empty-title"></h2><p id="empty-copy"></p><button id="retry" type="button" hidden>Try again</button></div>
+            <p id="tax" class="fine-print"></p>
+            <noscript><p class="fine-print">Turn on JavaScript to browse the live menu, or call us at (580) 716-6720.</p></noscript>
+          </section>
+        </div>
       </div>
 
       <!-- Back to home link -->
@@ -265,6 +270,9 @@
 
     // Footer year
     document.getElementById('footerYear').textContent = new Date().getFullYear();
+
+    // Menu filters: open beside the products on wide screens, one tap away on phones.
+    document.getElementById('refine').open = matchMedia('(min-width: 901px)').matches;
   </script>
 </body>
 </html>

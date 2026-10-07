@@ -24,3 +24,8 @@ Full screen is not device lockdown. Before leaving the tablet unattended with cu
 ## Validation
 
 `npm run test:tablet-browser` runs synthetic browser checks. `PLAYWRIGHT_CHROMIUM_EXECUTABLE` may point to a compatible Chromium binary. Covers landscape/portrait/narrow tablet layout, filtering, same-variant price/size matching, automatic reset, failed refresh retention and recovery, rotation position, menu-only requests, and no browser storage. Existing server tests run with `npm test`.
+
+
+## Website Menu page
+
+`menu.html` (treehousepharmacy.com/menu) runs the same script in website mode (`<body data-menu="website">`) with its own stylesheet, `assets/menu/site.css`, scoped to `.th-menu` so the site's Tailwind header and footer are untouched. It replaces the GrowFlow embed. Website mode shows product photos, keeps the chosen heading in the address (`/menu?category=Pre-Rolls`, so pages and posts can link straight to a heading), never resets itself and does not hold the screen awake. Filters sit beside the products on wide screens and fold behind "Narrow it down" on phones, where headings are one swipeable row and sub-filters are pills. A banner links to the app for order-ahead. `npm run test:site-browser` checks it.

@@ -18,10 +18,10 @@ await writeFile(path.join(out, '_routes.json'), JSON.stringify({
 }, null, 2));
 // Give each page's own script and stylesheet a content version (?v=hash), so a release reaches
 // phones at once instead of after the custom domain's browser cache expires.
-for (const page of ['app/index.html', 'tablet/index.html', 'staff/index.html', 'crm/index.html']) {
+for (const page of ['app/index.html', 'tablet/index.html', 'staff/index.html', 'crm/index.html', 'menu.html']) {
   const file = path.join(out, page);
   let html = await readFile(file, 'utf8');
-  for (const [ref] of html.matchAll(/\/assets\/(?:customer|tablet|staff|crm)\/[a-z-]+\.(?:js|css)(?=")/g)) {
+  for (const [ref] of html.matchAll(/\/assets\/(?:customer|tablet|staff|crm|menu)\/[a-z-]+\.(?:js|css)(?=")/g)) {
     const version = createHash('sha256').update(await readFile(path.join(out, ref))).digest('hex').slice(0, 12);
     html = html.replace(`${ref}"`, `${ref}?v=${version}"`);
   }
