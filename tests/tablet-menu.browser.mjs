@@ -68,6 +68,16 @@ try {
   await page.evaluate(()=>dispatchEvent(new Event('online')));
   await page.waitForFunction(()=>document.querySelectorAll('.product').length===70);
   await page.evaluate(()=>scrollTo(0,1800)); await page.clock.runFor(200);
+  // Phone address bars change only the height while scrolling: the page must not jump.
+  const y0=await page.evaluate(()=>scrollY), size=page.viewportSize();
+  await page.setViewportSize({width:size.width,height:size.height-90}); await page.clock.runFor(500);
+  assert.equal(await page.evaluate(()=>scrollY),y0,'height-only resize keeps the scroll position');
+  await page.setViewportSize(size); await page.clock.runFor(500);
+  // A refresh with an unchanged menu keeps the same cards (rebuilding them would stop a scroll).
+  await page.evaluate(()=>{ window.__firstCard=document.querySelector('.product'); });
+  await page.evaluate(()=>dispatchEvent(new Event('online'))); await page.clock.runFor(2000);
+  assert.equal(await page.evaluate(()=>window.__firstCard.isConnected),true,'unchanged refresh does not rebuild cards');
+  await page.evaluate(()=>scrollTo(0,1800)); await page.clock.runFor(200);
   const before=await page.evaluate(()=>[...document.querySelectorAll('.product')].find(p=>p.getBoundingClientRect().bottom>0)?.dataset.productId);
   await page.setViewportSize({width:1280,height:800}); await page.clock.runFor(500);
   const after=await page.evaluate(()=>[...document.querySelectorAll('.product')].find(p=>p.getBoundingClientRect().bottom>0)?.dataset.productId);

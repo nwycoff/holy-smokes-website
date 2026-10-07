@@ -87,6 +87,20 @@ function updateOptions(id, values, label) {
   select.replaceChildren(...options.map(([value,text]) => { const option = node('option',text); option.value = value; return option; }));
   select.value = values.includes(value) ? value : '';
 }
+// The "Updated 2:14 PM" line and any connection notice, without touching the product cards.
+function renderStatus() {
+  $('notice').textContent = state.error; $('notice').hidden = !state.error;
+  $('freshness').textContent = state.menu?.stale ? 'Update delayed' : state.menu ? 'Updated ' + new Date(state.menu.updatedAt).toLocaleTimeString([], { hour:'numeric',minute:'2-digit' }) : '';
+}
+// Rebuilding the cards stops a scroll in progress, so a minute's refresh only rebuilds them
+// when the menu actually changed, and waits until the screen has been still for a moment.
+const menuSignature = menu => menu ? JSON.stringify([menu.categories, menu.products]) : '';
+let lastScroll = 0, pendingRender;
+function renderWhenStill() {
+  clearTimeout(pendingRender);
+  if (Date.now() - lastScroll < 1200) { pendingRender = setTimeout(renderWhenStill, 400); return; }
+  render(true);
+}
 function anchor() {
   const item = [...document.querySelectorAll('.product')].find(el => el.getBoundingClientRect().bottom > 0);
   return item && window.scrollY > 150 ? { id:item.dataset.productId, top:item.getBoundingClientRect().top } : null;
@@ -115,8 +129,7 @@ function render(preservePosition = false) {
   $('products').replaceChildren(...visible.map(card)); $('products').setAttribute('aria-busy', String(state.loading && !state.menu));
   $('count').textContent = !state.menu ? state.loading ? 'Getting the menu ready…' : 'Menu temporarily unavailable' : `${visible.length} ${visible.length === 1 ? 'find' : 'finds'}${state.category !== 'All' ? ` · ${state.category}` : ''}`;
   $('clear').hidden = state.category === 'All' && !controlIds.filter(id => id !== 'sort').some(id => query[id]);
-  $('notice').textContent = state.error; $('notice').hidden = !state.error;
-  $('freshness').textContent = state.menu?.stale ? 'Update delayed' : state.menu ? 'Updated ' + new Date(state.menu.updatedAt).toLocaleTimeString([], { hour:'numeric',minute:'2-digit' }) : '';
+  renderStatus();
   $('empty').hidden = visible.length > 0;
   $('empty-title').textContent = state.menu ? products.length ? 'No matching finds.' : 'The selection is being updated.' : state.loading ? 'A few good finds are on the way.' : 'Let’s check with your budtender.';
   $('empty-copy').textContent = state.menu ? products.length ? 'Try a different search or clear your filters.' : 'Ask us what’s available at the counter.' : state.loading ? 'Getting the latest menu…' : 'We couldn’t load the menu. You can try again below.';
@@ -126,7 +139,8 @@ function render(preservePosition = false) {
 }
 async function refresh() {
   if (state.loading) return;
-  state.loading = true; if (!state.menu) render();
+  const before = menuSignature(state.menu), first = !state.menu;
+  state.loading = true; if (first) render();
   try {
     let result;
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -146,7 +160,12 @@ async function refresh() {
   } catch {
     if (state.menu) state.menu = { ...state.menu, stale:true };
     state.error = state.menu ? 'Showing the last available menu while we reconnect. Please confirm availability with your budtender.' : 'The menu connection is temporarily unavailable. Your budtender can help.';
-  } finally { state.loading = false; render(true); }
+  } finally {
+    state.loading = false;
+    if (first) render(true);
+    else if (menuSignature(state.menu) === before) renderStatus();
+    else renderWhenStill();
+  }
 }
 function reset(automatic = false) {
   state.category = 'All'; state.selected.clear(); controlIds.forEach(id => { $(id).value = id === 'sort' ? 'price' : ''; });
@@ -172,8 +191,14 @@ $('fullscreen').addEventListener('click',async()=>{
 });
 document.addEventListener('fullscreenchange',()=>{ const active = Boolean(document.fullscreenElement); $('fullscreen').setAttribute('aria-label', active ? 'Exit full screen' : 'Enter full screen'); $('fullscreen').querySelector('span').textContent = active ? 'Exit full screen' : 'Full screen'; });
 let scrollAnchor = null, resizing = false, resizeTimer, viewportWidth = innerWidth;
-addEventListener('scroll',()=>{ if (!resizing && innerWidth === viewportWidth) scrollAnchor = anchor(); },{passive:true});
-addEventListener('resize',()=>{ resizing = true; clearTimeout(resizeTimer); resizeTimer = setTimeout(()=>{ restoreAnchor(scrollAnchor); resizing = false; viewportWidth = innerWidth; scrollAnchor = anchor(); },160); });
+addEventListener('scroll',()=>{ lastScroll = Date.now(); if (!resizing && innerWidth === viewportWidth) scrollAnchor = anchor(); },{passive:true});
+// Only a width change (rotation) moves the page back to the product that was in view. Phone
+// browsers change the height while scrolling as the address bar slides in and out; that is ignored.
+addEventListener('resize',()=>{
+  if (innerWidth === viewportWidth && !resizing) return;
+  resizing = true; clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(()=>{ restoreAnchor(scrollAnchor); resizing = false; viewportWidth = innerWidth; scrollAnchor = anchor(); },160);
+});
 addEventListener('online',()=>void refresh());
 document.addEventListener('visibilitychange',()=>{ if (!document.hidden) { reset(); activity(); void refresh(); void keepAwake(); } });
 setInterval(()=>{ if (!document.hidden) void refresh(); },60000);

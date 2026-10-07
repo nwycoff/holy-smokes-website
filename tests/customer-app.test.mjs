@@ -1156,3 +1156,18 @@ test('most popular: CRM ranks are renumbered among products on the menu; the men
   const none=await rankPopular({APP_DB:{prepare:()=>({bind:()=>({first:async()=>null})})}},{products:[{id:'x'}]});
   assert.equal(none.products[0].popular,undefined);
 });
+
+test('a full-size menu refresh reads stock for 1,200 packages in parallel batches without hitting the request cap', async () => {
+  const s=setup(), ids=Array.from({length:1200},(_,i)=>`pkg${i}`);
+  let calls=0, inFlight=0, peak=0;
+  s.deps.fetch=async(target,init)=>{
+    const {variables}=JSON.parse(init.body); calls++; inFlight++; peak=Math.max(peak,inFlight);
+    await new Promise(r=>setTimeout(r,5)); inFlight--;
+    const batch=variables.where.Package.have.objectId.in;
+    return Response.json({data:{findInventory:{pageInfo:{hasNextPage:false,endCursor:null},edges:batch.map(id=>({node:{objectId:`row-${id}`,Qty:2,
+      Package:{objectId:id},StorageLocation:{Name:'Front',IsSellable:true,IsDeleted:false,IsWaste:false,IsReturn:false,Store:{objectId:'nhB4pzbWYZ'}}}}))}}});
+  };
+  const stock=await readSellableInventory(ids,s.env,s.deps);
+  assert.equal(calls,12);assert.equal(peak,4);assert.equal(stock.get('pkg1199'),2);
+  assert.equal((await readSellableInventory(ids,s.env,s.deps)).size,1200); // 24 requests within one minute is fine
+});

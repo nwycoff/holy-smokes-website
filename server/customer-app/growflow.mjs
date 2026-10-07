@@ -58,7 +58,9 @@ export async function queryGrowflow(env, deps, query, variables, token = env.APP
   const backoff = await env.APP_DB.prepare('SELECT until_at FROM rewards_backoff WHERE key = ?').bind(key).first();
   if (backoff?.until_at > deps.now()) throw new AppError('GROWFLOW_BACKOFF');
   if (!await consumeLimits(env.APP_DB, env.APP_LIMIT_SECRET,
-    [{ subject: 'app-growflow', window: 60000, max: 30 }], deps.now())) throw new AppError('GROWFLOW_LIMIT', 429);
+    // GrowFlow allows 120 requests a minute per token; a full menu refresh (menu plus stock for
+    // about a thousand products) uses 20-30, so the app keeps 90 for itself.
+    [{ subject: 'app-growflow', window: 60000, max: 90 }], deps.now())) throw new AppError('GROWFLOW_LIMIT', 429);
   try {
     return await sendGrowflow(env, deps, key, query, variables, token, timeoutMs);
   } catch (error) {
@@ -430,11 +432,12 @@ export async function readSellableInventory(ids, env, deps) {
     throw new AppError('INVENTORY_SHAPE');
   const quantities = new Map(unique.map(id => [id, 0])), seen = new Set();
   let requests = 0;
-  for (let start = 0; start < unique.length; start += 100) {
-    const batch = unique.slice(start, start + 100), cursors = new Set();
+  // One batch of up to 100 package IDs, following its pages.
+  const readBatch = async batch => {
+    const cursors = new Set();
     let after = null;
     do {
-      if (++requests > 30) throw new AppError('INVENTORY_PAGE_LIMIT');
+      if (++requests > 60) throw new AppError('INVENTORY_PAGE_LIMIT');
       const data = await queryGrowflow(env, deps, INVENTORY_QUERY, {
         where: { Package: { have: { objectId: { in: batch } } },
           Store: { have: { objectId: { equalTo: inventoryStore(env) } } } }, after
@@ -459,7 +462,11 @@ export async function readSellableInventory(ids, env, deps) {
       if (typeof next !== 'string' || !next || cursors.has(next)) throw new AppError('INVENTORY_PAGINATION');
       cursors.add(next); after = next;
     } while (true);
-  }
+  };
+  // Four batches at a time, so a full menu's stock (a thousand-plus packages) takes seconds.
+  const batches = [];
+  for (let start = 0; start < unique.length; start += 100) batches.push(unique.slice(start, start + 100));
+  for (let i = 0; i < batches.length; i += 4) await Promise.all(batches.slice(i, i + 4).map(readBatch));
   return new Map([...quantities].map(([id,qty]) => [id, Math.max(0,qty)]));
 }
 export async function verifyPreorderInventory(menu, drawn, env, deps) {
