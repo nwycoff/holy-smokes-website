@@ -4,6 +4,7 @@ import { AppError, hash, randomToken, cookie, readCookie, redirect, fetchSafe,
 import { acquisitionForLogin, startAcquisition, trackSafely, verifiedAcquisition } from './acquisition.mjs';
 import { verificationProof, VERIFY_COOKIE } from './verification.mjs';
 
+export const emailVerificationRequired = env => env.APP_REQUIRE_VERIFIED_EMAIL !== 'false';
 // Auth0 Universal Login owns passwords, email verification and recovery. No passwords
 // or provider tokens enter our database or browser storage. Auth0 app type: Regular Web App.
 function provider(env) {
@@ -50,7 +51,10 @@ export async function finishLogin(request, env, deps) {
   await oauth.validateApplicationLevelSignature(as, tokenResponse, options);
   const claims = oauth.getValidatedIdTokenClaims(result);
   if (!claims?.sub) throw new AppError('VERIFY_EMAIL', 403);
-  if (claims.email_verified !== true) {
+  // Email verification can be switched off (APP_REQUIRE_VERIFIED_EMAIL=false): the app identifies
+  // people by their sign-in account and never uses the email itself, and points, orders and
+  // notifications only connect to a customer record through a staff code given in person.
+  if (claims.email_verified !== true && emailVerificationRequired(env)) {
     let proof;
     try { proof = await verificationProof(env, claims.sub, deps.now()); }
     catch { deps.report('VERIFY_SETUP'); }

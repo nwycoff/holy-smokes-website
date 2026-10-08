@@ -1192,3 +1192,16 @@ test('Treehouse-brand products are house products too, whatever their GrowFlow c
   assert.equal(get('other').house,undefined);assert.equal(get('bud').house,true);
   assert.equal(menu.categories[0],'Treehouse');
 });
+
+test('email verification can be switched off: an unverified sign-in still gets an account; Google sign-ins are verified anyway', async () => {
+  const s=setup();
+  await s.login('auth0|unverified-one',{email_verified:false});
+  assert.equal(s.env.APP_DB.db.prepare('SELECT count(*) n FROM app_users').get().n,0,'required by default: no account yet');
+  assert.equal((await (await s.run('config')).json()).emailVerification,true);
+  s.env.APP_REQUIRE_VERIFIED_EMAIL='false';
+  assert.equal((await (await s.run('config')).json()).emailVerification,false);
+  const ok=await s.login('auth0|unverified-two',{email_verified:false});
+  assert.ok(ok.cookie,'signed in without verifying');
+  assert.equal(s.env.APP_DB.db.prepare('SELECT count(*) n FROM app_users').get().n,1);
+  assert.ok(await s.login('google-oauth2|1234567890',{email_verified:true}));
+});

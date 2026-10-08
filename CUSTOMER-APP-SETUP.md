@@ -238,3 +238,8 @@ The v8 cache discards older menu-derived availability. The app token needs **Pac
 ## Menu layout (2026-10-07)
 
 The menu key may point at a single-group GrowFlow menu: group names are ignored. Each product is placed by its GrowFlow product category (`server/customer-app/taxonomy.mjs`) into a heading (Flower, Smalls, Shake, Pre-Rolls, Vapes, Concentrates, Edibles, Tinctures & Capsules, Topicals & Patches, CBD & Hemp, Seeds & Clones, Accessories; unknown categories go to More) with sub-filters such as Style, Packaging, Strength, or Type/Format/Pack. Products can be listed under extra tabs (`also`): Treehouse-grown categories under Treehouse, and CBD-rich cannabis (CBD at least 1% and at least THC) under CBD & Hemp. Waste, sample (Sample- Flower, Pre-Pack Flower Samples) and Nicotine Products categories are never shown or orderable (patients may be under 21). A new GrowFlow category needs one line in `CATEGORIES` to get its own place. Cards have a Lab results panel with cannabinoids above zero and the five largest terpenes from in-stock packages.
+
+
+## Email verification (optional)
+
+Set Text variable `APP_REQUIRE_VERIFIED_EMAIL=false` to let people in without verifying their email (default: required). The app identifies people by their sign-in account and never uses the email itself; points, orders and notifications only connect to a customer record through a staff code given in person. Also switch off Auth0's verification email (Branding → Email Templates → Verification Email → off) so people aren't sent one. Google sign-ins arrive already verified either way. Trade-off: someone who mistypes their email can't reset their password later and would need a new account and a new staff code.

@@ -1,7 +1,7 @@
 import { consumeLimits, lookupVariables, normalizeInput } from '../rewards.mjs';
 import { AppError, bodyJSON, enabled, authReady, growflowReady, menuReady, preorderReady, rewardTiersReady, hash, json,
   sameOrigin, cookie, LOGIN_COOKIE, redirect, readCookie, randomToken } from './http.mjs';
-import { startLogin, finishLogin, session, logout } from './auth.mjs';
+import { startLogin, finishLogin, session, logout, emailVerificationRequired } from './auth.mjs';
 import { CUSTOMER_QUERY, singleCustomer, eligibleCustomer, queryGrowflow, getMenu, getRewards, publicMenu, purchaseLimits } from './growflow.mjs';
 import { currentPreorder, placePreorder } from './preorders.mjs';
 import { pushReady, subscribe, unsubscribe } from './push.mjs';
@@ -51,7 +51,7 @@ export async function handleApp(context, overrides = {}) {
     signupTrackingEnabled: Boolean(active && acquisitionReady(env)),
     preorderEnabled: Boolean(active && preorderReady(env)), rewardTiersEnabled: Boolean(active && rewardTiersReady(env)),
     licenseMemoryEnabled: Boolean(active && preorderReady(env) && licenseMemoryReady(env)),
-    marketingEnabled: Boolean(active && marketingReady(env)),
+    marketingEnabled: Boolean(active && marketingReady(env)), emailVerification: emailVerificationRequired(env),
     ...(active && preorderReady(env) && purchaseLimits(env) ? { purchaseLimits: purchaseLimits(env) } : {}),
     ...(active && preorderReady(env) && pushReady(env) ? { pushKey: env.APP_VAPID_PUBLIC_KEY } : {}) });
   if (!active) return json(503, { error: 'The customer app is not available yet. You can still use My Points on our website.' });
