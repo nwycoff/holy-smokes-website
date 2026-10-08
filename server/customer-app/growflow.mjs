@@ -365,6 +365,41 @@ export async function getCategoryTypes(env, deps) {
   return new Map(pairs);
 }
 
+// Edibles' servings per container, entered at product intake. GrowFlow keeps it on full
+// Products records (same IDs as menu products), not on the menu. Needs the Products read
+// scope; without it, or on any failure, edibles show only their package total.
+export const SERVINGS_QUERY = `query TreehouseEdibleServings($where: ProductsWhereInput!) {
+  findProducts(first: 100, where: $where) { edges { node { objectId ServingsPerContainer } } }
+}`;
+export async function readServings(ids, env, deps) {
+  const servings = new Map();
+  try {
+    for (let i = 0; i < ids.length; i += 100) {
+      const edges = (await queryGrowflow(env, deps, SERVINGS_QUERY, { where: { objectId: { in: ids.slice(i, i + 100) } } }))?.findProducts?.edges;
+      if (!Array.isArray(edges)) throw new AppError('SERVINGS_SHAPE');
+      for (const { node } of edges) if (typeof node?.objectId === 'string' && Number.isFinite(node.ServingsPerContainer)
+        && node.ServingsPerContainer > 0) servings.set(node.objectId, node.ServingsPerContainer);
+    }
+  } catch (error) {
+    deps.report(`SERVINGS_REFRESH_${error?.code || 'ERROR'}${error?.category ? `_${error.category}` : ''}`);
+  }
+  return servings;
+}
+// mg per dose on each edible with servings and a single mg package size. The Per dose filter
+// joins Per package once at least half the edibles have servings, so it never hides most of them.
+const doseBucket = mg => mg <= 5 ? 'Up to 5mg' : mg <= 10 ? '5–10mg' : mg <= 25 ? '10–25mg' : mg <= 50 ? '25–50mg' : 'Over 50mg';
+export function applyServings(menu, servings) {
+  const edibles = menu.products.filter(p => p.category === 'Edibles');
+  for (const p of edibles) {
+    const totals = [...new Set(p.variants.filter(v => /^(mg|milligrams?)$/i.test(v.size.split(' ')[1] || '')).map(v => v.weight))];
+    if (servings.has(p.id) && totals.length === 1)
+      p.dose = { servings: servings.get(p.id), mg: Math.round(totals[0] / servings.get(p.id) * 10) / 10 };
+  }
+  const dosed = edibles.filter(p => p.dose);
+  if (dosed.length && dosed.length * 2 >= edibles.length) for (const p of dosed) p.facets = { ...p.facets, 'Per dose': doseBucket(p.dose.mg) };
+  return menu;
+}
+
 // The store's per-order limits: defaults match GrowFlow's Medical Purchase Limits, and
 // APP_PURCHASE_LIMITS (JSON, e.g. {"flower":84}) overrides any group's maximum.
 export function purchaseLimits(env) {
@@ -421,6 +456,7 @@ async function refreshMenu(env, deps, key) {
     const types = purchaseLimits(env) ? await getCategoryTypes(env, deps) : new Map();
     const stock = await readSellableInventory(menuPackageIds(result.findMenus), env, deps);
     const menu = normalizeMenu(result.findMenus, stock, deps.now(), types);
+    applyServings(menu, await readServings(menu.products.filter(p => p.category === 'Edibles').map(p => p.id), env, deps));
     await rankPopular(env, menu);
     // A small public summary (no stock levels or prices) for the CRM's campaign assistant.
     const summary = { updatedAt: menu.updatedAt, categories: menu.categories,

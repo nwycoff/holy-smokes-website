@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {inSection,matchesFacets} from '../assets/tablet/categories.js';
+import {inSection,matchesFacets,potencyLine} from '../assets/tablet/categories.js';
 import {classifyProduct,packOf,CATEGORIES,HIDDEN,DEPARTMENTS} from '../server/customer-app/taxonomy.mjs';
 
 test('GrowFlow categories land in medical-shopper headings; flower splits by grade',()=>{
@@ -16,7 +16,7 @@ test('GrowFlow categories land in medical-shopper headings; flower splits by gra
   ['Disposable Carts','Vapes',{Style:'Disposables'}],
   ['Cured - 7g','Concentrates',{Style:'Cured resin'}],
   ['Live Diamonds 7g','Concentrates',{Style:'Diamonds'}],
-  ['2000mg-5000mg Edibles','Edibles',{Strength:'2,000–5,000mg'}],
+  ['2000mg-5000mg Edibles','Edibles',{'Per package':'2,000–5,000mg'}],
   ['Transdermal Patch','Topicals & Patches',{Style:'Patches'}],
   ['Delta 8 Products','CBD & Hemp',{Style:'Delta 8'}],
   ['Clone','Seeds & Clones',{Style:'Clones'}],
@@ -48,4 +48,11 @@ test('checked filters narrow: any value within a group, every group across; extr
  const house={category:'Smalls',house:true,also:['Treehouse']};
  assert.equal(inSection(house,'Treehouse'),true);assert.equal(inSection(house,'Smalls'),true);assert.equal(inSection(house,'Flower'),false);assert.equal(inSection(p,'Treehouse'),false);
  assert.equal(inSection(p,'All'),true);
+});
+
+test('edible cards show the mg per package, never percent-by-weight potency', () => {
+  const edible = { category: 'Edibles', thc: [1.04, 1.04], cbd: [1.2, 1.2], terpenes: [0.1, 0.1], variants: [{ size: '100 mg' }] };
+  assert.equal(potencyLine(edible, 'Ask us'), '100 mg per package');
+  assert.equal(potencyLine({ ...edible, variants: [{ size: '100 g' }] }, 'Ask us'), 'Ask us for the mg per package');
+  assert.equal(potencyLine({ category: 'Flower', thc: [21.3, 24], variants: [{ size: '3.5 g' }] }, 'Ask us'), 'Total THC 21.3–24.0%');
 });

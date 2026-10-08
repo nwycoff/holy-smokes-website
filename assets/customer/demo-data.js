@@ -16,7 +16,7 @@ export const demoMenu = {
       variants:[{size:'3.5 g',priceCents:2500,grams:3.5,pricePerGramCents:714,available:10,limitUse:3.5},{size:'7 g',priceCents:4500,grams:7,pricePerGramCents:643,available:10,limitUse:7}] },
     { id:'demo-5', popular:2, facets:{Style:'Cartridges'}, brand:'Example Extracts', name:'Evening Blend Cartridge', category:'Vapes', limitGroup:'concentrate', type:'hybrid', thc:[80.1,80.1], cbd:null, cbdRich:false,
       variants:[{size:'1 g',priceCents:3000,grams:1,pricePerGramCents:3000,available:10,limitUse:1}] },
-    { id:'demo-6', facets:{Strength:'Up to 100mg'}, brand:'Example Kitchen', name:'Peach Gummies', category:'Edibles', limitGroup:'edible', type:'', thc:null, cbd:null, cbdRich:false,
+    { id:'demo-6', facets:{'Per package':'Up to 100mg'}, brand:'Example Kitchen', name:'Peach Gummies', category:'Edibles', limitGroup:'edible', type:'', thc:null, cbd:null, cbdRich:false,
       variants:[{size:'10 pieces',priceCents:1800,grams:null,pricePerGramCents:null,available:10,limitUse:0.353}] },
     { id:'demo-7', also:['CBD & Hemp'], facets:{Style:'Whole flower',Packaging:'Pre-packed'}, brand:'Prairie Sample Farms', name:'Easy Balance', category:'Flower', limitGroup:'flower', flower:true, type:'hybrid', thc:[6.2,6.2], cbd:[11.8,11.8], cbdRich:true,
       variants:[{size:'3.5 g',priceCents:2200,grams:3.5,pricePerGramCents:629,available:10,limitUse:3.5},{size:'14 g',priceCents:7000,grams:14,pricePerGramCents:500,available:10,limitUse:14}],

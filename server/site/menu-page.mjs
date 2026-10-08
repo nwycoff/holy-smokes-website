@@ -5,6 +5,7 @@
 import { getMenu, publicMenu } from '../customer-app/growflow.mjs';
 import { menuReady } from '../customer-app/http.mjs';
 import { CATEGORIES, DEPARTMENTS, HOUSE } from '../customer-app/taxonomy.mjs';
+import { cardTags, potencyLine } from '../../assets/tablet/categories.js';
 
 export const ORIGIN = 'https://www.treehousepharmacy.com';
 // "Pre-Rolls" → "pre-rolls", "Tinctures & Capsules" → "tinctures-capsules".
@@ -36,14 +37,11 @@ const OVERVIEW_PRODUCTS = 60;
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const inHeading = (p, heading) => p.category === heading || (Array.isArray(p.also) && p.also.includes(heading));
 const money = cents => `$${(cents / 100).toFixed(2)}`;
-const range = (label, r, digits = 1) => Array.isArray(r) && r.length === 2 && r.every(Number.isFinite)
-  ? `${label} ${r[0].toFixed(digits)}${r[0] === r[1] ? '' : `–${r[1].toFixed(digits)}`}%` : '';
 
 // The same card markup the browse script draws, so nothing shifts when it takes over.
 export function cardHtml(p) {
-  const tags = [p.category, ...Object.values(p.facets || {})].filter((v, i, a) => v && a.indexOf(v) === i).join(' · ');
-  const potency = [range('Total THC', p.thc), p.cbd?.[1] >= 1 ? range('CBD', p.cbd) : '', range('Terpenes', p.terpenes, 2)]
-    .filter(Boolean).join(' · ') || 'Ask us for testing details';
+  const tags = cardTags(p);
+  const potency = potencyLine(p, 'Ask us for testing details');
   const variants = (p.variants || []).map(v => `<div class="variant"><span>${escapeHtml(v.size)}</span><div><strong>${money(v.priceCents)}</strong>${
     p.flower && v.pricePerGramCents ? `<small>${money(v.pricePerGramCents)}/g</small>` : ''}</div></div>`).join('');
   return `<article class="product" data-product-id="${escapeHtml(p.id)}">${p.image ? `<img class="product-photo" src="${escapeHtml(p.image)}" alt="" loading="lazy" decoding="async">` : ''}`
