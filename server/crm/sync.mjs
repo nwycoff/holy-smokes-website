@@ -121,13 +121,13 @@ async function apply(env, source, nodes, now) {
       const born = time(node.Birthday), created = time(node.createdAt) ?? now;
       const type = ['medical', 'recreational'].includes(String(node.CustomerType || '').toLowerCase())
         ? String(node.CustomerType)[0].toUpperCase() + String(node.CustomerType).slice(1).toLowerCase() : null;
-      statements.push(db.prepare(`INSERT INTO crm_customers(id, first_seen, birth_month, customer_type, points, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET first_seen = MIN(first_seen, excluded.first_seen),
-        birth_month = excluded.birth_month, customer_type = excluded.customer_type, points = excluded.points,
+      statements.push(db.prepare(`INSERT INTO crm_customers(id, first_seen, birth_month, birth_day, customer_type, points, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET first_seen = MIN(first_seen, excluded.first_seen),
+        birth_month = excluded.birth_month, birth_day = excluded.birth_day, customer_type = excluded.customer_type, points = excluded.points,
         updated_at = excluded.updated_at
-        WHERE crm_customers.first_seen > excluded.first_seen OR (crm_customers.birth_month, crm_customers.customer_type, crm_customers.points)
-          IS NOT (excluded.birth_month, excluded.customer_type, excluded.points)`)
-        .bind(customerId, created, born ? new Date(born).getUTCMonth() + 1 : null, type,
+        WHERE crm_customers.first_seen > excluded.first_seen OR (crm_customers.birth_month, crm_customers.birth_day, crm_customers.customer_type, crm_customers.points)
+          IS NOT (excluded.birth_month, excluded.birth_day, excluded.customer_type, excluded.points)`)
+        .bind(customerId, created, born ? new Date(born).getUTCMonth() + 1 : null, born ? new Date(born).getUTCDate() : null, type,
           Number.isFinite(node.CurrentPoints) ? node.CurrentPoints : null, now));
     }
   }

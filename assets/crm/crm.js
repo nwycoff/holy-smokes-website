@@ -22,8 +22,10 @@ const LINK_LABELS = { home: 'App home', menu: 'Menu', rewards: 'My points', orde
 const AUTOMATION_IDEAS = [
   { name: 'Points ready', definition: { pointsMin: 225, lastVisit: { maxDays: 365 } }, topic: 'rewards', link: 'rewards', cooldown: 30,
     body: 'You have enough points for a reward. Use it on your next visit or when you order ahead.' },
-  { name: 'Birthday month', definition: { birthday: 'this_month', lastVisit: { maxDays: 365 } }, topic: 'rewards', link: 'home', cooldown: 365,
-    body: 'Happy birthday month from all of us at Treehouse! Stop in and say hi.' },
+  // Arrives on the birthday morning (or a day or two later if the weekly limit held it back). Not held
+  // back for measurement: the birthday treat is promised to everyone.
+  { name: 'Birthday', definition: { birthday: 'today', lastVisit: { maxDays: 365 } }, topic: 'rewards', link: 'menu:category:Pre-Rolls', cooldown: 180, holdout: 0,
+    body: 'Happy birthday from all of us at Treehouse! Your free birthday gift of your choice is waiting at the counter.' },
   { name: 'We miss you', definition: { lastVisit: { minDays: 45, maxDays: 120 } }, topic: 'new_arrivals', link: 'menu', cooldown: 60,
     body: 'It’s been a little while! See what’s new on the menu since your last visit.' },
   { name: 'Thanks for your first visit', definition: { newWithinDays: 7 }, topic: 'rewards', link: 'rewards', cooldown: 0,
@@ -276,7 +278,7 @@ function describeRules(d) {
   if (d.categories) parts.push(`bought ${d.categories.groups.map(g => LABELS[g] || g).join(' or ')} in ${d.categories.days} days`);
   if (d.brands) parts.push(`bought ${$('brand').selectedOptions[0]?.textContent || 'a brand'} in ${d.brands.days} days`);
   if (d.pointsMin !== undefined) parts.push(`${d.pointsMin}+ points`);
-  if (d.birthday) parts.push(d.birthday === 'this_month' ? 'birthday this month' : 'birthday next month');
+  if (d.birthday) parts.push({ today: 'on their birthday', this_month: 'birthday this month', next_month: 'birthday next month' }[d.birthday]);
   if (d.app) parts.push($('app').selectedOptions[0]?.textContent || d.app);
   if (d.newWithinDays) parts.push(`new in the last ${d.newWithinDays} days`);
   const text = parts.join(' · ');
@@ -320,7 +322,13 @@ function setWhen() {
 function useIdea(idea) {
   editingSuggestion = null;
   fillBuilder(idea.definition);
-  $('cp-name').value = idea.name; $('cp-audience').value = 'builder'; $('cp-topic').value = idea.topic; $('cp-link').value = idea.link; setLinkValue();
+  // A link to a menu section ("menu:category:Pre-Rolls") picks "Menu, opened to a section…" and then the section.
+  const section = /^(menu:(?:category|brand)):(.+)$/.exec(idea.link);
+  $('cp-name').value = idea.name; $('cp-audience').value = 'builder'; $('cp-topic').value = idea.topic;
+  $('cp-link').value = section ? section[1] : idea.link; setLinkValue();
+  if (section && [...$('cp-link-value').options].some(o => o.value === section[2])) $('cp-link-value').value = section[2];
+  else if (section) { $('cp-link').value = 'menu'; setLinkValue(); }
+  if (idea.holdout !== undefined) $('cp-holdout').value = String(idea.holdout);
   $('cp-body').value = idea.body; $('cp-body').dispatchEvent(new Event('input'));
   $('cp-when').value = 'auto'; $('cp-cooldown').value = String(idea.cooldown); setWhen();
   $('cp-result').textContent = 'Filled in from the idea, using the rules in “Find customers” above. Adjust anything, then Check audience.';

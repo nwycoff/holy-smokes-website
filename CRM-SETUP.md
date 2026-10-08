@@ -88,3 +88,8 @@ App users are asked how a visit went, sparingly: a card on the app's Home screen
 ## Most popular (menu sort)
 
 The sync records which product each sale line was (`crm_lines.product_id`, a GrowFlow product ID; no new token scope: Order items is already read). Every hour the CRM sync Worker ranks products by how often they sold in the last 30 days (returns excluded) and writes only the ranks to the app database (`app_cache` key `menu:popularity`); the app and tablet then offer **Most popular** in Sort by. Setup: run `crm-migrations/0011_crm_line_products.sql` once in `CRM_DB` (it also re-reads the last 35 days of sale lines so recent sales get their product), then redeploy the sync Worker (`npx wrangler deploy [--env live]` in `workers/crm-sync`).
+
+
+## Birthday message (on the day)
+
+The sync keeps each customer's birth month and day of the month (`crm_customers.birth_day`; never the year or full date). The audience rule **Birthday: on their birthday** (`birthday: "today"`) matches a birthday today or in the last 2 days in Central time, so a message held back by the 2-a-week limit still goes out a day or two later; the automation's cooldown keeps it to once a year. Feb 29 birthdays count on Feb 28 in other years. The CRM's **Birthday** automatic-message idea uses it: opens the menu at Pre-Rolls, no holdout (the treat is promised to everyone), cooldown 180 days, discreet lock-screen wording. Setup: run `crm-migrations/0012_crm_birth_day.sql` once in `CRM_DB` (it re-reads every customer once to fill in the day), then redeploy the CRM sync Worker and the notifier (which sends automatic messages).

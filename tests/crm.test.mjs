@@ -769,3 +769,38 @@ test('sale lines keep their product; popularity publishes 30-day ranks hourly to
   assert.equal(await publishPopularity(s.env, s.now() + 30 * 60000), false); // at most hourly
   assert.equal(await publishPopularity(s.env, s.now() + 61 * 60000), true);
 });
+
+test('birthdays: the sync keeps month and day (never the year); "on their birthday" matches the day, 2 grace days, Feb 29 and Central time', async () => {
+  const s = await setup();
+  s.customer('Today', { Birthday: '1985-10-07T00:00:00.000Z' }); s.customer('TwoAgo', { Birthday: '1990-10-05T00:00:00.000Z' });
+  s.customer('ThreeAgo', { Birthday: '1990-10-04T00:00:00.000Z' }); s.customer('Tomorrow', { Birthday: '1990-10-08T00:00:00.000Z' });
+  s.customer('Leap', { Birthday: '1992-02-29T00:00:00.000Z' }); s.customer('NoBirthday', { Birthday: null });
+  await s.sync();
+  assert.deepEqual({ ...s.db.prepare("SELECT birth_month, birth_day FROM crm_customers WHERE id = 'Today'").get() }, { birth_month: 10, birth_day: 7 });
+  assert.equal(s.db.prepare("SELECT birth_day FROM crm_customers WHERE id = 'NoBirthday'").get().birth_day, null);
+  assert.ok(!JSON.stringify(s.db.prepare('SELECT * FROM crm_customers').all()).includes('1985'), 'no birth year is stored');
+  const who = at => { const { where, params } = compile(validateDefinition({ birthday: 'today' }), at);
+    return s.db.prepare(`SELECT id FROM crm_customers c WHERE ${where} ORDER BY id`).all(...params).map(r => r.id); };
+  assert.deepEqual(who(Date.UTC(2026, 9, 7, 16)), ['Today', 'TwoAgo']); // 11 am Central on Oct 7
+  assert.deepEqual(who(Date.UTC(2026, 9, 8, 3)), ['Today', 'TwoAgo']); // 10 pm Oct 7 Central is already Oct 8 in UTC
+  assert.deepEqual(who(Date.UTC(2027, 1, 28, 17)), ['Leap']); // Feb 28 in a non-leap year
+  assert.deepEqual(who(Date.UTC(2028, 1, 28, 17)), []); // leap year: Feb 29 comes next
+  assert.deepEqual(who(Date.UTC(2028, 1, 29, 17)), ['Leap']);
+  assert.throws(() => validateDefinition({ birthday: 'yesterday' }), /SEGMENT_RULES/);
+});
+test('a birthday automation sends once on the birthday, with no one held back', async () => {
+  const s = await campaigns(); // Oct 1, 10 am Central
+  s.db.prepare("UPDATE crm_customers SET birth_month = 10, birth_day = 1 WHERE id = 'A'").run(); // A's birthday is today
+  s.db.prepare("UPDATE crm_customers SET birth_month = 10, birth_day = 20 WHERE id = 'B'").run();
+  const res = await s.call('automations/create', { automation: { name: 'Birthday', topic: 'events', link: 'menu:category:Pre-Rolls',
+    body: 'Happy birthday from all of us at Treehouse! Your free birthday gift of your choice is waiting at the counter.',
+    definition: { birthday: 'today', lastVisit: { maxDays: 365 } }, audienceLabel: 'On their birthday', holdoutPct: 0, cooldownDays: 180 } });
+  assert.equal(res.status, 200, await res.clone().text());
+  const { id } = await res.json();
+  const sentTo = () => s.db.prepare(`SELECT r.customer_id, r.state FROM crm_campaign_recipients r JOIN crm_campaigns c ON c.id = r.campaign_id
+    WHERE c.automation_id = ? ORDER BY c.started_at, r.customer_id`).all(id).map(r => `${r.customer_id}:${r.state}`);
+  s.advance(3600000); await s.deliver();
+  assert.deepEqual(sentTo(), ['A:sent']); // 11 am on the birthday; B's is later in the month
+  s.advance(DAY); await s.deliver(); s.advance(DAY); await s.deliver();
+  assert.deepEqual(sentTo(), ['A:sent']); // still within the grace days, but only once
+});

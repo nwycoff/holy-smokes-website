@@ -35,7 +35,7 @@ function costMicro(model, usage = {}) {
 
 const RULES = `Segment rules; every rule given must match. Keys (all optional, at least one): lastVisit {minDays?, maxDays?} (days since last visit),
 visits {days, min?, max?}, spend {days, min?, max?} (dollars), categories {groups: [${GROUPS.join(', ')}], days},
-brands {ids: [brand IDs from list_brands], days}, pointsMin (number), birthday ("this_month" | "next_month"),
+brands {ids: [brand IDs from list_brands], days}, pointsMin (number), birthday ("today" = on their birthday, "this_month" | "next_month"),
 app ("linked" | "not_linked" | "push" | "marketing"), newWithinDays (first visit within N days).`;
 const campaignProperties = {
   name: { type: 'string', description: 'Internal name, up to 60 characters.' },
