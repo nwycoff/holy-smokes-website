@@ -567,15 +567,21 @@ function labDetails(product, make) {
 }
 function productCard(product) {
   const card = $('product-template').content.firstElementChild.cloneNode(true);
-  card.querySelector('.product-category').textContent = [product.category, ...Object.values(product.facets || {})]
+  // The dose range stays off the tag line; the potency line gives the exact mg per dose.
+  card.querySelector('.product-category').textContent = [product.category,
+    ...Object.entries(product.facets || {}).filter(([key]) => key !== 'Per dose').map(([, value]) => value)]
     .filter((v, i, a) => v && a.indexOf(v) === i).join(' · ');
   card.querySelector('.product-type').textContent = product.type;
   card.querySelector('.product-brand').textContent = product.brand;
   card.querySelector('.product-name').textContent = product.name;
   const range = (label, r, digits = 1) => r ? `${label} ${r[0].toFixed(digits)}${r[0] !== r[1] ? '–' + r[1].toFixed(digits) : ''}%` : '';
-  card.querySelector('.product-thc').textContent = [range('Total THC', product.thc), product.cbd?.[1] >= 1 ? range('CBD', product.cbd) : '',
-    range('Terpenes', product.terpenes, 2)]
-    .filter(Boolean).join(' · ') || 'Ask your budtender for testing details';
+  // Edibles are shopped by milligrams, not percent of the edible's weight (as on the website menu).
+  const totals = [...new Set(product.variants.map(v => v.size).filter(size => /^\d+(\.\d+)?\s*mg$/i.test(size)))];
+  card.querySelector('.product-thc').textContent = product.category === 'Edibles'
+    ? (totals.length ? `${totals.join(' / ')} per package${product.dose ? ` · ${product.dose.mg} mg per dose (${product.dose.servings} servings)` : ''}`
+      : 'Ask your budtender for the mg per package')
+    : [range('Total THC', product.thc), product.cbd?.[1] >= 1 ? range('CBD', product.cbd) : '', range('Terpenes', product.terpenes, 2)]
+      .filter(Boolean).join(' · ') || 'Ask your budtender for testing details';
   if (product.cbdRich) card.querySelector('.product-type').textContent = product.type ? `${product.type} · CBD-rich` : 'CBD-rich';
   const image = card.querySelector('.product-image');
   if (product.image) { image.src = product.image; image.hidden = false; image.addEventListener('error', () => { image.hidden = true; }); }
@@ -865,7 +871,10 @@ function renderFacetRows(base) {
     // "All" is lit while nothing in this row is picked; tapping it clears the row.
     const picked = [...filters.facets].filter(id => id.startsWith(`${key}:`));
     const all = chip('All', !picked.length, () => { picked.forEach(id => filters.facets.delete(id)); renderMenu(); }, others.length);
-    row.append(el('span', key, 'facet-label'), all, ...[...values].map(value => {
+    // Values in number order when they all have one ("Up to 5mg" before "10–25mg").
+    const first = value => Number(/\d[\d,.]*/.exec(value)?.[0].replace(/,/g, ''));
+    const ordered = [...values].every(v => Number.isFinite(first(v))) ? [...values].sort((a, b) => first(a) - first(b)) : [...values];
+    row.append(el('span', key, 'facet-label'), all, ...ordered.map(value => {
       const id = `${key}:${value}`, count = others.filter(p => p.facets?.[key] === value).length;
       const b = chip(value, filters.facets.has(id), () => toggle(filters.facets, id), count);
       b.disabled = !count && !filters.facets.has(id); return b;
@@ -914,8 +923,11 @@ function offerPopularSort(select, available) {
 function sortProducts(list) {
   const min = p => Math.min(...p.variants.map(v => v.priceCents));
   const value = p => Math.min(...p.variants.map(v => v.pricePerGramCents ?? Infinity));
+  const packageMg = p => Math.max(-1, ...p.variants.filter(v => /^\d+(\.\d+)?\s*mg$/i.test(v.size)).map(v => parseFloat(v.size)));
   const by = { name: (a, b) => a.name.localeCompare(b.name), 'price-desc': (a, b) => min(b) - min(a),
-    thc: (a, b) => (b.thc?.[1] ?? -1) - (a.thc?.[1] ?? -1), value: (a, b) => value(a) - value(b),
+    // Edibles alone go by mg in the package; a percent of an edible's weight isn't comparable.
+    thc: list.length && list.every(p => p.category === 'Edibles')
+      ? (a, b) => packageMg(b) - packageMg(a) : (a, b) => (b.thc?.[1] ?? -1) - (a.thc?.[1] ?? -1), value: (a, b) => value(a) - value(b),
     popular: (a, b) => (a.popular ?? Infinity) - (b.popular ?? Infinity) || min(a) - min(b) }[$('menu-sort').value]
     || ((a, b) => min(a) - min(b));
   return list.sort((a, b) => by(a, b) || a.name.localeCompare(b.name));

@@ -1,4 +1,4 @@
-import { inSection, matchesFacets } from './categories.js';
+import { cardTags, facetOrder, inSection, matchesFacets, packageMg, potencyLine } from './categories.js';
 const $ = id => document.getElementById(id);
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
 const state = { menu: null, category: 'All', loading: false, error: '', selected: new Set() };
@@ -43,12 +43,12 @@ function offerPopularSort(select, available) {
 function sorted(products, sort) {
   const min = p => Math.min(...p.variants.map(v => v.priceCents));
   const compare = { name: (a,b) => a.name.localeCompare(b.name), 'price-desc': (a,b) => min(b)-min(a),
-    thc: (a,b) => (b.thc?.[1] ?? -1)-(a.thc?.[1] ?? -1), price: (a,b) => min(a)-min(b),
+    // Edibles alone go by mg in the package; a percent of an edible's weight isn't comparable.
+    thc: products.length && products.every(p => p.category === 'Edibles') ? (a,b) => packageMg(b)-packageMg(a)
+      : (a,b) => (b.thc?.[1] ?? -1)-(a.thc?.[1] ?? -1), price: (a,b) => min(a)-min(b),
     popular: (a,b) => (a.popular ?? Infinity)-(b.popular ?? Infinity) || min(a)-min(b) }[sort];
   return [...products].sort((a,b) => (compare || (()=>0))(a,b) || a.name.localeCompare(b.name));
 }
-function range(label, r, digits = 1) { return Array.isArray(r) && r.length === 2 && r.every(Number.isFinite)
-  ? `${label} ${r[0].toFixed(digits)}${r[0] === r[1] ? '' : `–${r[1].toFixed(digits)}`}%` : ''; }
 // Tap-to-open lab panel: cannabinoids as figures, the top terpenes as bars scaled to the
 // largest (terpenes don't add up to 100%, so no pie). Stays open across re-renders.
 const openLab = new Set();
@@ -79,11 +79,10 @@ function card(product) {
     const photo = node('img', '', 'product-photo'); photo.src = product.image; photo.alt = ''; photo.loading = 'lazy'; photo.decoding = 'async';
     photo.addEventListener('error', () => photo.remove()); item.append(photo);
   }
-  const top = node('div', '', 'product-top'); top.append(node('span', [product.category, ...Object.values(product.facets || {})].filter((v,i,a)=>v && a.indexOf(v)===i).join(' · '), 'product-category'));
+  const top = node('div', '', 'product-top'); top.append(node('span', cardTags(product), 'product-category'));
   if (product.type || product.cbdRich) top.append(node('span', product.type || 'CBD-rich', `product-type ${product.type || ''}`));
   item.append(top, node('p', product.brand || 'Treehouse selection', 'product-brand'), node('h2', product.name));
-  item.append(node('p', [range('Total THC', product.thc), product.cbd?.[1] >= 1 ? range('CBD', product.cbd) : '', range('Terpenes', product.terpenes, 2)]
-    .filter(Boolean).join(' · ') || 'Ask us for testing details', 'potency'));
+  item.append(node('p', potencyLine(product, 'Ask us for testing details'), 'potency'));
   if (product.lab) item.append(labDetails(product, node));
   const variants = node('div', '', 'variants');
   for (const variant of product.variants) {
@@ -307,7 +306,7 @@ function renderFacets(products) {
   allInput.type='checkbox';allInput.dataset.facet=`${key}:*`;allInput.checked=!picked.length;
   allInput.addEventListener('change',()=>{picked.forEach(id=>state.selected.delete(id));render();});
   allLabel.append(allInput,node('span','All'),node('small',String(others.length)));field.append(allLabel);
-  for (const value of values) {
+  for (const value of facetOrder([...values])) {
    const label=node('label'), input=document.createElement('input'), id=`${key}:${value}`;
    const count = others.filter(p => p.facets?.[key] === value).length;
    input.type='checkbox';input.dataset.facet=id;input.checked=state.selected.has(id);input.disabled=!count && !input.checked;

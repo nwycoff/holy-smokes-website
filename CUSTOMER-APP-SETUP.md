@@ -75,7 +75,7 @@ Generate the two independent random app secrets locally, save them in Bitwarden,
 | `APP_AUTH_CLIENT_SECRET` | Secret | Auth0 application client secret |
 | `APP_LIMIT_SECRET` | Secret | New random value, at least 32 characters |
 | `APP_ENROLLMENT_SECRET` | Secret | Different random value, at least 32 characters; owner only |
-| `APP_GROWFLOW_TOKEN` | Secret | **Separate test token**, with Customers, Menus and **Packages & inventory** read scopes |
+| `APP_GROWFLOW_TOKEN` | Secret | **Separate test token**, with Customers, Menus, **Packages & inventory** and **Products** read scopes (Products: edibles' servings per container) |
 | `GROWFLOW_ORG` | Text | `holysmokesdispensary` |
 | `GROWFLOW_PATIENT_ID_FIELDS` | Text | `PatientLicenseNumber,MedicalLicenseNumber,CustomerStateLicense` |
 | `APP_MENU_ENABLED` | Text | `false` until menu validation is complete |
@@ -237,7 +237,7 @@ The v8 cache discards older menu-derived availability. The app token needs **Pac
 
 ## Menu layout (2026-10-07)
 
-The menu key may point at a single-group GrowFlow menu: group names are ignored. Each product is placed by its GrowFlow product category (`server/customer-app/taxonomy.mjs`) into a heading (Flower, Smalls, Shake, Pre-Rolls, Vapes, Concentrates, Edibles, Tinctures & Capsules, Topicals & Patches, CBD & Hemp, Seeds & Clones, Accessories; unknown categories go to More) with sub-filters such as Style, Packaging, Strength, or Type/Format/Pack. Products can be listed under extra tabs (`also`): Treehouse-grown categories under Treehouse, and CBD-rich cannabis (CBD at least 1% and at least THC) under CBD & Hemp. Waste, sample (Sample- Flower, Pre-Pack Flower Samples) and Nicotine Products categories are never shown or orderable (patients may be under 21). A new GrowFlow category needs one line in `CATEGORIES` to get its own place. Cards have a Lab results panel with cannabinoids above zero and the five largest terpenes from in-stock packages.
+The menu key may point at a single-group GrowFlow menu: group names are ignored. Each product is placed by its GrowFlow product category (`server/customer-app/taxonomy.mjs`) into a heading (Flower, Smalls, Shake, Pre-Rolls, Vapes, Concentrates, Edibles, Tinctures & Capsules, Topicals & Patches, CBD & Hemp, Seeds & Clones, Accessories; unknown categories go to More) with sub-filters such as Style, Packaging, Strength, or Type/Format/Pack. Products can be listed under extra tabs (`also`): Treehouse-grown categories under Treehouse, and CBD-rich cannabis (CBD at least 1% and at least THC) under CBD & Hemp. Waste, sample (Sample- Flower, Pre-Pack Flower Samples) and Nicotine Products categories are never shown or orderable (patients may be under 21). A new GrowFlow category needs one line in `CATEGORIES` to get its own place. Cards have a Lab results panel with cannabinoids above zero and the five largest terpenes from in-stock packages. Edible cards show mg per package instead of percentages (a percent of an edible's weight misleads), plus mg per dose when the product's **Servings per container** is filled in at intake (read from `findProducts`, same IDs as the menu; without the Products scope edibles show only the package total). Edibles filter by Per package, and by Per dose once at least half the edibles on the menu have servings; Highest THC sorts edibles by package mg.
 
 
 ## Email verification (optional)

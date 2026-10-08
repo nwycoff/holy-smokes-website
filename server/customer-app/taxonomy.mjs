@@ -81,12 +81,12 @@ export const CATEGORIES = {
   '2g WAX': dept('Concentrates', 'Style', 'Wax'),
   'Concentrate': dept('Concentrates', 'Style', 'Other'),
 
-  'Edible less than 100mg': dept('Edibles', 'Strength', 'Up to 100mg'),
-  '100mg Edibles': dept('Edibles', 'Strength', 'Up to 100mg'),
-  '250mg-500mg Edibles': dept('Edibles', 'Strength', '250–500mg'),
-  '1000mg Edible': dept('Edibles', 'Strength', '1,000mg'),
-  '2000mg-5000mg Edibles': dept('Edibles', 'Strength', '2,000–5,000mg'),
-  '10,000mg Edibles': dept('Edibles', 'Strength', '10,000mg'),
+  'Edible less than 100mg': dept('Edibles', 'Per package', 'Up to 100mg'),
+  '100mg Edibles': dept('Edibles', 'Per package', 'Up to 100mg'),
+  '250mg-500mg Edibles': dept('Edibles', 'Per package', '250–500mg'),
+  '1000mg Edible': dept('Edibles', 'Per package', '1,000mg'),
+  '2000mg-5000mg Edibles': dept('Edibles', 'Per package', '2,000–5,000mg'),
+  '10,000mg Edibles': dept('Edibles', 'Per package', '10,000mg'),
 
   'Tincture': dept('Tinctures & Capsules', 'Style', 'Tinctures'),
   'Capsule': dept('Tinctures & Capsules', 'Style', 'Capsules'),
