@@ -10,7 +10,7 @@ const schemaData = {
   schema: { types: [
     { name: 'Menu', kind: 'OBJECT', fields: [field('menuGroups', L(T('MenuGroup')))] },
     { name: 'MenuGroup', kind: 'OBJECT', fields: [field('name', T('String', 'SCALAR')), field('products', L(T('MenuProduct')))] },
-    { name: 'MenuProduct', kind: 'OBJECT', fields: [field('name', T('String', 'SCALAR')), field('packages', L(T('MenuPackage')))] },
+    { name: 'MenuProduct', kind: 'OBJECT', fields: [field('name', T('String', 'SCALAR')), field('servingsPerContainer', T('Int', 'SCALAR')), field('packages', L(T('MenuPackage')))] },
     { name: 'MenuPackage', kind: 'OBJECT', fields: [field('id', T('String', 'SCALAR')), field('testResults', T('TestResults'))] },
     { name: 'TestResults', kind: 'OBJECT', fields: [field('uom', T('String', 'SCALAR')), field('cbd', T('Float', 'SCALAR')),
       field('totalTerpenes', T('Float', 'SCALAR')), field('terpenes', L(T('Terpene')))] },
@@ -26,6 +26,8 @@ test('menu checker finds terpene fields and builds sample queries from the live 
   assert.match(text, /TestResults\): uom: String, cbd: Float, totalTerpenes: Float, terpenes: \[Terpene\]/);
   assert.match(text, /TERP  Terpene fields anywhere in the API: TestResults.totalTerpenes: Float, TestResults.terpenes: \[Terpene\]/);
   assert.match(text, /Inventory.StorageLocation: Object \(SCALAR\)/);
+  assert.match(text, /TYPE  Menu product \(MenuProduct\): name: String, servingsPerContainer: Int, packages: \[MenuPackage\]/);
+  assert.match(text, /DOSE  Servings\/dose fields anywhere in the API: MenuProduct.servingsPerContainer: Int/);
   const { menu, inventory } = sampleQueries(schema);
   assert.match(menu, /testResults \{ uom cbd totalTerpenes terpenes \{ name value \} \}/);
   assert.match(inventory, /StorageLocation \} \} \}/);

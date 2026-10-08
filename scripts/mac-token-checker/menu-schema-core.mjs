@@ -1,4 +1,4 @@
-// Finds where GrowFlow keeps terpene results for the menu, and what an inventory row's
+// Finds where GrowFlow keeps terpene results and servings per container for the menu, and what an inventory row's
 // StorageLocation looks like. Reads type definitions, then (optionally, with the menu key)
 // lab results for a few menu products and a few inventory rows. No customer data is requested.
 const REF = 'kind name ofType { kind name ofType { kind name ofType { kind name } } }';
@@ -6,6 +6,8 @@ export const SCHEMA_QUERY = `query TreehouseMenuSchema {
   queryType: __type(name: "Query") { fields { name type { ${REF} } } }
   schema: __schema { types { name kind fields { name type { ${REF} } } } }
 }`;
+// Servings per container (entered at product intake), to show edibles' mg per dose.
+export const DOSE = /serving|dose|dosage|portion|pieces|perPackage|perContainer|perUnit|unitsPer|mgPer/i;
 export const TERP = /terp|myrcene|limonene|caryophyllene|linalool|pinene|humulene|ocimene|terpinolene|bisabolol|nerolidol|guaiol|eucalyptol|camphene|geraniol/i;
 
 export function typeName(t) {
@@ -59,6 +61,12 @@ export function readSchema(data) {
   const productLab = (product?.fields || []).filter(f => TERP.test(f.name) || /lab|test|aroma|flavou?r|effect/i.test(f.name));
   lines.push(productLab.length ? `TYPE  Menu product lab-related fields: ${productLab.map(f => `${f.name}: ${typeName(f.type)}`).join(', ')}`
     : 'NOTE  Menu products have no lab, terpene or flavor fields of their own.');
+  if (product?.fields) lines.push(`TYPE  Menu product (${product.name}): ${product.fields.map(f => `${f.name}: ${typeName(f.type)}`).join(', ')}`);
+  const doses = [];
+  for (const t of types.values()) if (!t.name.startsWith('__')) for (const f of t.fields || [])
+    if (DOSE.test(f.name)) doses.push(`${t.name}.${f.name}: ${typeName(f.type)}`);
+  lines.push(doses.length ? `DOSE  Servings/dose fields anywhere in the API: ${doses.slice(0, 80).join(', ')}${doses.length > 80 ? ' …' : ''}`
+    : 'DOSE  No field anywhere in the API is named after servings or doses.');
   const anywhere = [];
   for (const t of types.values()) if (!t.name.startsWith('__')) for (const f of t.fields || [])
     if (TERP.test(f.name)) anywhere.push(`${t.name}.${f.name}: ${typeName(f.type)}`);
