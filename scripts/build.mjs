@@ -41,7 +41,7 @@ await writeFile(swFile, sw);
 // sitemap.xml: home, every Menu page and the blog (published posts only, at their final addresses).
 const posts = (await readdir(path.join(root, 'blog'))).filter(f => f.endsWith('.html') && !f.startsWith('_')).map(f => `/blog/${f.replace(/\.html$/, '')}`);
 const today = new Date().toISOString().slice(0, 10);
-const urls = [['/', 'weekly'], ...SITEMAP_PATHS.map(p => [p, 'daily']), ['/blog', 'weekly'], ...posts.map(p => [p, 'monthly'])];
+const urls = [['/', 'weekly'], ...SITEMAP_PATHS.map(p => [p, 'daily']), ['/blog', 'weekly'], ...posts.map(p => [p, 'monthly']), ['/privacy', 'yearly']];
 await writeFile(path.join(out, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 ${urls.map(([p, freq]) => `  <url><loc>${ORIGIN}${p}</loc><lastmod>${today}</lastmod><changefreq>${freq}</changefreq></url>`).join('\n')}

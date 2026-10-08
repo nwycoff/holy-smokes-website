@@ -417,7 +417,7 @@ async function requestInstall() {
 function renderSetup() {
   const target = $('setup-content'); if (!target) return;
   const progress = el('ol', '', 'setup-progress');
-  for (const [label, done] of [['Create account and verify email', user.signedIn], ['Connect your rewards', user.linked],
+  for (const [label, done] of [[config.emailVerification === false ? 'Create your account' : 'Create account and verify email', user.signedIn], ['Connect your rewards', user.linked],
     ['Add to Home Screen', standalone()], ['Choose notifications (optional)', pushSubscribed]]) {
     const item = el('li', `${done ? '✓ ' : ''}${label}`, done ? 'complete' : ''); progress.append(item);
   }
