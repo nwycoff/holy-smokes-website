@@ -16,7 +16,7 @@ const item = (i, category, name, extra = {}) => { const placed = classifyProduct
     thc:[22,22], cbd:null, terpenes:[1.2,1.2], cbdRich:false, variants:[{ size:'3.5 g', priceCents:2000 + i * 100, grams:3.5, pricePerGramCents:571, available:10 }], ...extra }; };
 const products = [item(1,'Pre-Pack Flower 3.5g','Sample Kush',{ image:'/images/img6.png' }), item(2,'Tree House Small Bud','House Smalls'), item(3,'Pre-Roll','Sample Joint'),
   item(4,'Infused Blunt','Sample Blunt 2pk'), item(5,'510 Carts','Sample Cart')];
-const menu = { products, categories:[HOUSE, ...DEPARTMENTS.filter(d => products.some(p => p.category === d))], pricesIncludeTax:true, updatedAt:Date.now(), stale:false };
+let menu = { products, categories:[HOUSE, ...DEPARTMENTS.filter(d => products.some(p => p.category === d))], pricesIncludeTax:true, updatedAt:Date.now(), stale:false };
 // Menu pages go through the real page function (server/site/menu-page.mjs), as on Cloudflare.
 const assets = { fetch: async url => { const name = new URL(url).pathname;
   try { return new Response(await readFile(path.join(root, name === '/menu' ? '/menu.html' : name)), { headers:{ 'content-type':'text/html' } }); }
@@ -81,14 +81,46 @@ try {
   await page.goBack(); await page.waitForURL('**/menu/pre-rolls');
   assert.equal(await page.locator('.product').count(), 2, 'Back returns to the previous heading');
   assert.equal(await page.locator('#menu-title').textContent(), 'Pre-Rolls');
-  // Scrolled down into the products: switching brings the products back into view, not the page top.
-  await page.evaluate(() => scrollTo({ top:document.body.scrollHeight, behavior:'instant' }));
-  await page.locator('#categories a', { hasText:/^All/ }).evaluate(a => a.click());
-  await page.waitForURL(url => new URL(url).pathname === '/menu');
-  await page.clock.runFor(2000); await page.waitForTimeout(1200); // smooth scrolling runs on real time
-  const layoutTop = await page.locator('.layout').evaluate(el => el.getBoundingClientRect().top);
-  assert.ok(layoutTop >= 0 && layoutTop < 200, `products in view after switching (layout top ${layoutTop})`);
-  assert.ok(await page.evaluate(() => scrollY) > 0, 'not sent to the top of the page');
+  // The tapped heading stays put on screen whatever the headings' lengths or sub-filters, on a
+  // realistically sized menu (hundreds of products) at computer, tablet and phone widths.
+  const big = [], add = (n, category, name) => { for (let i = 0; i < n; i++) big.push(item(1000 + big.length, category, `${name} ${i}`)); };
+  add(60, 'Pre-Pack Flower 3.5g', 'Flower'); add(30, 'Bulk Flower', 'Bulk'); add(40, 'Pre-Roll', 'Joint'); add(20, 'Infused Blunt', 'Blunt 2pk');
+  add(15, 'Pre-Pack Smalls - 7g', 'Smalls'); add(5, 'Shake', 'Shake'); add(90, '510 Carts', 'Cart'); add(150, 'Batteries / Pens', 'Battery');
+  const small = menu;
+  menu = { ...menu, products:big, categories:DEPARTMENTS.filter(d => big.some(p => p.category === d)) };
+  for (const [width, height] of [[1280, 700], [800, 900], [390, 760]]) {
+    const view = await browser.newPage({ viewport:{ width, height } });
+    view.on('pageerror', e => errors.push(String(e)));
+    await view.route('https://cdn.tailwindcss.com/**', r => r.fulfill({ contentType:'text/javascript', body:'window.tailwind={};' }));
+    await view.route('https://fonts.googleapis.com/**', r => r.fulfill({ contentType:'text/css', body:'' }));
+    await view.goto(`${base}/menu`); await view.waitForSelector('.product');
+    await view.addStyleTag({ content:'#mainNav img, footer img { width:40px; height:40px; } #mobileMenu { display:none; } html { scroll-behavior:auto; }' });
+    await view.waitForFunction(() => document.querySelectorAll('.product').length > 300);
+    for (const name of ['Pre-Rolls', 'All', 'Flower', 'Vapes', 'Shake', 'All', 'Accessories', 'Pre-Rolls']) {
+      // Bring the heading to the middle of the screen, as a shopper would when reaching for it.
+      await view.locator('#categories a', { hasText:new RegExp(`^${name}`) }).evaluate(el => scrollBy({ top:el.getBoundingClientRect().top - innerHeight / 2, behavior:'instant' }));
+      const link = view.locator('#categories a', { hasText:new RegExp(`^${name}`) });
+      const before = await link.evaluate(el => el.getBoundingClientRect().top);
+      await link.click(); await view.waitForTimeout(150);
+      const current = view.locator('#categories [aria-current="page"]');
+      assert.match(await current.textContent(), new RegExp(`^${name}`));
+      const after = await current.evaluate(el => el.getBoundingClientRect().top);
+      assert.ok(Math.abs(after - before) <= 1, `${width}px wide: ${name} stayed under the finger (moved ${Math.round(after - before)}px)`);
+    }
+    // Also from the top of the page, where there is no room to scroll up to make up for a shift.
+    await view.evaluate(() => scrollTo({ top:0, behavior:'instant' }));
+    for (const name of ['Flower', 'Vapes', 'Pre-Rolls', 'Shake', 'Flower', 'Accessories']) {
+      const link = view.locator('#categories a', { hasText:new RegExp(`^${name}`) });
+      if (!(await link.evaluate(el => { const r = el.getBoundingClientRect(); return r.top > 0 && r.bottom < innerHeight; }))) continue;
+      const before = await link.evaluate(el => el.getBoundingClientRect().top);
+      await link.click(); await view.waitForTimeout(150);
+      const after = await view.locator('#categories [aria-current="page"]').evaluate(el => el.getBoundingClientRect().top);
+      assert.ok(Math.abs(after - before) <= 1, `${width}px wide, top of page: ${name} stayed put (moved ${Math.round(after - before)}px)`);
+    }
+    await view.close();
+  }
+  menu = small;
+  await page.goto(`${base}/menu`); await page.clock.runFor(1000); await page.waitForSelector('.product-photo');
   assert.equal(await page.locator('.product-photo').count(), 1, 'product photos show on the website');
   await page.locator('#search').fill('Cart'); await page.clock.runFor(150000);
   assert.equal(await page.locator('#search').inputValue(), 'Cart', 'the website never resets itself after idle time');

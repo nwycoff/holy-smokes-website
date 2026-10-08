@@ -14,6 +14,9 @@
   font-family: 'Outfit', system-ui, sans-serif;
 }
 .th-menu [hidden] { display: none !important; }
+/* The menu keeps the tapped heading in place itself (assets/tablet/menu.js); the browser's own scroll
+   anchoring would otherwise make a second, different adjustment when headings switch. */
+.th-menu, .th-menu * { overflow-anchor: none; }
 .th-menu button, .th-menu input, .th-menu select { font: inherit; color: inherit; }
 .th-menu button, .th-menu select { cursor: pointer; }
 .th-menu button:focus-visible, .th-menu input:focus-visible, .th-menu select:focus-visible,
@@ -49,7 +52,7 @@
 .th-menu #categories :is(button[aria-pressed='true'], a[aria-current='page']) { color: #f5f0e8; background: var(--canopy); }
 
 /* Sub-filters under the chosen heading */
-.th-menu .category-facets { padding: 6px 8px 12px 12px; border-left: 3px solid #b5c5a3; margin: 2px 0 8px 10px; }
+.th-menu .category-facets { padding: 6px 8px 12px 12px; border-left: 3px solid #b5c5a3; margin: 14px 0 8px 0; }
 .th-menu .category-facets fieldset { border: 0; padding: 0; margin: 8px 0 12px; min-width: 0; }
 .th-menu .category-facets legend { font-size: 11px; font-weight: 700; letter-spacing: 0.6px; color: var(--muted); margin-bottom: 4px; }
 .th-menu .category-facets label { display: flex; gap: 9px; align-items: center; min-height: 40px; font-size: 14px; cursor: pointer; }
