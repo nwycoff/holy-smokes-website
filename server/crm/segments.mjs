@@ -3,6 +3,26 @@ import { AppError } from '../customer-app/http.mjs';
 // A segment is a set of rules, all of which must match. Rules are checked against a fixed
 // schema and compiled to parameterized SQL; no user text ever becomes part of a query.
 const DAY = 86400000;
+// A date in the store's time zone (Central), as numbers.
+function storeDate(ms) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', year: 'numeric', month: 'numeric', day: 'numeric' })
+    .formatToParts(new Date(ms)).map(p => [p.type, p.value]));
+  return { year: Number(parts.year), month: Number(parts.month), day: Number(parts.day) };
+}
+const leapYear = y => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+// "birthday: today" matches a birthday today or in the last 2 days (Central), so a birthday
+// message held back by the weekly limit still goes out a day or two later; an automation's
+// cooldown keeps it to once. Feb 29 birthdays count on Feb 28 in other years.
+export const BIRTHDAY_GRACE_DAYS = 2;
+export function birthdayDates(now) {
+  const dates = [];
+  for (let back = 0; back <= BIRTHDAY_GRACE_DAYS; back++) {
+    const { year, month, day } = storeDate(now - back * DAY);
+    dates.push([month, day]);
+    if (month === 2 && day === 28 && !leapYear(year)) dates.push([2, 29]);
+  }
+  return dates;
+}
 export const GROUPS = ['flower', 'concentrate', 'edible', 'topical', 'seed', 'clone', 'other'];
 const int = (v, min, max) => Number.isInteger(v) && v >= min && v <= max;
 const num = (v, min, max) => typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max;
@@ -41,7 +61,7 @@ export function validateDefinition(input) {
     out.brands = { ids: [...new Set(r.ids)], days: r.days };
   }
   if (d.pointsMin !== undefined) { if (!num(d.pointsMin, 0, 1000000)) fail(); out.pointsMin = d.pointsMin; }
-  if (d.birthday !== undefined) { if (!['this_month', 'next_month'].includes(d.birthday)) fail(); out.birthday = d.birthday; }
+  if (d.birthday !== undefined) { if (!['today', 'this_month', 'next_month'].includes(d.birthday)) fail(); out.birthday = d.birthday; }
   if (d.app !== undefined) { if (!['linked', 'not_linked', 'push', 'marketing'].includes(d.app)) fail(); out.app = d.app; }
   if (d.newWithinDays !== undefined) { if (!int(d.newWithinDays, 1, 730)) fail(); out.newWithinDays = d.newWithinDays; }
   if (!Object.keys(out).length) fail();
@@ -78,8 +98,11 @@ export function compile(def, now) {
     params.push(since(def.brands.days), ...def.brands.ids);
   }
   if (def.pointsMin !== undefined) { where.push('c.points >= ?'); params.push(def.pointsMin); }
-  if (def.birthday) {
-    const month = new Date(now).getMonth() + (def.birthday === 'next_month' ? 1 : 0);
+  if (def.birthday === 'today') {
+    const dates = birthdayDates(now);
+    where.push(`(${dates.map(() => '(c.birth_month = ? AND c.birth_day = ?)').join(' OR ')})`); params.push(...dates.flat());
+  } else if (def.birthday) {
+    const month = storeDate(now).month - 1 + (def.birthday === 'next_month' ? 1 : 0);
     where.push('c.birth_month = ?'); params.push((month % 12) + 1);
   }
   if (def.app === 'linked') where.push('c.app_linked = 1');

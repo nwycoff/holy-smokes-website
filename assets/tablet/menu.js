@@ -142,7 +142,7 @@ function render(preservePosition = false) {
       link.addEventListener('click', event => {
         // A plain click switches in place; Ctrl/Cmd/Shift-click and middle-click open the page as usual.
         if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-        event.preventDefault(); switchHeading(category, true);
+        event.preventDefault(); switchHeading(category, true, link.getBoundingClientRect().top);
       });
       link.append(count); return link;
     }
@@ -196,11 +196,17 @@ async function refresh() {
   }
 }
 // Website: show another heading without reloading. The address, tab title, page heading and intro
-// follow (from the server's #menu-pages details), and the screen stays put: only when the shopper
-// has scrolled past the top of the products does it come back up to them.
+// follow (from the server's #menu-pages details). The heading that was tapped stays exactly where it
+// was on screen while the products and sub-filters change around it (headings differ a lot in
+// length, and some have sub-filters), so the page never jumps. Back/Forward have no tapped heading:
+// they only bring the products back into view if the shopper had scrolled past them.
 const headingPages = (() => { try { return JSON.parse(document.getElementById('menu-pages')?.textContent || '{}'); } catch { return {}; } })();
-function switchHeading(category, push) {
+function switchHeading(category, push, tappedTop = null) {
   state.category = category; state.selected.clear(); pageHeading = category; render();
+  if (tappedTop !== null) {
+    const tapped = [...document.querySelectorAll('#categories a, #categories button')].find(el => el.firstChild?.textContent === category);
+    if (tapped) window.scrollBy({ top: tapped.getBoundingClientRect().top - tappedTop, behavior: 'instant' });
+  }
   const details = headingPages[category];
   if (details) {
     document.title = details.title;
@@ -210,11 +216,30 @@ function switchHeading(category, push) {
     document.querySelector('link[rel="canonical"]')?.setAttribute('href', `https://www.treehousepharmacy.com${details.path}`);
     if (push) history.pushState({ category }, '', details.path);
   }
+  if (tappedTop !== null) return;
   const layout = document.querySelector('.layout'), nav = document.getElementById('mainNav');
   const top = layout?.getBoundingClientRect().top ?? 0, offset = (nav?.offsetHeight || 0) + 16;
   if (top < offset) window.scrollTo({ top: window.scrollY + top - offset, behavior: 'smooth' });
 }
+// Headings' titles and intros differ in length; reserving room for the longest at the current width
+// keeps everything below them (the headings themselves) from moving when they change.
+function reserveRoom() {
+  const pages = Object.values(headingPages);
+  for (const [id, field] of [['menu-title', 'h1'], ['menu-intro', 'intro']]) {
+    const el = $(id); if (!el || !pages.length) continue;
+    const probe = el.cloneNode(); probe.removeAttribute('id');
+    probe.style.cssText = `position:absolute;visibility:hidden;pointer-events:none;left:0;top:0;width:${el.clientWidth}px;min-height:0;margin:0`;
+    el.parentNode.append(probe);
+    let tallest = 0;
+    for (const page of pages) { probe.textContent = page[field]; tallest = Math.max(tallest, probe.offsetHeight); }
+    probe.remove(); el.style.minHeight = `${tallest}px`;
+  }
+}
 if (site) {
+  reserveRoom();
+  let reservedWidth = innerWidth;
+  addEventListener('resize', () => { if (innerWidth !== reservedWidth) { reservedWidth = innerWidth; reserveRoom(); } });
+  document.fonts?.ready.then(reserveRoom);
   history.replaceState({ category: pageHeading }, '', location.href);
   addEventListener('popstate', event => {
     const category = event.state?.category ?? Object.keys(headingPages).find(name => headingPages[name].path === location.pathname) ?? 'All';
@@ -295,7 +320,8 @@ function renderFacets(products) {
  const reset=node('button','Show all '+state.category);reset.type='button';reset.hidden=!state.selected.size;
  reset.addEventListener('click',()=>{state.selected.clear();render();});panel.append(reset);
  const selected=$('categories').querySelector('[aria-pressed="true"], [aria-current="page"]');
- // Under the chosen heading; on the website's phone layout the headings are one swipeable row, so below it.
- if (site && matchMedia('(max-width: 580px)').matches) $('categories').after(panel); else selected.after(panel);
+ // Tablet: under the chosen heading. Website: below the whole heading list, so opening or closing
+ // sub-filters never moves the headings themselves.
+ if (site) $('categories').after(panel); else selected.after(panel);
  if(focus) [...panel.querySelectorAll('input')].find(el=>el.dataset.facet===focus)?.focus();
 }
