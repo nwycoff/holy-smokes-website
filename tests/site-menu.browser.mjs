@@ -102,7 +102,7 @@ try {
       await view.locator('#categories a', { hasText:new RegExp(`^${name}`) }).evaluate(el => scrollBy({ top:el.getBoundingClientRect().top - innerHeight / 2, behavior:'instant' }));
       const link = view.locator('#categories a', { hasText:new RegExp(`^${name}`) });
       const before = await link.evaluate(el => el.getBoundingClientRect().top);
-      await link.click(); await view.waitForTimeout(300); // the sub-filters glide for 200ms
+      await link.click(); await view.waitForTimeout(150);
       const current = view.locator('#categories [aria-current="page"]');
       assert.match(await current.textContent(), new RegExp(`^${name}`));
       const after = await current.evaluate(el => el.getBoundingClientRect().top);
@@ -114,7 +114,7 @@ try {
       const link = view.locator('#categories a', { hasText:new RegExp(`^${name}`) });
       if (!(await link.evaluate(el => { const r = el.getBoundingClientRect(); return r.top > 0 && r.bottom < innerHeight; }))) continue;
       const before = await link.evaluate(el => el.getBoundingClientRect().top);
-      await link.click(); await view.waitForTimeout(300); // the sub-filters glide for 200ms
+      await link.click(); await view.waitForTimeout(150);
       const after = await view.locator('#categories [aria-current="page"]').evaluate(el => el.getBoundingClientRect().top);
       assert.ok(Math.abs(after - before) <= 1, `${width}px wide, top of page: ${name} stayed put (moved ${Math.round(after - before)}px)`);
     }
