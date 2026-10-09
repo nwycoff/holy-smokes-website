@@ -1,7 +1,7 @@
 import { consumeLimits, lookupVariables, normalizeInput } from '../rewards.mjs';
 import { AppError, bodyJSON, enabled, authReady, growflowReady, menuReady, preorderReady, rewardTiersReady, hash, json,
   sameOrigin, cookie, LOGIN_COOKIE, redirect, readCookie, randomToken } from './http.mjs';
-import { startLogin, finishLogin, session, logout, emailVerificationRequired } from './auth.mjs';
+import { startLogin, finishLogin, session, renewSession, logout, emailVerificationRequired } from './auth.mjs';
 import { CUSTOMER_QUERY, singleCustomer, eligibleCustomer, queryGrowflow, getMenu, getRewards, publicMenu, purchaseLimits } from './growflow.mjs';
 import { currentPreorder, placePreorder } from './preorders.mjs';
 import { pushReady, subscribe, unsubscribe } from './push.mjs';
@@ -125,12 +125,13 @@ export async function handleApp(context, overrides = {}) {
     }
     const s = await session(request, env, deps);
     // Only the last four characters of a saved license ever leave the server.
+    const renewed = route === 'session' && s ? await renewSession(env, s, deps) : null;
     if (route === 'session') return json(200, s ? { signedIn: true, linked: Boolean(s.customer_id), csrf: s.csrf,
       ...(s.license_hint && licenseMemoryReady(env) ? { licenseHint: s.license_hint } : {}),
       ...(s.customer_id && marketingReady(env) ? { marketing: await marketingState(env, deps, s.id) } : {}),
       ...(s.customer_id && marketingReady(env) ? { welcomeGift: await welcomeForCustomer(env, s.customer_id, deps.now()) } : {}),
       ...(s.customer_id && feedbackReady(env) ? { feedback: await feedbackState(env, s.customer_id, deps.now()).catch(() => null) } : {}) }
-      : { signedIn: false, linked: false });
+      : { signedIn: false, linked: false }, renewed ? { 'Set-Cookie': renewed } : {});
     if (!s) throw new AppError('SIGN_IN', 401);
     if (request.method === 'POST' && request.headers.get('x-treehouse-csrf') !== s.csrf) throw new AppError('CSRF', 403);
     if (route === 'logout-all') await env.APP_DB.prepare('DELETE FROM app_push_subscriptions WHERE user_id = ?').bind(s.id).run();

@@ -275,12 +275,27 @@ test('expired enrollment cannot claim a record; issuing a new code invalidates t
   const claim=code=>s.run('enroll',{method:'POST',cookie:a.cookie,body:{code},headers:{'x-treehouse-csrf':csrf}});
   assert.equal((await claim(old)).status,400);s.advance(600001);assert.equal((await claim(fresh)).status,400);
 });
-test('logout requires CSRF; logout-all revokes other sessions; sessions expire after seven days', async () => {
+test('logout requires CSRF; logout-all revokes other sessions; sessions end after 30 days unused', async () => {
   const s=setup(),a=await s.login(),b=await s.login();const csrf=await s.seed(a.cookie);
   assert.equal((await s.run('logout-all',{method:'POST',cookie:a.cookie,body:{}})).status,403);
   assert.equal((await s.run('logout-all',{method:'POST',cookie:a.cookie,body:{},headers:{'x-treehouse-csrf':csrf}})).status,200);
   assert.equal((await (await s.run('session',{cookie:b.cookie})).json()).signedIn,false);
-  const c=await s.login();s.advance(7*86400000+1);assert.equal((await s.run('points',{cookie:c.cookie})).status,401);
+  const c=await s.login();s.advance(30*86400000+1);assert.equal((await s.run('points',{cookie:c.cookie})).status,401);
+});
+test('opening the app renews the session, at most once a day; it never outlives 30 days unused', async () => {
+  const s=setup(),a=await s.login(),DAY=86400000;
+  const opened=await s.run('session',{cookie:a.cookie});
+  assert.equal(opened.headers.get('set-cookie'),null,'already fresh on the day of sign-in');
+  s.advance(20*DAY);
+  const later=await s.run('session',{cookie:a.cookie});
+  assert.equal((await later.json()).signedIn,true);
+  assert.match(later.headers.get('set-cookie'),new RegExp(`^__Host-treehouse_session=[^;]+; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${30*86400}$`));
+  assert.equal(later.headers.get('set-cookie').split(';')[0],a.cookie.split(';')[0],'same session, longer life');
+  assert.equal((await s.run('session',{cookie:a.cookie})).headers.get('set-cookie'),null,'once a day');
+  s.advance(29*DAY);
+  assert.equal((await (await s.run('session',{cookie:a.cookie})).json()).signedIn,true,'49 days in, still signed in after opening on day 20');
+  s.advance(30*DAY+1);
+  assert.equal((await (await s.run('session',{cookie:a.cookie})).json()).signedIn,false,'30 days unused signs out');
 });
 test('enrollment accepts leading-zero and legacy codes, but enforces account, IP and global guessing limits', async () => {
   for (const code of ['0123 4567', '01234567', '0123-4567', 'ABCD-1234-EF56-7890-ABCD']) {
