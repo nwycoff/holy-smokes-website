@@ -63,7 +63,28 @@
 .th-menu #categories .category-facets > button {
   font-size: 12px; text-decoration: underline; padding: 6px 0; border: 0; background: transparent; color: var(--canopy); min-height: 0;
 }
-@media (min-width: 901px) { .th-menu #categories .category-facets { margin: 2px 0 8px 14px; } }
+/* Wide screens: the chosen heading's options as rows of pills above the products */
+@media (min-width: 901px) {
+  .th-menu .selection .category-facets { border: 0; margin: 14px 0 0; padding: 12px 14px 4px; background: var(--soft); border-radius: 12px; }
+  .th-menu .selection .category-facets fieldset { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 8px; }
+  .th-menu .selection .category-facets legend { float: left; margin: 0 6px 0 0; padding: 0; min-width: 84px; }
+  .th-menu .selection .category-facets label {
+    min-height: 34px; padding: 5px 12px; gap: 6px; border: 1px solid var(--line); border-radius: 999px; background: var(--paper); font-size: 13px;
+  }
+  .th-menu .selection .category-facets label:has(input:checked) { border-color: var(--canopy); background: #dfe8d3; }
+  .th-menu .selection .category-facets input { width: 15px; height: 15px; }
+  .th-menu .selection .category-facets small { margin-left: 2px; }
+  .th-menu .selection .category-facets > button { margin: 0 0 8px; }
+}
+/* Pinned under the site header once the options scroll away; it takes no room in the page */
+.th-menu .facet-pin { position: sticky; height: 0; z-index: 15; }
+.th-menu .facet-pin-bar {
+  position: absolute; left: 0; right: 0; top: 0; display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 10px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); color: inherit;
+  box-shadow: 0 4px 16px rgba(44, 24, 16, 0.08); font-size: 14px; text-align: left; cursor: pointer;
+}
+.th-menu .facet-pin-bar span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.th-menu .facet-pin-bar strong { flex: none; font-weight: 500; color: var(--canopy); text-decoration: underline; }
 
 .th-menu .refine { margin-top: 26px; border-top: 1px solid var(--line); padding-top: 20px; }
 .th-menu .refine h2 { font: 22px 'DM Serif Display', Georgia, serif; margin: 0; display: inline; }
