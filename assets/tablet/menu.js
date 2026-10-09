@@ -201,10 +201,14 @@ async function refresh() {
 // they only bring the products back into view if the shopper had scrolled past them.
 const headingPages = (() => { try { return JSON.parse(document.getElementById('menu-pages')?.textContent || '{}'); } catch { return {}; } })();
 function switchHeading(category, push, tappedTop = null) {
+  const heading = name => [...document.querySelectorAll('#categories a, #categories button')].find(el => el.firstChild?.textContent === name);
+  finishGlide?.();
+  const previous = state.category, closing = previous !== category ? $('category-facets')?.cloneNode(true) : null;
   state.category = category; state.selected.clear(); pageHeading = category; render();
   if (tappedTop !== null) {
-    const tapped = [...document.querySelectorAll('#categories a, #categories button')].find(el => el.firstChild?.textContent === category);
-    if (tapped) window.scrollBy({ top: tapped.getBoundingClientRect().top - tappedTop, behavior: 'instant' });
+    const tapped = heading(category);
+    if (site && sidebar.matches && !calm.matches && tapped) glide(closing, heading(previous), tapped, tappedTop);
+    else if (tapped) window.scrollBy({ top: tapped.getBoundingClientRect().top - tappedTop, behavior: 'instant' });
   }
   const details = headingPages[category];
   if (details) {
@@ -219,6 +223,38 @@ function switchHeading(category, push, tappedTop = null) {
   const layout = document.querySelector('.layout'), nav = document.getElementById('mainNav');
   const top = layout?.getBoundingClientRect().top ?? 0, offset = (nav?.offsetHeight || 0) + 16;
   if (top < offset) window.scrollTo({ top: window.scrollY + top - offset, behavior: 'smooth' });
+}
+// Wide website layout: the previous heading's sub-filters shrink away while the new ones open,
+// and the page follows so the tapped heading stays under the pointer. Near the top of the page
+// it can't scroll far enough, so the heading glides up instead of jumping.
+const calm = matchMedia('(prefers-reduced-motion: reduce)');
+let finishGlide = null;
+function glide(closing, previousHeading, tapped, tappedTop, ms = 200) {
+  const opening = $('category-facets'), gap = parseFloat(getComputedStyle($('categories')).rowGap) || 0;
+  if (closing && previousHeading) { closing.removeAttribute('id'); closing.inert = true; closing.setAttribute('aria-hidden', 'true'); previousHeading.after(closing); }
+  // Each panel goes between fully open (1) and gone (0), its own gap included.
+  const sizes = el => { const c = getComputedStyle(el), v = k => parseFloat(c[k]) || 0;
+    return { el, h: el.offsetHeight - v('paddingTop') - v('paddingBottom'), pt: v('paddingTop'), pb: v('paddingBottom'), mt: v('marginTop'), mb: v('marginBottom') }; };
+  const set = (p, f) => Object.assign(p.el.style, { boxSizing: 'content-box', overflow: 'hidden', height: `${p.h * f}px`,
+    paddingTop: `${p.pt * f}px`, paddingBottom: `${p.pb * f}px`, marginTop: `${p.mt * f}px`, marginBottom: `${p.mb * f - gap * (1 - f)}px` });
+  const out = closing?.isConnected ? sizes(closing) : null, into = opening ? sizes(opening) : null;
+  const start = performance.now();
+  let frame = 0, followed = window.scrollY, follow = true;
+  const step = (now, done = false) => {
+    const t = done ? 1 : Math.min(1, (now - start) / ms), e = t * (2 - t);
+    if (out) set(out, 1 - e);
+    if (into?.el.isConnected) set(into, e);
+    // Once the shopper scrolls the page themselves, stop following.
+    if (Math.abs(window.scrollY - followed) > 1) follow = false;
+    if (follow && tapped.isConnected) { window.scrollBy({ top: tapped.getBoundingClientRect().top - tappedTop, behavior: 'instant' }); followed = window.scrollY; }
+    if (t < 1) { frame = requestAnimationFrame(step); return; }
+    closing?.remove();
+    if (into) into.el.removeAttribute('style');
+    finishGlide = null;
+  };
+  // Another heading tapped mid-glide finishes this one at once.
+  finishGlide = () => { cancelAnimationFrame(frame); step(start, true); };
+  step(start);
 }
 // Headings' titles and intros differ in length; reserving room for the longest at the current width
 // keeps everything below them (the headings themselves) from moving when they change.
