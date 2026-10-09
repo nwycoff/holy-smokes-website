@@ -1,5 +1,6 @@
 export const DAY = 86400000;
-export const SESSION_SECONDS = 7 * 86400;
+// Signed out after 30 days without opening the app; opening it (at most once a day) renews it.
+export const SESSION_SECONDS = 30 * 86400;
 export const SESSION_COOKIE = '__Host-treehouse_session';
 export const LOGIN_COOKIE = '__Host-treehouse_login';
 export class AppError extends Error {

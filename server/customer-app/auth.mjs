@@ -82,10 +82,18 @@ export async function session(request, env, deps) {
   const token = readCookie(request, SESSION_COOKIE);
   if (!token) return null;
   const tokenHash = await hash(env.APP_LIMIT_SECRET, `session:${token}`);
-  const row = await env.APP_DB.prepare(`SELECT u.id, u.customer_id, u.license_enc, u.license_hint, s.created_at FROM app_sessions s
+  const row = await env.APP_DB.prepare(`SELECT u.id, u.customer_id, u.license_enc, u.license_hint, s.created_at, s.expires_at FROM app_sessions s
     JOIN app_users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ?`)
     .bind(tokenHash, deps.now()).first();
-  return row ? { ...row, tokenHash, csrf: await hash(env.APP_LIMIT_SECRET, `csrf:${token}`) } : null;
+  return row ? { ...row, token, tokenHash, csrf: await hash(env.APP_LIMIT_SECRET, `csrf:${token}`) } : null;
+}
+// Opening the app pushes the sign-out back to 30 days from now, at most once a day. Returns the
+// refreshed cookie, or null when it was already renewed today.
+export async function renewSession(env, s, deps) {
+  if (s.expires_at - deps.now() > (SESSION_SECONDS - 86400) * 1000) return null;
+  await env.APP_DB.prepare('UPDATE app_sessions SET expires_at = ? WHERE token_hash = ?')
+    .bind(deps.now() + SESSION_SECONDS * 1000, s.tokenHash).run();
+  return cookie(SESSION_COOKIE, s.token, SESSION_SECONDS);
 }
 
 export async function logout(env, s, everywhere = false) {

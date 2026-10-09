@@ -9,7 +9,7 @@ This branch adds `/app/` and a clearly labelled `/app/demo/`. It does not change
 - Responsive home, searchable menu, budget/category filters, points and account pages.
 - Installable web app with a public offline shell. Account and API data are never cached by the service worker.
 - Hosted Auth0 Universal Login (verified email, passwords/recovery managed by Auth0), Authorization Code + PKCE + state + nonce, validated RS256 signatures.
-- Seven-day, revocable, opaque HttpOnly secure sessions. Provider tokens are discarded after login. Account data is cleared from the page on backgrounding/sign-out.
+- Revocable, opaque HttpOnly secure sessions that end after 30 days without opening the app (opening it renews the session, at most once a day). Provider tokens are discarded after login. Account data is cleared from the page on backgrounding/sign-out.
 - Owner-issued, one-use connection codes after an in-person identity check. Codes expire after ten minutes; database stores their HMAC, not the usable code. A customer record can belong to only one app account.
 - Points lookup uses only the customer ID attached to that server-side session. Browser callers cannot supply another customer's ID.
 - Menu availability uses store-scoped `findInventory` quantities. Explicitly non-sellable, deleted, waste and return locations are excluded. Unknown sellability and unassigned inventory are allowed by owner policy; room names and METRC rooms do not determine eligibility.
