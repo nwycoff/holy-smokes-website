@@ -62,6 +62,7 @@ try {
   assert.ok(logo, 'the logo loads on heading pages');
   assert.equal(await page.locator('#refine').evaluate(d => d.open), true, 'filters are open beside the products on wide screens');
   assert.equal(await page.locator('#category-facets').count(), 1, 'the heading has its sub-filters');
+  assert.equal(await page.locator('.selection .toolbar + #category-facets').count(), 1, 'on wide screens the options sit above the products');
   await page.getByRole('checkbox', { name:/Multipacks/ }).check();
   assert.equal(await page.locator('.product').count(), 1);
   await page.locator('#clear').click();
@@ -106,6 +107,20 @@ try {
       assert.match(await current.textContent(), new RegExp(`^${name}`));
       const after = await current.evaluate(el => el.getBoundingClientRect().top);
       assert.ok(Math.abs(after - before) <= 1, `${width}px wide: ${name} stayed under the finger (moved ${Math.round(after - before)}px)`);
+    }
+    if (width === 1280) {
+      // Past the options, a one-line summary pins under the site header; it leads back up to them.
+      await view.locator('#categories a', { hasText:/^Pre-Rolls/ }).click(); await view.waitForTimeout(150);
+      assert.equal(await view.locator('#facet-pin').isHidden(), true, 'no pinned line while the options are on screen');
+      await view.evaluate(() => scrollTo({ top:document.querySelector('#products').getBoundingClientRect().top + scrollY + 1500, behavior:'instant' }));
+      await view.waitForFunction(() => !document.getElementById('facet-pin').hidden);
+      const pinTop = await view.locator('.facet-pin-bar').evaluate(el => el.getBoundingClientRect().top - document.getElementById('mainNav').offsetHeight);
+      assert.ok(pinTop >= 0 && pinTop <= 12, `the pinned line sits just under the site header (${Math.round(pinTop)}px)`);
+      assert.match(await view.locator('.facet-pin-bar').textContent(), /^Pre-Rolls · AllChange filters$/);
+      await view.locator('.facet-pin-bar').click();
+      await view.waitForFunction(() => { const top = document.getElementById('category-facets').getBoundingClientRect().top;
+        return Math.abs(top - document.getElementById('mainNav').offsetHeight - 8) <= 2; }, null, { timeout:5000 }); // just under the header
+      assert.equal(await view.locator('#facet-pin').isHidden(), true, 'Change filters brings the options back on screen');
     }
     // Also from the top of the page, where there is no room to scroll up to make up for a shift.
     await view.evaluate(() => scrollTo({ top:0, behavior:'instant' }));

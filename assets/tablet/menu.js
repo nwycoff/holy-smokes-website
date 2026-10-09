@@ -284,10 +284,13 @@ void refresh();
 
 // Boxes start unchecked (everything shows); checking narrows. Each count is what checking
 // that box would show given the other groups and filters; boxes that would show nothing are disabled.
+// The website's wide layout, with headings in a column (assets/menu/site.css).
+const sidebar = matchMedia('(min-width: 901px)');
+if (site) sidebar.addEventListener('change', () => render());
 function renderFacets(products) {
  const existing = document.getElementById('category-facets');
  const focus = existing?.contains(document.activeElement) ? document.activeElement?.dataset.facet : null;
- existing?.remove();
+ existing?.remove(); $('facet-pin')?.remove(); pinWatch?.disconnect();
  if (state.category === 'All') return;
  const groups = new Map();
  for (const p of products.filter(p => inSection(p, state.category))) for (const [key,value] of Object.entries(p.facets || {})) {
@@ -319,8 +322,26 @@ function renderFacets(products) {
  const reset=node('button','Show all '+state.category);reset.type='button';reset.hidden=!state.selected.size;
  reset.addEventListener('click',()=>{state.selected.clear();render();});panel.append(reset);
  const selected=$('categories').querySelector('[aria-pressed="true"], [aria-current="page"]');
- // Tablet: under the chosen heading. Website: below the whole heading list, so opening or closing
- // sub-filters never moves the headings themselves.
- if (site) $('categories').after(panel); else selected.after(panel);
+ // Website, wide: above the products, so switching headings never moves the heading list, with a
+ // one-line summary pinned under the site header once they scroll away. Website, tablet and phone
+ // widths (headings as a row of chips): below the row. Counter tablet: under the chosen heading.
+ if (site && sidebar.matches) { document.querySelector('.selection .toolbar').after(panel); pinSummary(panel); }
+ else if (site) $('categories').after(panel); else selected.after(panel);
  if(focus) [...panel.querySelectorAll('input')].find(el=>el.dataset.facet===focus)?.focus();
+}
+// The pinned line: the heading and its picked options, and a button back up to all of them. It takes
+// no room in the page (zero height, sticky) and shows only while the options are above the screen.
+let pinWatch = null;
+function pinSummary(panel) {
+ const below = ($('mainNav')?.offsetHeight || 0) + 8;
+ const chosen = [...state.selected].map(id => id.slice(id.indexOf(':') + 1));
+ const pin = node('div', '', 'facet-pin'); pin.id = 'facet-pin'; pin.hidden = true; pin.style.top = `${below}px`;
+ const bar = node('button', '', 'facet-pin-bar'); bar.type = 'button';
+ bar.append(node('span', [state.category, ...(chosen.length ? chosen : ['All'])].join(' · ')), node('strong', 'Change filters'));
+ bar.addEventListener('click', () => window.scrollTo({ top: panel.getBoundingClientRect().top + window.scrollY - below,
+  behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }));
+ pin.append(bar); panel.after(pin);
+ pinWatch = new IntersectionObserver(([entry]) => { pin.hidden = entry.isIntersecting || entry.boundingClientRect.top > below; },
+  { rootMargin: `-${below}px 0px 0px 0px` });
+ pinWatch.observe(panel);
 }
