@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- Visitors who already confirmed their age this visit never see the age screen, even for a moment. -->
+  <script>try { if (sessionStorage.getItem('treehouse_age_verified') === 'true') document.documentElement.classList.add('age-ok'); } catch (e) {}</script>
   <title>Treehouse Pharmacy | Dispensary in Ponca City, OK — Medical Marijuana & Cannabis Deals</title>
   <meta name="description" content="Treehouse Pharmacy is the best dispensary in Ponca City, OK. Shop medical marijuana, premium cannabis, edibles, and the best cannabis deals in Kay County. Visit us today!" />
   <meta name="keywords" content="Dispensary in Ponca City, Medical Marijuana Ponca City OK, Treehouse Pharmacy Ponca City, Best cannabis deals in Kay County, Oklahoma dispensary, cannabis Ponca City" />
@@ -127,6 +129,7 @@
       transition: opacity 0.6s ease, visibility 0.6s ease;
     }
     .age-gate.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+    .age-ok .age-gate { display: none; }
 
     .age-gate-inner {
       text-align: center; padding: 3rem; max-width: 480px;

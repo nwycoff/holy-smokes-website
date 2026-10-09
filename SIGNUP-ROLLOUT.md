@@ -72,10 +72,13 @@ Each placement needs its own link. Existing cards that all point at `/app` canno
 | Bag insert | `/go/bag-card-v1` | `assets/signup-qr/bag-card-v1.svg` |
 | Menu TVs | `/go/menu-tvs` | `assets/signup-qr/menu-tvs.svg` |
 | Website app link | `/go/website` | `assets/signup-qr/website.svg` |
+| Social media (caption or bio link) | `/go/social` | none: posts carry the link |
 
 The CRM's **App signups → Source links and printable QR codes** provides these links and downloads. The SVGs encode the live `www.treehousepharmacy.com` domain even on test deployments. Do not print/distribute them until the routes are published and physically scan-tested on an iPhone and Android. During testing, open the corresponding `/go/...` path on the protected test hostname manually.
 
 Keep black modules on white with the existing empty border, avoid logos over the code, and print a readable URL below it. For a bag insert, start around 1.25 inches square and test the actual print. Staff may handwrite the temporary connection code on a slip only after verifying the customer; never put it, a patient ID or a customer name into the tracked link.
+
+**App signups → Marketing materials** in the CRM has the social images (1080×1080 feed post, 1080×1920 story), the printable flyer and a suggested caption with the `/go/social` link. The images are rendered from `marketing/app-social.html` with `node scripts/marketing-images.mjs`; they stick to the app itself (no products, prices or discounts) so posts stay within Instagram and Facebook rules for cannabis businesses.
 
 The generator is developer-only: `pip install qrcode==8.2` and `python scripts/signup-qr.py`. Python is not needed by Cloudflare or by staff. Updating the actual framed-sign and bag-card artwork is a separate design step; these files supply the replacement codes.
 

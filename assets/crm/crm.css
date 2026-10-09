@@ -99,3 +99,10 @@ footer { text-align: center; color: var(--muted); font-size: 12px; padding: 20px
 .signup-metrics dd { margin: 0; text-align: right; font-weight: 700; }
 .signup-card h2 { margin-bottom: 1rem; }
 #signup-links a { overflow-wrap: anywhere; }
+
+/* Marketing materials */
+.materials { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin: 12px 0 16px; }
+.materials a { display: flex; flex-direction: column; gap: 6px; text-decoration: none; color: inherit; font-size: 13px; }
+.materials img, .materials .pdf { width: 100%; aspect-ratio: 1; object-fit: contain; background: #213b2c; border-radius: 10px; border: 1px solid var(--line); }
+.materials .pdf { display: flex; align-items: center; justify-content: center; color: #f6f3eb; font-weight: 700; letter-spacing: 2px; }
+#social-caption { width: 100%; font: inherit; font-size: 14px; padding: 10px; border-radius: 8px; border: 1px solid var(--line); margin-top: 4px; resize: vertical; }
