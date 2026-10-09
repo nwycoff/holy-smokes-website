@@ -10,6 +10,10 @@ const IDLE_MS = 120000;
 // server with its products already in it, see server/site/menu-page.mjs): headings are plain
 // links, the page's heading comes from <body data-category>, and product photos show.
 const site = document.body.dataset.menu === 'website';
+// The website's wide layout, with headings in a column (assets/menu/site.css), and the observer for
+// its pinned options line. Declared up here: the first render runs before the code further down.
+const sidebar = matchMedia('(min-width: 901px)');
+let pinWatch = null;
 // The heading this page is showing; on the website it changes as shoppers switch headings in place.
 let pageHeading = site ? document.body.dataset.category || 'All' : 'All';
 const slugOf = name => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -284,9 +288,6 @@ void refresh();
 
 // Boxes start unchecked (everything shows); checking narrows. Each count is what checking
 // that box would show given the other groups and filters; boxes that would show nothing are disabled.
-// The website's wide layout, with headings in a column (assets/menu/site.css).
-const sidebar = matchMedia('(min-width: 901px)');
-if (site) sidebar.addEventListener('change', () => render());
 function renderFacets(products) {
  const existing = document.getElementById('category-facets');
  const focus = existing?.contains(document.activeElement) ? document.activeElement?.dataset.facet : null;
@@ -331,7 +332,7 @@ function renderFacets(products) {
 }
 // The pinned line: the heading and its picked options, and a button back up to all of them. It takes
 // no room in the page (zero height, sticky) and shows only while the options are above the screen.
-let pinWatch = null;
+if (site) sidebar.addEventListener('change', () => render());
 function pinSummary(panel) {
  const below = ($('mainNav')?.offsetHeight || 0) + 8;
  const chosen = [...state.selected].map(id => id.slice(id.indexOf(':') + 1));
