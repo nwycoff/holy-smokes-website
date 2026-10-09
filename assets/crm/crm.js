@@ -121,8 +121,11 @@ async function loadSignups() {
     $('signup-links').replaceChildren(...sources.map(row => {
       const p = el('p'), href = `https://www.treehousepharmacy.com/go/${row.source}`;
       const link = el('a', href); link.href = href; link.target = '_blank'; link.rel = 'noopener noreferrer';
+      p.append(el('strong', `${row.label}: `), link);
+      // Social posts carry the link itself (caption or bio), so there's no printed QR code for them.
+      if (row.source === 'social') return p;
       const download = el('a', 'Download QR (SVG)'); download.href = `/assets/signup-qr/${row.source}.svg`; download.download = `treehouse-${row.source}.svg`;
-      p.append(el('strong', `${row.label}: `), link, document.createTextNode(' · '), download); return p;
+      p.append(document.createTextNode(' · '), download); return p;
     }));
     $('signup-spend-list').replaceChildren(...report.spend.map(item => {
       const p = el('p'), remove = el('button', 'Remove', 'link'); remove.type = 'button';
@@ -657,3 +660,11 @@ $('campaign').addEventListener('submit', async event => {
   } catch (e) { message(e.message, true); }
 });
 void start();
+
+// Marketing materials: copy the suggested social caption.
+$('copy-caption')?.addEventListener('click', async () => {
+  const button = $('copy-caption');
+  try { await navigator.clipboard.writeText($('social-caption').value); button.textContent = 'Copied'; }
+  catch { $('social-caption').select(); button.textContent = 'Press Ctrl+C / ⌘C to copy'; }
+  setTimeout(() => { button.textContent = 'Copy caption'; }, 2500);
+});

@@ -2,7 +2,7 @@ import { AppError, cookie, hash, json, randomToken, readCookie } from './http.mj
 
 export const SIGNUP_SOURCES = Object.freeze({
   'register-1': 'Register 1', 'register-2': 'Register 2',
-  'bag-card-v1': 'Bag inserts · version 1', 'menu-tvs': 'Menu TVs', website: 'Website',
+  'bag-card-v1': 'Bag inserts · version 1', 'menu-tvs': 'Menu TVs', website: 'Website', social: 'Social media',
   direct: 'Direct / source unknown'
 });
 export const VISIT_COOKIE = '__Host-treehouse_source';
