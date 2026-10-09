@@ -62,6 +62,7 @@ try {
   assert.ok(logo, 'the logo loads on heading pages');
   assert.equal(await page.locator('#refine').evaluate(d => d.open), true, 'filters are open beside the products on wide screens');
   assert.equal(await page.locator('#category-facets').count(), 1, 'the heading has its sub-filters');
+  assert.equal(await page.locator('#categories [aria-current="page"] + #category-facets').count(), 1, 'sub-filters open right under the chosen heading');
   await page.getByRole('checkbox', { name:/Multipacks/ }).check();
   assert.equal(await page.locator('.product').count(), 1);
   await page.locator('#clear').click();

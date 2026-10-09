@@ -59,9 +59,11 @@
 .th-menu .category-facets input { width: 18px; height: 18px; accent-color: var(--canopy); flex: none; }
 .th-menu .category-facets small { margin-left: auto; color: var(--muted); }
 .th-menu .category-facets label:has(input:disabled) { opacity: 0.45; cursor: default; }
-.th-menu .category-facets > button {
-  font-size: 12px; text-decoration: underline; padding: 6px 0; border: 0; background: transparent; color: var(--canopy);
+.th-menu .category-facets > button,
+.th-menu #categories .category-facets > button {
+  font-size: 12px; text-decoration: underline; padding: 6px 0; border: 0; background: transparent; color: var(--canopy); min-height: 0;
 }
+@media (min-width: 901px) { .th-menu #categories .category-facets { margin: 2px 0 8px 14px; } }
 
 .th-menu .refine { margin-top: 26px; border-top: 1px solid var(--line); padding-top: 20px; }
 .th-menu .refine h2 { font: 22px 'DM Serif Display', Georgia, serif; margin: 0; display: inline; }

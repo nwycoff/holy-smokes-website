@@ -284,6 +284,9 @@ void refresh();
 
 // Boxes start unchecked (everything shows); checking narrows. Each count is what checking
 // that box would show given the other groups and filters; boxes that would show nothing are disabled.
+// The website's wide layout, with headings in a column (assets/menu/site.css).
+const sidebar = matchMedia('(min-width: 901px)');
+if (site) sidebar.addEventListener('change', () => render());
 function renderFacets(products) {
  const existing = document.getElementById('category-facets');
  const focus = existing?.contains(document.activeElement) ? document.activeElement?.dataset.facet : null;
@@ -319,8 +322,8 @@ function renderFacets(products) {
  const reset=node('button','Show all '+state.category);reset.type='button';reset.hidden=!state.selected.size;
  reset.addEventListener('click',()=>{state.selected.clear();render();});panel.append(reset);
  const selected=$('categories').querySelector('[aria-pressed="true"], [aria-current="page"]');
- // Tablet: under the chosen heading. Website: below the whole heading list, so opening or closing
- // sub-filters never moves the headings themselves.
- if (site) $('categories').after(panel); else selected.after(panel);
+ // Under the chosen heading. On the website's tablet and phone widths, where headings become a row
+ // of chips, below the whole row instead.
+ if (site && !sidebar.matches) $('categories').after(panel); else selected.after(panel);
  if(focus) [...panel.querySelectorAll('input')].find(el=>el.dataset.facet===focus)?.focus();
 }
