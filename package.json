@@ -9,7 +9,7 @@
     "test:staff-browser": "npm run build && node tests/staff-enrollment.browser.mjs",
     "test:signup-browser": "npm run build && node tests/signup.browser.mjs",
     "test:tablet-browser": "npm run build && node tests/tablet-menu.browser.mjs",
-    "test:site-browser": "npm run build && node tests/site-menu.browser.mjs",
+    "test:site-browser": "npm run build && node tests/site-menu.browser.mjs && node tests/home-age-gate.browser.mjs",
     "css": "tailwindcss -c tailwind.config.cjs -i scripts/site-css/input.css -o assets/site/styles.css"
   },
   "engines": {

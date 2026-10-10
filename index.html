@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <!-- Visitors who already confirmed their age this visit never see the age screen, even for a moment. -->
-  <script>try { if (sessionStorage.getItem('treehouse_age_verified') === 'true') document.documentElement.classList.add('age-ok'); } catch (e) {}</script>
+  <!-- Visitors who already confirmed their age this visit, in any tab, never see the age screen, even for a moment.
+       The answer is a cookie without an expiry (forgotten when the browser closes); sessionStorage was per tab. -->
+  <script>try { if (document.cookie.split('; ').includes('treehouse_age_verified=1') || sessionStorage.getItem('treehouse_age_verified') === 'true') document.documentElement.classList.add('age-ok'); } catch (e) {}</script>
   <title>Ponca City Dispensary | Treehouse Pharmacy — Medical Marijuana</title>
   <meta name="description" content="Treehouse Pharmacy is a medical marijuana dispensary in Ponca City, OK. Shop the live menu, order ahead for pickup and get the best deals in Kay County." />
   <meta name="robots" content="index, follow" />
@@ -1115,7 +1116,8 @@
     // ---- AGE VERIFICATION ----
     function verifyAge(isOfAge) {
       if (isOfAge) {
-        sessionStorage.setItem('treehouse_age_verified', 'true');
+        // Shared by every tab until the browser closes, so a link opened in a new tab doesn't ask again.
+        document.cookie = 'treehouse_age_verified=1; path=/; SameSite=Lax' + (location.protocol === 'https:' ? '; Secure' : '');
         document.getElementById('ageGate').classList.add('hidden');
         document.body.style.overflow = '';
       } else {
@@ -1125,7 +1127,7 @@
 
     // Check on load
     (function() {
-      if (sessionStorage.getItem('treehouse_age_verified') === 'true') {
+      if (document.documentElement.classList.contains('age-ok')) {
         document.getElementById('ageGate').classList.add('hidden');
       } else {
         document.body.style.overflow = 'hidden';
