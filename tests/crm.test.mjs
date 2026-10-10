@@ -156,6 +156,9 @@ test('overview, segments and live names work end to end, and list views are audi
   const o = await (await s.run('overview')).json();
   assert.equal(o.totals.active_30, 2); assert.equal(o.totals.visits_30, 3); assert.equal(o.totals.revenue_30_cents, 11500);
   assert.equal(o.totals.preorders_30, 1); assert.equal(o.categories[0].grp, 'flower');
+  // Average basket before tax comes from purchase lines (returns left out); order totals include tax.
+  const net = s.db.prepare('SELECT SUM(net_cents) n FROM crm_lines WHERE returned = 0 AND sold_at >= ?').get(s.now() - 30 * DAY).n;
+  assert.ok(net > 0); assert.equal(o.totals.net_30_cents, net); assert.equal(typeof o.totals.net_prev_30_cents, 'number');
   const regulars = await (await s.run('preview', { definition: { visits: { days: 90, min: 4 } } })).json();
   assert.equal(regulars.customers, 1);
   const lapsed = await (await s.run('preview', { definition: { lastVisit: { minDays: 60, maxDays: 180 } } })).json();

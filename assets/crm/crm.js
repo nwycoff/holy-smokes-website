@@ -51,6 +51,7 @@ async function api(path, body, retried = false) {
 const ago = ms => { if (!ms) return '—'; const d = Math.floor((Date.now() - ms) / 86400000); return d <= 0 ? 'today' : d === 1 ? 'yesterday' : `${d} days ago`; };
 const change = (now, before) => before ? `${now >= before ? '▲' : '▼'} ${Math.abs(Math.round((now - before) / before * 100))}% vs prior 30 days` : '';
 
+const basketMoney = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 function kpi(label, value, note = '') {
   const card = el('div', '', 'kpi'); card.append(el('p', label, 'kpi-label'), el('p', value, 'kpi-value'));
   if (note) card.append(el('p', note, 'kpi-note')); return card;
@@ -70,7 +71,10 @@ async function loadOverview() {
     kpi('Active customers · 30 days', count.format(t.active_30 || 0), `${count.format(t.active_90 || 0)} in 90 days`),
     kpi('Visits · 30 days', count.format(t.visits_30 || 0), change(t.visits_30, t.visits_prev_30)),
     kpi('Sales · 30 days', money.format((t.revenue_30_cents || 0) / 100), change(t.revenue_30_cents, t.revenue_prev_30_cents)),
-    kpi('Average basket', t.visits_30 ? money.format(t.revenue_30_cents / t.visits_30 / 100) : '—'),
+    // Before tax (purchase lines), with the with-tax figure (order totals) beside it.
+    kpi('Average basket · 30 days, before tax', t.visits_30 ? basketMoney.format(t.net_30_cents / t.visits_30 / 100) : '—',
+      t.visits_30 ? [`${basketMoney.format(t.revenue_30_cents / t.visits_30 / 100)} with tax`,
+        t.visits_prev_30 ? change(t.net_30_cents / t.visits_30, t.net_prev_30_cents / t.visits_prev_30) : ''].filter(Boolean).join(' · ') : ''),
     kpi('New customers · 30 days', count.format(t.new_30 || 0)),
     kpi('Lapsed 60–180 days', count.format(t.lapsed_60_180 || 0), 'good win-back audience'),
     kpi('Birthdays this month', count.format(t.birthdays_month || 0)),
