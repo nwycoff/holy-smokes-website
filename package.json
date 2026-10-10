@@ -9,7 +9,8 @@
     "test:staff-browser": "npm run build && node tests/staff-enrollment.browser.mjs",
     "test:signup-browser": "npm run build && node tests/signup.browser.mjs",
     "test:tablet-browser": "npm run build && node tests/tablet-menu.browser.mjs",
-    "test:site-browser": "npm run build && node tests/site-menu.browser.mjs"
+    "test:site-browser": "npm run build && node tests/site-menu.browser.mjs",
+    "css": "tailwindcss -c tailwind.config.cjs -i scripts/site-css/input.css -o assets/site/styles.css"
   },
   "engines": {
     "node": ">=22"
@@ -20,6 +21,7 @@
     "oauth4webapi": "3.8.8"
   },
   "devDependencies": {
-    "playwright": "1.63.0"
+    "playwright": "1.63.0",
+    "tailwindcss": "3.4.17"
   }
 }

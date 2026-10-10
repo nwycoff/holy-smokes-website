@@ -5,9 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <!-- Visitors who already confirmed their age this visit never see the age screen, even for a moment. -->
   <script>try { if (sessionStorage.getItem('treehouse_age_verified') === 'true') document.documentElement.classList.add('age-ok'); } catch (e) {}</script>
-  <title>Treehouse Pharmacy | Dispensary in Ponca City, OK — Medical Marijuana & Cannabis Deals</title>
-  <meta name="description" content="Treehouse Pharmacy is the best dispensary in Ponca City, OK. Shop medical marijuana, premium cannabis, edibles, and the best cannabis deals in Kay County. Visit us today!" />
-  <meta name="keywords" content="Dispensary in Ponca City, Medical Marijuana Ponca City OK, Treehouse Pharmacy Ponca City, Best cannabis deals in Kay County, Oklahoma dispensary, cannabis Ponca City" />
+  <title>Ponca City Dispensary | Treehouse Pharmacy — Medical Marijuana</title>
+  <meta name="description" content="Treehouse Pharmacy is a medical marijuana dispensary in Ponca City, OK. Shop the live menu, order ahead for pickup and get the best deals in Kay County." />
   <meta name="robots" content="index, follow" />
   <meta name="geo.region" content="US-OK" />
   <meta name="geo.placename" content="Ponca City" />
@@ -18,7 +17,7 @@
   <link rel="canonical" href="https://www.treehousepharmacy.com/" />
 
   <!-- Open Graph -->
-  <meta property="og:title" content="Treehouse Pharmacy | Dispensary in Ponca City, OK" />
+  <meta property="og:title" content="Treehouse Pharmacy | Ponca City Dispensary" />
   <meta property="og:description" content="Premium medical marijuana dispensary in Ponca City, Oklahoma. Shop the live menu for the best cannabis deals in Kay County." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://www.treehousepharmacy.com/" />
@@ -31,6 +30,7 @@
     "@type": "MedicalBusiness",
     "additionalType": "https://schema.org/Store",
     "name": "Treehouse Pharmacy",
+    "alternateName": "Holy Smokes Dispensary",
     "description": "Premium medical marijuana dispensary in Ponca City, Oklahoma. Offering the best cannabis deals in Kay County.",
     "url": "https://www.treehousepharmacy.com/",
     "telephone": "+1-580-716-6720",
@@ -44,11 +44,13 @@
     },
     "geo": {
       "@type": "GeoCoordinates",
-      "latitude": "36.7070",
-      "longitude": "-97.0856"
+      "latitude": "36.7238",
+      "longitude": "-97.0851"
     },
     "image": "https://www.treehousepharmacy.com/images/img6.png",
     "priceRange": "$$",
+    "paymentAccepted": "Cash",
+    "hasMap": "https://www.google.com/maps?cid=5846707690439574450",
     "openingHoursSpecification": [
       {
         "@type": "OpeningHoursSpecification",
@@ -82,39 +84,10 @@
   }
   </script>
 
-  <!-- Tailwind CSS CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            bark: '#2C1810',
-            'bark-light': '#4A2C20',
-            canopy: '#2D5016',
-            'canopy-light': '#4A7C28',
-            'canopy-muted': '#6B8F55',
-            moss: '#8BA872',
-            sage: '#B5C5A3',
-            'sage-light': '#D4DFC8',
-            cream: '#F5F0E8',
-            'cream-dark': '#EDE5D6',
-            amber: '#C8943E',
-            'amber-light': '#E0B860',
-          },
-          fontFamily: {
-            display: ['"DM Serif Display"', 'Georgia', 'serif'],
-            body: ['"Outfit"', 'system-ui', 'sans-serif'],
-          }
-        }
-      }
-    }
-  </script>
 
-  <!-- Google Fonts -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <!-- Fonts are self-hosted (assets/fonts); the stylesheet is at the end of <head>. -->
+  <link rel="preload" href="/assets/fonts/outfit-v15-latin.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/assets/fonts/dm-serif-display-v17-latin.woff2" as="font" type="font/woff2" crossorigin />
 
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -232,6 +205,9 @@
     ::-webkit-scrollbar-thumb { background: #B5C5A3; border-radius: 4px; }
     ::-webkit-scrollbar-thumb:hover { background: #8BA872; }
   </style>
+  <!-- Last in <head>, where the Tailwind Play CDN used to add its styles, so the cascade is unchanged.
+       Built by `npm run css` (scripts/site-css/input.css, tailwind.config.cjs). -->
+  <link rel="stylesheet" href="/assets/site/styles.css" />
 </head>
 <body class="grain">
 
@@ -241,7 +217,7 @@
   <div id="ageGate" class="age-gate">
     <div class="age-gate-inner">
       <div class="mb-6">
-        <img src="images/img5.png" alt="Treehouse Pharmacy Logo" class="mx-auto h-32 md:h-40 w-auto rounded-full" />
+        <img src="images/logo-240.webp" width="239" height="240" fetchpriority="high" alt="Treehouse Pharmacy Logo" class="mx-auto h-32 md:h-40 w-auto rounded-full" />
       </div>
       <h2 class="font-display text-3xl md:text-4xl text-cream mb-3">Treehouse Pharmacy</h2>
       <p class="font-body text-sage text-sm tracking-widest uppercase mb-8">Ponca City, Oklahoma</p>
@@ -258,7 +234,7 @@
           I Am Under 18
         </button>
       </div>
-      <p class="text-sage/40 text-xs mt-10 font-body">
+      <p class="text-sage/70 text-xs mt-10 font-body">
         By entering, you confirm compliance with Oklahoma state law.
       </p>
     </div>
@@ -271,7 +247,7 @@
     <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
       <a href="#hero" class="flex items-center gap-3 group">
         <div class="flex items-center gap-2">
-          <img src="images/img6.png" alt="Treehouse Pharmacy Logo" class="h-10 w-10 rounded-full" />
+          <img src="images/logo-96.webp" width="96" height="96" alt="Treehouse Pharmacy Logo" class="h-10 w-10 rounded-full" />
           <span class="font-display text-xl text-bark group-hover:text-canopy transition-colors">Treehouse Pharmacy</span>
         </div>
       </a>
@@ -289,8 +265,8 @@
         </a>
       </div>
       <!-- Mobile hamburger -->
-      <button id="mobileMenuBtn" class="xl:hidden text-bark" onclick="toggleMobileMenu()">
-        <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+      <button id="mobileMenuBtn" type="button" class="xl:hidden text-bark" onclick="toggleMobileMenu()" aria-label="Open menu" aria-controls="mobileMenu" aria-expanded="false">
+        <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
       </button>
     </div>
     <!-- Mobile menu -->
@@ -735,13 +711,13 @@
         <div class="bg-canopy rounded-2xl p-8 text-center relative overflow-hidden">
           <div class="absolute top-0 right-0 w-32 h-32 rounded-full bg-white/5 blur-2xl"></div>
           <div class="relative">
-            <p class="font-body text-cream/60 text-xs tracking-[0.2em] uppercase mb-2">First-Time Patients</p>
+            <p class="font-body text-cream/70 text-xs tracking-[0.2em] uppercase mb-2">First-Time Patients</p>
             <p class="font-display text-4xl md:text-5xl text-cream mb-1">25% Off</p>
             <p class="font-body text-cream/80 text-sm mb-4">your entire first purchase</p>
             <div class="inline-block bg-cream/15 rounded-full px-5 py-2 mb-4">
               <p class="font-body text-cream text-sm font-semibold">+ Free Pre-Roll or Single Dose Edible</p>
             </div>
-            <p class="font-body text-cream/40 text-xs">Valid on your first visit with a valid OMMA card</p>
+            <p class="font-body text-cream/70 text-xs">Valid on your first visit with a valid OMMA card</p>
           </div>
         </div>
 
@@ -755,7 +731,7 @@
             <div class="inline-block bg-cream/10 rounded-full px-5 py-2 mb-4">
               <p class="font-body text-cream text-sm font-semibold">Thank You for Your Service</p>
             </div>
-            <p class="font-body text-cream/40 text-xs">Show valid military or veteran ID at checkout</p>
+            <p class="font-body text-cream/60 text-xs">Show valid military or veteran ID at checkout</p>
           </div>
         </div>
       </div>
@@ -886,7 +862,7 @@
             </a>
 
             <p class="font-body text-bark/60 text-sm leading-relaxed">
-              Treehouse Pharmacy is Ponca City's premier medical marijuana dispensary, proudly serving the Kay County community and patients throughout North Central Oklahoma. Our knowledgeable budtenders are dedicated to helping you find the right cannabis products for your needs — whether you're looking for premium flower, edibles, concentrates, pre-rolls, cartridges, or accessories. We carry a wide selection of top-shelf and affordable options at competitive prices, with daily deals and a customer loyalty rewards program that lets you save more every visit. At Treehouse Pharmacy, we believe in personalized care, honest guidance, and creating a warm, welcoming experience for every patient who walks through our door. Stop by Treehouse Pharmacy — the best dispensary in Ponca City, Oklahoma — and discover why our patients keep coming back.
+              Treehouse Pharmacy is Ponca City's premier medical marijuana dispensary, proudly serving the Kay County community and patients throughout North Central Oklahoma. Our knowledgeable budtenders are dedicated to helping you find the right cannabis products for your needs — whether you're looking for premium flower, edibles, concentrates, pre-rolls, cartridges, or accessories. We carry a wide selection of top-shelf and affordable options at competitive prices, with daily deals and a customer loyalty rewards program that lets you save more every visit. At Treehouse Pharmacy, we believe in personalized care, honest guidance, and creating a warm, welcoming experience for every patient who walks through our door. Stop by Treehouse Pharmacy — the best dispensary in Ponca City, Oklahoma — and discover why our patients keep coming back. We're on North Union Street, an easy drive for patients from Blackwell, Newkirk, Tonkawa, Kaw City and Marland.
             </p>
           </div>
         </div>
@@ -905,11 +881,48 @@
         </p>
       </div>
 
-      <!-- Google Reviews Embed Container -->
-      <div class="max-w-4xl mx-auto reveal">
-        <!-- Google Reviews Widget (JotForm) -->
-        <div id="JFWebsiteWidget-019c5dfd12a275d78b44085ae94f965987d8"></div>
-        <script src='https://www.jotform.com/website-widgets/embed/019c5dfd12a275d78b44085ae94f965987d8'></script>
+      <!-- A few of our Google reviews, as plain text: fast, and readable by search engines. Update by hand. -->
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 stagger">
+        <figure class="bg-cream rounded-2xl border border-sage/10 p-8 flex flex-col">
+          <div class="flex gap-1 text-amber mb-4" role="img" aria-label="5 out of 5 stars"><svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L10 14.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg><svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L10 14.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg><svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L10 14.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg><svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L10 14.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg><svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L10 14.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg></div>
+          <blockquote class="font-body text-bark/80 leading-relaxed flex-1">“I never have anything other [than] great vibes when shopping here and will always be back.”</blockquote>
+          <figcaption class="font-body text-bark/70 text-sm mt-5"><span class="font-semibold text-bark">Dereck B.</span> · Google review</figcaption>
+        </figure>
+        <figure class="bg-cream rounded-2xl border border-sage/10 p-8 flex flex-col">
+          <div class="flex gap-1 text-amber mb-4" role="img" aria-label="5 out of 5 stars"><svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L10 14.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg><svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L10 14.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg><svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L10 14.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg><svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L10 14.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg><svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L10 14.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg></div>
+          <blockquote class="font-body text-bark/80 leading-relaxed flex-1">“Awesome customer service and best prices in town.”</blockquote>
+          <figcaption class="font-body text-bark/70 text-sm mt-5"><span class="font-semibold text-bark">Lisa D.</span> · Google review</figcaption>
+        </figure>
+        <figure class="bg-cream rounded-2xl border border-sage/10 p-8 flex flex-col">
+          <div class="flex gap-1 text-amber mb-4" role="img" aria-label="5 out of 5 stars"><svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L10 14.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg><svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L10 14.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg><svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L10 14.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg><svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L10 14.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg><svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L10 14.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg></div>
+          <blockquote class="font-body text-bark/80 leading-relaxed flex-1">“Great deals and great service. Great dispo all around.”</blockquote>
+          <figcaption class="font-body text-bark/70 text-sm mt-5"><span class="font-semibold text-bark">Cooper G.</span> · Google review</figcaption>
+        </figure>
+        <figure class="bg-cream rounded-2xl border border-sage/10 p-8 flex flex-col">
+          <div class="flex gap-1 text-amber mb-4" role="img" aria-label="5 out of 5 stars"><svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L10 14.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg><svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L10 14.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg><svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L10 14.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg><svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L10 14.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg><svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L10 14.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg></div>
+          <blockquote class="font-body text-bark/80 leading-relaxed flex-1">“Love Alyssa, she’s super nice and helpful.”</blockquote>
+          <figcaption class="font-body text-bark/70 text-sm mt-5"><span class="font-semibold text-bark">Maribel P.</span> · Google review</figcaption>
+        </figure>
+        <figure class="bg-cream rounded-2xl border border-sage/10 p-8 flex flex-col">
+          <div class="flex gap-1 text-amber mb-4" role="img" aria-label="5 out of 5 stars"><svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L10 14.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg><svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L10 14.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg><svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L10 14.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg><svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L10 14.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg><svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L10 14.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg></div>
+          <blockquote class="font-body text-bark/80 leading-relaxed flex-1">“My favorite place ever. I love the Treehouse.”</blockquote>
+          <figcaption class="font-body text-bark/70 text-sm mt-5"><span class="font-semibold text-bark">LoRetta S.</span> · Google review</figcaption>
+        </figure>
+        <figure class="bg-cream rounded-2xl border border-sage/10 p-8 flex flex-col">
+          <div class="flex gap-1 text-amber mb-4" role="img" aria-label="5 out of 5 stars"><svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L10 14.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg><svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L10 14.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg><svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L10 14.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg><svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L10 14.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg><svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L10 14.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg></div>
+          <blockquote class="font-body text-bark/80 leading-relaxed flex-1">“Good prices, good people.”</blockquote>
+          <figcaption class="font-body text-bark/70 text-sm mt-5"><span class="font-semibold text-bark">Keandra L.</span> · Google review</figcaption>
+        </figure>
+      </div>
+      <div class="flex flex-col sm:flex-row gap-4 justify-center mt-12 reveal">
+        <a href="https://www.google.com/maps?cid=5846707690439574450" target="_blank" rel="noopener noreferrer"
+           class="inline-block border-2 border-canopy text-canopy hover:bg-canopy hover:text-cream font-body font-semibold px-8 py-3.5 rounded-full text-sm tracking-widest uppercase text-center transition-all duration-300">
+          Read all reviews on Google
+        </a>
+        <a href="https://g.page/r/CbIDMtKqrSNREBM/review" target="_blank" rel="noopener noreferrer"
+           class="inline-block bg-canopy hover:bg-canopy-light text-cream font-body font-semibold px-8 py-3.5 rounded-full text-sm tracking-widest uppercase text-center transition-all duration-300">
+          Leave us a review
+        </a>
       </div>
     </div>
   </section>
@@ -927,13 +940,13 @@
 
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 stagger">
         <div class="gallery-item aspect-[4/3]">
-          <img src="images/img7.jpeg" alt="Treehouse Pharmacy storefront exterior in Ponca City, OK" class="w-full h-full object-cover" loading="lazy" />
+          <img src="images/storefront-800.webp" srcset="images/storefront-480.webp 480w, images/storefront-800.webp 800w" sizes="(min-width: 768px) 33vw, 100vw" width="800" height="600" alt="Treehouse Pharmacy storefront exterior in Ponca City, OK" class="w-full h-full object-cover" loading="lazy" />
         </div>
         <div class="gallery-item aspect-[4/3]">
-          <img src="images/img8.jpeg" alt="Treehouse Pharmacy dispensary interior with display cases and menu boards" class="w-full h-full object-cover" loading="lazy" />
+          <img src="images/interior-800.webp" srcset="images/interior-480.webp 480w, images/interior-800.webp 800w" sizes="(min-width: 768px) 33vw, 100vw" width="800" height="600" alt="Treehouse Pharmacy dispensary interior with display cases and menu boards" class="w-full h-full object-cover" loading="lazy" />
         </div>
         <div class="gallery-item aspect-[4/3]">
-          <img src="images/img9.jpeg" alt="Treehouse Pharmacy Est. 2022 logo with mortar and pestle" class="w-full h-full object-contain p-4" style="background:#9E988A" loading="lazy" />
+          <img src="images/est-2022-800.webp" srcset="images/est-2022-480.webp 480w, images/est-2022-800.webp 800w" sizes="(min-width: 768px) 33vw, 100vw" width="800" height="467" alt="Treehouse Pharmacy Est. 2022 logo with mortar and pestle" class="w-full h-full object-contain p-4" style="background:#9E988A" loading="lazy" />
         </div>
       </div>
     </div>
@@ -1045,10 +1058,10 @@
         <!-- Brand -->
         <div>
           <div class="flex items-center gap-3 mb-4">
-            <img src="images/img10.png" alt="Treehouse Pharmacy Logo" class="h-10 w-10 rounded-full" />
+            <img src="images/logo-96.webp" width="96" height="96" alt="Treehouse Pharmacy Logo" class="h-10 w-10 rounded-full" />
             <span class="font-display text-xl text-cream">Treehouse Pharmacy</span>
           </div>
-          <p class="font-body text-cream/40 text-sm leading-relaxed max-w-xs">
+          <p class="font-body text-cream/60 text-sm leading-relaxed max-w-xs">
             Ponca City's premier medical marijuana dispensary. Quality products, expert guidance, welcoming atmosphere.
           </p>
         </div>
@@ -1085,10 +1098,10 @@
       </div>
 
       <div class="border-t border-cream/10 pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
-        <p class="font-body text-cream/30 text-xs">
+        <p class="font-body text-cream/60 text-xs">
           &copy; <span id="footerYear"></span> Treehouse Pharmacy. All rights reserved. Oklahoma OMMA Licensed Dispensary. <a href="/privacy" class="underline hover:text-amber">Privacy Policy</a>
         </p>
-        <p class="font-body text-cream/20 text-[10px]">
+        <p class="font-body text-cream/50 text-[10px]">
           Medical marijuana is for use only by qualified patients. Nothing for sale to minors.
         </p>
       </div>
@@ -1131,8 +1144,8 @@
 
     // ---- MOBILE MENU TOGGLE ----
     function toggleMobileMenu() {
-      const menu = document.getElementById('mobileMenu');
-      menu.classList.toggle('hidden');
+      const open = !document.getElementById('mobileMenu').classList.toggle('hidden'), button = document.getElementById('mobileMenuBtn');
+      button.setAttribute('aria-expanded', String(open)); button.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
     }
 
     // ---- SCROLL REVEAL ANIMATIONS ----
@@ -1192,10 +1205,10 @@
         const isToday = i === today;
         html += `
           <tr class="hours-row ${isToday ? 'font-semibold' : ''}">
-            <td class="py-1.5 pr-4 text-bark/${isToday ? '90' : '50'} text-sm">
+            <td class="py-1.5 pr-4 ${isToday ? 'text-bark/90' : 'text-bark/50'} text-sm">
               ${h.day}${isToday ? ' <span class="text-[10px] text-canopy ml-1">TODAY</span>' : ''}
             </td>
-            <td class="py-1.5 text-right text-bark/${isToday ? '90' : '60'} text-sm">
+            <td class="py-1.5 text-right ${isToday ? 'text-bark/90' : 'text-bark/60'} text-sm">
               ${formatTime12(h.open)} – ${formatTime12(h.close)}
             </td>
           </tr>

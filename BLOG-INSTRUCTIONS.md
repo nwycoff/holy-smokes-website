@@ -16,6 +16,11 @@
 - Paste it ABOVE the first post (so newest posts are on top)
 - Update the link, title, description, date, and category
 
+### Styles
+- Posts use the site's shared stylesheet (`/assets/site/styles.css`), linked at the end of the template's `<head>`; keep that line.
+- Stick to the styling classes the template already uses. New Tailwind classes are picked up when the site is deployed;
+  to see them locally (or keep the committed stylesheet current), run `npm run css`.
+
 ### 3. Upload to GitHub
 - Upload both the new blog post file AND the updated `blog.html` to your repo
 
