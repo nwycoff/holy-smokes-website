@@ -25,12 +25,14 @@
     .prose h3 { font-family: 'DM Serif Display', Georgia, serif; font-size: 1.35rem; color: #2D5016; margin-top: 2rem; margin-bottom: 0.75rem; }
     .prose p { font-size: 1.05rem; line-height: 1.85; color: rgba(44,24,16,0.7); margin-bottom: 1.25rem; }
     .prose ul, .prose ol { margin: 1rem 0 1.5rem 1.5rem; color: rgba(44,24,16,0.7); }
+    /* The base styles remove list markers; articles need their bullets and step numbers. */
+    .prose ul { list-style: disc; } .prose ol { list-style: decimal; } .prose li::marker { color: #2D5016; }
     .prose li { margin-bottom: 0.5rem; line-height: 1.7; font-size: 1.05rem; }
     .prose strong { color: #2C1810; }
     .prose a { color: #2D5016; text-decoration: underline; text-underline-offset: 2px; }
     .prose a:hover { color: #4A7C28; }
     .prose blockquote { border-left: 3px solid #C8943E; padding: 1rem 1.5rem; margin: 1.5rem 0; background: rgba(200,148,62,0.05); border-radius: 0 8px 8px 0; }
-    .prose blockquote p { color: rgba(44,24,16,0.6); font-style: italic; margin-bottom: 0; }
+    .prose blockquote p { color: rgba(44,24,16,0.75); font-style: italic; margin-bottom: 0; }
     ::-webkit-scrollbar { width: 8px; }
     ::-webkit-scrollbar-track { background: #F5F0E8; }
     ::-webkit-scrollbar-thumb { background: #B5C5A3; border-radius: 4px; }
@@ -73,17 +75,18 @@
   </nav>
 
   <!-- ARTICLE -->
+  <main>
   <article class="pt-28 pb-24 md:pt-36 md:pb-32">
     <div class="max-w-3xl mx-auto px-6">
 
       <header class="text-center mb-12 fade-in">
         <div class="flex items-center justify-center gap-3 mb-4">
           <span class="bg-canopy/10 text-canopy font-body text-[10px] tracking-widest uppercase font-semibold px-3 py-1 rounded-full">Oklahoma MMJ Info</span>
-          <span class="font-body text-bark/30 text-xs">February 2026</span>
+          <span class="font-body text-bark/70 text-xs">February 2026</span>
         </div>
         <h1 class="font-display text-3xl md:text-5xl text-bark mb-4 leading-tight">How to Get Your Oklahoma Medical Marijuana Card in 2026</h1>
         <div class="section-divider mb-6"></div>
-        <p class="font-body text-bark/50 text-base max-w-lg mx-auto">
+        <p class="font-body text-bark/70 text-base max-w-lg mx-auto">
           A complete, up-to-date guide for Ponca City and Kay County patients — from doctor visits to your first dispensary trip.
         </p>
       </header>
@@ -196,6 +199,7 @@
 
     </div>
   </article>
+  </main>
 
   <footer class="bg-bark text-cream/70 py-16">
     <div class="max-w-7xl mx-auto px-6">
