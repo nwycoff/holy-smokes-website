@@ -1,5 +1,7 @@
 import { cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { ORIGIN, SITEMAP_PATHS } from '../server/site/menu-page.mjs';
@@ -14,15 +16,27 @@ for (const name of await readdir(root)) {
     await cp(path.join(root, name), path.join(out, name), { recursive: true });
   }
 }
+// Rebuild the website's stylesheet from the pages being published, so classes in a new blog post are
+// included even if assets/site/styles.css wasn't rebuilt (npm run css). Without Tailwind installed,
+// the committed file is used as is.
+try {
+  await promisify(execFile)(path.join(root, 'node_modules/.bin/tailwindcss'), ['-c', path.join(root, 'tailwind.config.cjs'),
+    '-i', path.join(root, 'scripts/site-css/input.css'), '-o', path.join(out, 'assets/site/styles.css')], { cwd: root });
+} catch (error) {
+  console.warn(`Using the committed assets/site/styles.css (${error.code === 'ENOENT' ? 'Tailwind is not installed' : 'Tailwind failed'}).`);
+}
 await writeFile(path.join(out, '_routes.json'), JSON.stringify({
   version: 1, include: ['/api/rewards/*', '/api/app/*', '/api/staff/*', '/api/crm/*', '/go/*', '/menu', '/menu/*'], exclude: []
 }, null, 2));
 // Give each page's own script and stylesheet a content version (?v=hash), so a release reaches
 // phones at once instead of after the custom domain's browser cache expires.
-for (const page of ['app/index.html', 'tablet/index.html', 'staff/index.html', 'crm/index.html', 'menu.html', 'rewards.html']) {
+// The website's shared stylesheet (assets/site/) is cached for a year, so every page using it must be listed here.
+const blogPages = (await readdir(path.join(out, 'blog'))).filter(f => f.endsWith('.html')).map(f => `blog/${f}`);
+for (const page of ['app/index.html', 'tablet/index.html', 'staff/index.html', 'crm/index.html', 'menu.html', 'rewards.html',
+  'index.html', 'blog.html', ...blogPages]) {
   const file = path.join(out, page);
   let html = await readFile(file, 'utf8');
-  for (const [ref] of html.matchAll(/\/assets\/(?:customer|tablet|staff|crm|menu)\/[a-z-]+\.(?:js|css)(?=")/g)) {
+  for (const [ref] of html.matchAll(/\/assets\/(?:customer|tablet|staff|crm|menu|site)\/[a-z-]+\.(?:js|css)(?=")/g)) {
     const version = createHash('sha256').update(await readFile(path.join(out, ref))).digest('hex').slice(0, 12);
     html = html.replace(`${ref}"`, `${ref}?v=${version}"`);
   }

@@ -14,39 +14,10 @@
   <link rel="canonical" href="https://www.treehousepharmacy.com/menu" />
   <!--menu:head-->
 
-  <!-- Tailwind CSS CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            bark: '#2C1810',
-            'bark-light': '#4A2C20',
-            canopy: '#2D5016',
-            'canopy-light': '#4A7C28',
-            'canopy-muted': '#6B8F55',
-            moss: '#8BA872',
-            sage: '#B5C5A3',
-            'sage-light': '#D4DFC8',
-            cream: '#F5F0E8',
-            'cream-dark': '#EDE5D6',
-            amber: '#C8943E',
-            'amber-light': '#E0B860',
-          },
-          fontFamily: {
-            display: ['"DM Serif Display"', 'Georgia', 'serif'],
-            body: ['"Outfit"', 'system-ui', 'sans-serif'],
-          }
-        }
-      }
-    }
-  </script>
 
-  <!-- Google Fonts -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <!-- Fonts are self-hosted (assets/fonts); the stylesheet is at the end of <head>. -->
+  <link rel="preload" href="/assets/fonts/outfit-v15-latin.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/assets/fonts/dm-serif-display-v17-latin.woff2" as="font" type="font/woff2" crossorigin />
 
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -95,6 +66,9 @@
   </style>
   <link rel="stylesheet" href="/assets/menu/site.css" />
   <script type="module" src="/assets/tablet/menu.js"></script>
+  <!-- Last in <head>, where the Tailwind Play CDN used to add its styles, so the cascade is unchanged.
+       Built by `npm run css` (scripts/site-css/input.css, tailwind.config.cjs). -->
+  <link rel="stylesheet" href="/assets/site/styles.css" />
 </head>
 <body data-menu="website">
 
@@ -105,7 +79,7 @@
     <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
       <a href="/" class="flex items-center gap-3 group">
         <div class="flex items-center gap-2">
-          <img src="/images/img6.png" alt="Treehouse Pharmacy Logo" class="h-10 w-10 rounded-full" />
+          <img src="/images/logo-96.webp" width="96" height="96" alt="Treehouse Pharmacy Logo" class="h-10 w-10 rounded-full" />
           <span class="font-display text-xl text-bark group-hover:text-canopy transition-colors">Treehouse Pharmacy</span>
         </div>
       </a>
@@ -123,8 +97,8 @@
         </a>
       </div>
       <!-- Mobile hamburger -->
-      <button id="mobileMenuBtn" class="xl:hidden text-bark" onclick="toggleMobileMenu()">
-        <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+      <button id="mobileMenuBtn" type="button" class="xl:hidden text-bark" onclick="toggleMobileMenu()" aria-label="Open menu" aria-controls="mobileMenu" aria-expanded="false">
+        <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
       </button>
     </div>
     <!-- Mobile menu -->
@@ -212,10 +186,10 @@
         <!-- Brand -->
         <div>
           <div class="flex items-center gap-3 mb-4">
-            <img src="/images/img10.png" alt="Treehouse Pharmacy Logo" class="h-10 w-10 rounded-full" />
+            <img src="/images/logo-96.webp" width="96" height="96" alt="Treehouse Pharmacy Logo" class="h-10 w-10 rounded-full" />
             <span class="font-display text-xl text-cream">Treehouse Pharmacy</span>
           </div>
-          <p class="font-body text-cream/40 text-sm leading-relaxed max-w-xs">
+          <p class="font-body text-cream/60 text-sm leading-relaxed max-w-xs">
             Ponca City's premier medical marijuana dispensary. Quality products, expert guidance, welcoming atmosphere.
           </p>
         </div>
@@ -249,10 +223,10 @@
       </div>
 
       <div class="border-t border-cream/10 pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
-        <p class="font-body text-cream/30 text-xs">
+        <p class="font-body text-cream/60 text-xs">
           &copy; <span id="footerYear"></span> Treehouse Pharmacy. All rights reserved. Oklahoma OMMA Licensed Dispensary.
         </p>
-        <p class="font-body text-cream/20 text-[10px]">
+        <p class="font-body text-cream/50 text-[10px]">
           Medical marijuana is for use only by qualified patients. Nothing for sale to minors.
         </p>
       </div>
@@ -265,7 +239,8 @@
   <script>
     // Mobile menu toggle
     function toggleMobileMenu() {
-      document.getElementById('mobileMenu').classList.toggle('hidden');
+      const open = !document.getElementById('mobileMenu').classList.toggle('hidden'), button = document.getElementById('mobileMenuBtn');
+      button.setAttribute('aria-expanded', String(open)); button.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
     }
 
     // Footer year

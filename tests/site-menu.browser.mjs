@@ -40,8 +40,8 @@ try {
   const errors = [];
   const page = await browser.newPage({ viewport:{ width:1280, height:900 } });
   page.on('pageerror', e => errors.push(String(e)));
-  await page.route('https://cdn.tailwindcss.com/**', r => r.fulfill({ contentType:'text/javascript', body:'window.tailwind={};' }));
-  await page.route('https://fonts.googleapis.com/**', r => r.fulfill({ contentType:'text/css', body:'' }));
+  // Styles and fonts are the site's own; nothing is fetched from other sites.
+  page.on('request', r => { if (!r.url().startsWith(base)) errors.push(`outside request: ${r.url()}`); });
   // What a search engine's first pass sees: the page with JavaScript off.
   const plain = await browser.newPage({ javaScriptEnabled:false });
   await plain.goto(`${base}/menu/pre-rolls`);
@@ -92,8 +92,8 @@ try {
   for (const [width, height] of [[1280, 700], [800, 900], [390, 760]]) {
     const view = await browser.newPage({ viewport:{ width, height } });
     view.on('pageerror', e => errors.push(String(e)));
-    await view.route('https://cdn.tailwindcss.com/**', r => r.fulfill({ contentType:'text/javascript', body:'window.tailwind={};' }));
-    await view.route('https://fonts.googleapis.com/**', r => r.fulfill({ contentType:'text/css', body:'' }));
+    // Styles and fonts are the site's own; nothing is fetched from other sites.
+    view.on('request', r => { if (!r.url().startsWith(base)) errors.push(`outside request: ${r.url()}`); });
     await view.goto(`${base}/menu`); await view.waitForSelector('.product');
     await view.addStyleTag({ content:'#mainNav img, footer img { width:40px; height:40px; } #mobileMenu { display:none; } html { scroll-behavior:auto; }' });
     await view.waitForFunction(() => document.querySelectorAll('.product').length > 300);
@@ -143,8 +143,8 @@ try {
   assert.equal(old.status(), 301); assert.equal(old.headers().location, 'https://www.treehousepharmacy.com/menu/pre-rolls');
   const phone = await browser.newPage({ viewport:{ width:390, height:844 }, isMobile:true, hasTouch:true });
   phone.on('pageerror', e => errors.push(String(e)));
-  await phone.route('https://cdn.tailwindcss.com/**', r => r.fulfill({ contentType:'text/javascript', body:'window.tailwind={};' }));
-  await phone.route('https://fonts.googleapis.com/**', r => r.fulfill({ contentType:'text/css', body:'' }));
+  // Styles and fonts are the site's own; nothing is fetched from other sites.
+  phone.on('request', r => { if (!r.url().startsWith(base)) errors.push(`outside request: ${r.url()}`); });
   await phone.goto(`${base}/menu`); await phone.waitForSelector('.product');
   assert.equal(await phone.locator('#refine').evaluate(d => d.open), false, 'filters fold away on phones');
   await phone.goto(`${base}/menu/pre-rolls`); await phone.waitForFunction(() => document.getElementById('category-facets'));
