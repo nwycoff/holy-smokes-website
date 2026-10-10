@@ -19,9 +19,12 @@ export async function overview(env, now) {
       (SELECT COALESCE(SUM(total_cents), 0) FROM crm_orders WHERE completed_at >= ?) AS revenue_30_cents,
       (SELECT COUNT(*) FROM crm_orders WHERE completed_at >= ? AND completed_at < ?) AS visits_prev_30,
       (SELECT COALESCE(SUM(total_cents), 0) FROM crm_orders WHERE completed_at >= ? AND completed_at < ?) AS revenue_prev_30_cents,
-      (SELECT COUNT(*) FROM crm_orders WHERE completed_at >= ? AND is_preorder = 1) AS preorders_30`)
+      (SELECT COUNT(*) FROM crm_orders WHERE completed_at >= ? AND is_preorder = 1) AS preorders_30,
+      -- Order totals include sales tax; purchase lines are before tax (returns left out).
+      (SELECT COALESCE(SUM(net_cents), 0) FROM crm_lines WHERE sold_at >= ? AND returned = 0) AS net_30_cents,
+      (SELECT COALESCE(SUM(net_cents), 0) FROM crm_lines WHERE sold_at >= ? AND sold_at < ? AND returned = 0) AS net_prev_30_cents`)
     .bind(ago(30), ago(90), ago(365), ago(60), ago(180), ago(30), new Date(now).getMonth() + 1, ago(365), ago(365),
-      ago(30), ago(30), ago(60), ago(30), ago(60), ago(30), ago(30)).first();
+      ago(30), ago(30), ago(60), ago(30), ago(60), ago(30), ago(30), ago(30), ago(60), ago(30)).first();
   const { results: categories = [] } = await db.prepare(`SELECT category_group AS grp, SUM(net_cents) AS cents, COUNT(DISTINCT customer_id) AS customers
     FROM crm_lines WHERE sold_at >= ? AND returned = 0 GROUP BY category_group ORDER BY cents DESC`).bind(ago(90)).run();
   const { results: brands = [] } = await db.prepare(`SELECT l.brand_id AS id, COALESCE(b.name, 'Unknown') AS name, SUM(l.net_cents) AS cents,
