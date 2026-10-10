@@ -8,6 +8,7 @@
 - Create a new file in the `blog/` folder with a URL-friendly name like:
   `blog/your-post-title-here.html`
 - Paste the template content and fill in the sections marked with ✏️
+- Link to other posts and pages with addresses like `/blog/your-post-title-here` and `/menu/edibles` (no `.html`)
 
 ### 2. Add it to the blog listing page
 - Open `blog.html`
@@ -28,8 +29,8 @@
 - Include "Ponca City," "Kay County," "Oklahoma," and "Treehouse Pharmacy" naturally in each post
 - Write 500-1500 words per post
 - Use h2 and h3 headings to break up content
-- Keep your title under 60 characters
-- Write a compelling meta description (under 155 characters)
+- Keep your title under 60 characters (before " | Treehouse Pharmacy")
+- Write a compelling meta description (under 155 characters), and use the same text in the link-preview and article details at the top of the template
 
 ## Blog Post Ideas
 - Indica vs Sativa: What's the Difference?
