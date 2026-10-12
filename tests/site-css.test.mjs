@@ -41,3 +41,13 @@ test('the homepage tells search engines the right place: map pin at the store, o
   assert.ok(/<title>([^<]+)<\/title>/.exec(html)[1].length <= 65, 'title fits in search results');
   assert.ok(/<meta name="description" content="([^"]+)"/.exec(html)[1].length <= 160, 'description fits in search results');
 });
+
+test('website pages link to final addresses, so Google never follows a redirect between our own pages', async () => {
+  for (const page of [...await pages(), 'rewards.html', 'privacy.html', '404.html']) {
+    const html = await read(page);
+    for (const [, href] of html.matchAll(/href="([^"]+)"/g)) {
+      if (/^(https?:|mailto:|tel:|#|data:)/.test(href)) continue;
+      assert.doesNotMatch(href, /\.html(#|$|\?)/, `${page}: ${href}`);
+    }
+  }
+});
