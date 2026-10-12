@@ -8,7 +8,7 @@
 - Create a new file in the `blog/` folder with a URL-friendly name like:
   `blog/your-post-title-here.html`
 - Paste the template content and fill in the sections marked with ✏️
-- Link to other posts and pages with addresses like `/blog/your-post-title-here` and `/menu/edibles` (no `.html`)
+- Link to other posts and pages with addresses like `/blog/your-post-title-here`, `/menu/edibles`, `/#visit` and `/blog` (no `.html`, which makes Google follow a redirect)
 
 ### 2. Add it to the blog listing page
 - Open `blog.html`

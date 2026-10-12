@@ -25,6 +25,8 @@ try {
 } catch (error) {
   console.warn(`Using the committed assets/site/styles.css (${error.code === 'ENOENT' ? 'Tailwind is not installed' : 'Tailwind failed'}).`);
 }
+// Files starting with "_" (the blog post template) are for editing, not for the public site.
+for (const f of await readdir(path.join(out, 'blog'))) if (f.startsWith('_')) await rm(path.join(out, 'blog', f));
 await writeFile(path.join(out, '_routes.json'), JSON.stringify({
   version: 1, include: ['/api/rewards/*', '/api/app/*', '/api/staff/*', '/api/crm/*', '/go/*', '/menu', '/menu/*'], exclude: []
 }, null, 2));
