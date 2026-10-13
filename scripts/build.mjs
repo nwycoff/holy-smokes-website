@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { ORIGIN, SITEMAP_PATHS } from '../server/site/menu-page.mjs';
+import { versionImports } from './version-imports.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const out = path.join(root, 'dist');
@@ -30,6 +31,10 @@ for (const f of await readdir(path.join(out, 'blog'))) if (f.startsWith('_')) aw
 await writeFile(path.join(out, '_routes.json'), JSON.stringify({
   version: 1, include: ['/api/rewards/*', '/api/app/*', '/api/staff/*', '/api/crm/*', '/go/*', '/menu', '/menu/*'], exclude: []
 }, null, 2));
+// Scripts' own imports first (scripts/version-imports.mjs), so a changed import also changes the
+// importing script's version below.
+await versionImports((await Promise.all(['customer', 'tablet', 'staff', 'crm', 'menu'].map(async dir =>
+  (await readdir(path.join(out, 'assets', dir)).catch(() => [])).filter(f => f.endsWith('.js')).map(f => path.join(out, 'assets', dir, f))))).flat());
 // Give each page's own script and stylesheet a content version (?v=hash), so a release reaches
 // phones at once instead of after the custom domain's browser cache expires.
 // The website's shared stylesheet (assets/site/) is cached for a year, so every page using it must be listed here.
