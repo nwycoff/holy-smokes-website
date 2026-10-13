@@ -22,6 +22,12 @@ const slugOf = name => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^
 const prerendered = site && document.getElementById('products').children.length > 0;
 state.category = pageHeading;
 let idleTimer, toastTimer, wakeLock, wakePending = false;
+// The counter tablet stays open for days, so it picks up a new release by itself: every five minutes
+// it checks which version of this script the tablet page links now (the build adds ?v=<hash>), and
+// once that differs from the one running, it reloads the next time it's idle (two minutes without a
+// touch). The running version shows after "Updated …", so staff can tell which one a screen has.
+const runningVersion = site ? null : new URL(import.meta.url).searchParams.get('v');
+let updateReady = false, lastActivity = Date.now();
 function node(tag, text = '', className = '') {
   const item = document.createElement(tag); item.textContent = text; if (className) item.className = className; return item;
 }
@@ -110,7 +116,8 @@ function updateOptions(id, values, label) {
 // The "Updated 2:14 PM" line and any connection notice, without touching the product cards.
 function renderStatus() {
   $('notice').textContent = state.error; $('notice').hidden = !state.error;
-  $('freshness').textContent = state.menu?.stale ? 'Update delayed' : state.menu ? 'Updated ' + new Date(state.menu.updatedAt).toLocaleTimeString([], { hour:'numeric',minute:'2-digit' }) : '';
+  $('freshness').textContent = (state.menu?.stale ? 'Update delayed' : state.menu ? 'Updated ' + new Date(state.menu.updatedAt).toLocaleTimeString([], { hour:'numeric',minute:'2-digit' }) : '')
+    + (state.menu && runningVersion ? ` · version ${runningVersion.slice(0, 7)}` : '');
 }
 // Rebuilding the cards stops a scroll in progress, so a minute's refresh only rebuilds them
 // when the menu actually changed, and waits until the screen has been still for a moment.
@@ -251,13 +258,25 @@ if (site) {
   });
 }
 function reset(automatic = false) {
+  // A new release is waiting: the idle moment that would reset the screen loads it instead.
+  if (automatic && updateReady) { location.reload(); return; }
   // On a website heading page, clearing filters keeps that heading.
   state.category = pageHeading; state.selected.clear(); state.byTerpene = false; controlIds.forEach(id => { $(id).value = id === 'sort' ? 'price' : ''; });
   document.activeElement?.blur(); render(); $('categories').scrollLeft = 0;
   if (!site) window.scrollTo({top:0,behavior:'instant'});
   if (automatic) { $('reset-message').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(()=>{ $('reset-message').hidden = true; },3500); }
 }
-function activity() { clearTimeout(idleTimer); idleTimer = setTimeout(()=>reset(true), IDLE_MS); }
+function activity() { lastActivity = Date.now(); clearTimeout(idleTimer); idleTimer = setTimeout(()=>reset(true), IDLE_MS); }
+async function checkForUpdate() {
+  if (!runningVersion || updateReady || document.hidden) return;
+  try {
+    const response = await fetch(location.pathname, { cache:'no-store', credentials:'same-origin', mode:'same-origin', redirect:'error', signal:AbortSignal.timeout(15000) });
+    const linked = response.ok ? /\/assets\/tablet\/menu\.js\?v=([0-9a-f]+)/.exec(await response.text())?.[1] : null;
+    if (!linked || linked === runningVersion) return;
+    updateReady = true;
+    if (Date.now() - lastActivity >= IDLE_MS) location.reload();
+  } catch { /* Offline or signed out: try again next time. */ }
+}
 async function keepAwake() {
   if (document.hidden || wakeLock || wakePending || !('wakeLock' in navigator)) return;
   wakePending = true;
@@ -283,7 +302,7 @@ addEventListener('resize',()=>{
 addEventListener('online',()=>void refresh());
 document.addEventListener('visibilitychange',()=>{ if (document.hidden) return; if (!site) { reset(); activity(); void keepAwake(); } void refresh(); });
 setInterval(()=>{ if (!document.hidden) void refresh(); },60000);
-if (!site) { activity(); void keepAwake(); }
+if (!site) { activity(); void keepAwake(); setInterval(()=>void checkForUpdate(),300000); }
 void refresh();
 
 
