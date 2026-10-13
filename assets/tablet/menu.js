@@ -1,7 +1,8 @@
-import { cardTags, facetOrder, inSection, matchesFacets, packageMg, potencyLine } from './categories.js';
+import { TERPENE, TERPENE_AROMAS, TERPENE_HEADINGS, cardTags, facetOrder, inSection, mainTerpene, matchesFacets, packageMg, potencyLine } from './categories.js';
 const $ = id => document.getElementById(id);
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
-const state = { menu: null, category: 'All', loading: false, error: '', selected: new Set() };
+// byTerpene: the "By terpene" box is open (its list of terpenes shows).
+const state = { menu: null, category: 'All', loading: false, error: '', selected: new Set(), byTerpene: false };
 const controlIds = ['search', 'type', 'brand', 'budget', 'size', 'sort'];
 const IDLE_MS = 120000;
 // The same browse-only menu runs on the counter tablet (/tablet/) and the website's Menu pages
@@ -151,7 +152,7 @@ function render(preservePosition = false) {
     }
     const button = node('button', category); button.type = 'button'; button.setAttribute('aria-pressed', String(category === state.category));
     button.append(count);
-    button.addEventListener('click', () => { state.category = category; state.selected.clear(); render(); }); return button;
+    button.addEventListener('click', () => { state.category = category; state.selected.clear(); state.byTerpene = false; render(); }); return button;
   });
   const categoryScroll = $('categories').scrollLeft;
   $('categories').replaceChildren(...buttons); $('categories').scrollLeft = categoryScroll; renderFacets(products);
@@ -205,7 +206,7 @@ async function refresh() {
 // they only bring the products back into view if the shopper had scrolled past them.
 const headingPages = (() => { try { return JSON.parse(document.getElementById('menu-pages')?.textContent || '{}'); } catch { return {}; } })();
 function switchHeading(category, push, tappedTop = null) {
-  state.category = category; state.selected.clear(); pageHeading = category; render();
+  state.category = category; state.selected.clear(); state.byTerpene = false; pageHeading = category; render();
   if (tappedTop !== null) {
     const tapped = [...document.querySelectorAll('#categories a, #categories button')].find(el => el.firstChild?.textContent === category);
     if (tapped) window.scrollBy({ top: tapped.getBoundingClientRect().top - tappedTop, behavior: 'instant' });
@@ -251,7 +252,7 @@ if (site) {
 }
 function reset(automatic = false) {
   // On a website heading page, clearing filters keeps that heading.
-  state.category = pageHeading; state.selected.clear(); controlIds.forEach(id => { $(id).value = id === 'sort' ? 'price' : ''; });
+  state.category = pageHeading; state.selected.clear(); state.byTerpene = false; controlIds.forEach(id => { $(id).value = id === 'sort' ? 'price' : ''; });
   document.activeElement?.blur(); render(); $('categories').scrollLeft = 0;
   if (!site) window.scrollTo({top:0,behavior:'instant'});
   if (automatic) { $('reset-message').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(()=>{ $('reset-message').hidden = true; },3500); }
@@ -319,9 +320,13 @@ function renderFacets(products) {
   }
   panel.append(field);
  }
+ if (TERPENE_HEADINGS.has(state.category)) {
+  const field = terpeneField(products, query);
+  if (field) panel.append(field);
+ }
  if (!panel.children.length) return;
  const reset=node('button','Show all '+state.category);reset.type='button';reset.hidden=!state.selected.size;
- reset.addEventListener('click',()=>{state.selected.clear();render();});panel.append(reset);
+ reset.addEventListener('click',()=>{state.selected.clear();state.byTerpene=false;render();});panel.append(reset);
  const selected=$('categories').querySelector('[aria-pressed="true"], [aria-current="page"]');
  // Website, wide: above the products, so switching headings never moves the heading list, with a
  // one-line summary pinned under the site header once they scroll away. Website, tablet and phone
@@ -329,6 +334,34 @@ function renderFacets(products) {
  if (site && sidebar.matches) { document.querySelector('.selection .toolbar').after(panel); pinSummary(panel); }
  else if (site) $('categories').after(panel); else selected.after(panel);
  if(focus) [...panel.querySelectorAll('input')].find(el=>el.dataset.facet===focus)?.focus();
+}
+// "By terpene": a box that opens the list of the heading's main terpenes (categories.js), most common
+// first, each with its aroma and how many products checking it would show. Closing the box clears
+// any picked terpenes. Shown only when the heading's products have at least two different ones.
+// A function declaration, so it exists when the first render runs (before the code below it).
+function terpeneField(products, query) {
+ const inHeading = products.filter(p => inSection(p, state.category)), common = new Map();
+ for (const p of inHeading) { const name = mainTerpene(p); if (name) common.set(name, (common.get(name) || 0) + 1); }
+ if (common.size < 2) return null;
+ const picked = [...state.selected].filter(id => id.startsWith(`${TERPENE}:`)), open = state.byTerpene || picked.length > 0;
+ const field = node('fieldset', '', 'terpene-facet'); field.append(node('legend', 'Terpenes'));
+ const toggle = node('label'), box = document.createElement('input');
+ box.type = 'checkbox'; box.dataset.facet = `${TERPENE}:open`; box.checked = open;
+ box.addEventListener('change', () => { state.byTerpene = box.checked; if (!box.checked) picked.forEach(id => state.selected.delete(id)); render(); });
+ toggle.append(box, node('span', 'By terpene')); field.append(toggle);
+ if (!open) return field;
+ field.append(node('p', 'Shows what has the most of the terpene you pick.', 'facet-hint'));
+ const counts = new Map();
+ for (const p of filtered(products, query, TERPENE)) { const name = mainTerpene(p); if (name) counts.set(name, (counts.get(name) || 0) + 1); }
+ for (const name of [...common.keys()].sort((a, b) => common.get(b) - common.get(a) || a.localeCompare(b))) {
+  const label = node('label', '', 'terpene-option'), input = document.createElement('input'), id = `${TERPENE}:${name}`, count = counts.get(name) || 0;
+  input.type = 'checkbox'; input.dataset.facet = id; input.checked = state.selected.has(id); input.disabled = !count && !input.checked;
+  input.addEventListener('change', () => { input.checked ? state.selected.add(id) : state.selected.delete(id); render(); });
+  const text = node('span', name);
+  if (TERPENE_AROMAS[name]) text.append(node('em', TERPENE_AROMAS[name], 'facet-note'));
+  label.append(input, text, node('small', String(count))); field.append(label);
+ }
+ return field;
 }
 // The pinned line: the heading and its picked options, and a button back up to all of them. It takes
 // no room in the page (zero height, sticky) and shows only while the options are above the screen.
