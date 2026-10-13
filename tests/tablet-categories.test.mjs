@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {inSection,matchesFacets,potencyLine} from '../assets/tablet/categories.js';
+import {inSection,mainTerpene,matchesFacets,potencyLine,TERPENE,TERPENE_AROMAS} from '../assets/tablet/categories.js';
 import {classifyProduct,packOf,CATEGORIES,HIDDEN,DEPARTMENTS} from '../server/customer-app/taxonomy.mjs';
 
 test('GrowFlow categories land in medical-shopper headings; flower splits by grade',()=>{
@@ -55,4 +55,19 @@ test('edible cards show the mg per package, never percent-by-weight potency', ()
   assert.equal(potencyLine(edible, 'Ask us'), '100 mg per package');
   assert.equal(potencyLine({ ...edible, variants: [{ size: '100 g' }] }, 'Ask us'), 'Ask us for the mg per package');
   assert.equal(potencyLine({ category: 'Flower', thc: [21.3, 24], variants: [{ size: '3.5 g' }] }, 'Ask us'), 'Total THC 21.3–24.0%');
+});
+
+test("the terpene filter goes by each product's main terpene, counting the pinenes together",()=>{
+ const lab=terpenes=>({lab:{terpenes:terpenes.map(([name,max])=>({name,range:[max/2,max]}))}});
+ assert.equal(mainTerpene(lab([['Limonene',0.8],['Caryophyllene',0.6],['Myrcene',0.2]])),'Limonene');
+ assert.equal(mainTerpene(lab([['Caryophyllene',0.5],['α-Pinene',0.3],['β-Pinene',0.25]])),'Pinene','α and β together outweigh caryophyllene');
+ assert.equal(mainTerpene(lab([['Linalool',0.4],['Bisabolol',0.4]])),'Bisabolol','a tie goes to the name first in the alphabet');
+ for (const product of [{},{lab:{}},{lab:{terpenes:[]}},lab([['Limonene',0]]),{lab:{terpenes:[{name:'Limonene',range:'0.5'}]}}])
+  assert.equal(mainTerpene(product),null,JSON.stringify(product));
+ const limonene={...lab([['Limonene',0.8],['Caryophyllene',0.6]]),facets:{Style:'Whole flower'}};
+ assert.ok(matchesFacets(limonene,new Set([`${TERPENE}:Limonene`,`${TERPENE}:Pinene`])));
+ assert.ok(!matchesFacets(limonene,new Set([`${TERPENE}:Caryophyllene`])),'caryophyllene is only second');
+ assert.ok(matchesFacets(limonene,new Set([`${TERPENE}:Caryophyllene`]),TERPENE),'left out for its own counts');
+ assert.ok(!matchesFacets(limonene,new Set([`${TERPENE}:Limonene`,'Style:Smalls'])),'and every other group still has to match');
+ for (const aroma of Object.values(TERPENE_AROMAS)) assert.doesNotMatch(aroma,/relax|sleep|energ|pain|anxi|calm|uplift|focus|mood|stress/i,'aroma only, no effects');
 });

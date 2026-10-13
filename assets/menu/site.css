@@ -59,6 +59,10 @@
 .th-menu .category-facets input { width: 18px; height: 18px; accent-color: var(--canopy); flex: none; }
 .th-menu .category-facets small { margin-left: auto; color: var(--muted); }
 .th-menu .category-facets label:has(input:disabled) { opacity: 0.45; cursor: default; }
+/* By terpene: the list's one-line explanation, and each terpene's aroma under its name */
+.th-menu .category-facets .facet-hint { font-size: 12px; color: var(--muted); margin: 2px 0 4px; line-height: 1.35; }
+.th-menu .category-facets .terpene-option span { display: flex; flex-direction: column; line-height: 1.2; }
+.th-menu .category-facets .facet-note { font-style: normal; font-size: 12px; color: var(--muted); }
 .th-menu .category-facets > button,
 .th-menu #categories .category-facets > button {
   font-size: 12px; text-decoration: underline; padding: 6px 0; border: 0; background: transparent; color: var(--canopy); min-height: 0;
@@ -75,6 +79,8 @@
   .th-menu .selection .category-facets input { width: 15px; height: 15px; }
   .th-menu .selection .category-facets small { margin-left: 2px; }
   .th-menu .selection .category-facets > button { margin: 0 0 8px; }
+  .th-menu .selection .category-facets .facet-hint { flex-basis: 100%; margin: 0; }
+  .th-menu .selection .category-facets .facet-note { display: none; }
 }
 /* Pinned under the site header once the options scroll away; it takes no room in the page */
 .th-menu .facet-pin { position: sticky; height: 0; z-index: 15; }
@@ -179,6 +185,8 @@
   .th-menu .category-facets label:has(input:checked) { border-color: var(--canopy); background: #dfe8d3; }
   .th-menu .category-facets input { width: 15px; height: 15px; }
   .th-menu .category-facets small { margin-left: 2px; }
+  .th-menu .category-facets .facet-hint { flex-basis: 100%; margin: 0 0 2px; }
+  .th-menu .category-facets .facet-note { display: none; }
   .th-menu .toolbar { flex-direction: column; align-items: stretch; }
   .th-menu .sort { width: auto; }
   .th-menu .products { grid-template-columns: 1fr; }

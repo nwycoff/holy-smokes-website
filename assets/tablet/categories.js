@@ -5,8 +5,32 @@
 export function inSection(product, section) {
  return section === 'All' || product.category === section || (Array.isArray(product.also) && product.also.includes(section));
 }
+// The "By terpene" filter goes by each product's main terpene: the one its lab results show the
+// most of, from the lab panel's top five, with the two pinenes and the two nerolidols each counted
+// as one. Nearly every flower has caryophyllene and limonene somewhere in its top five, so
+// "has it at all" would barely narrow anything; the main one does. Null without lab terpenes.
+export const TERPENE = 'Terpene';
+const TERPENE_FAMILY = { 'α-Pinene': 'Pinene', 'β-Pinene': 'Pinene', 'cis-Nerolidol': 'Nerolidol', 'trans-Nerolidol': 'Nerolidol', 'α-Terpinene': 'Terpinene' };
+export function mainTerpene(product) {
+ const totals = new Map();
+ for (const terpene of product?.lab?.terpenes || []) {
+  const amount = Array.isArray(terpene?.range) ? Number(terpene.range[1]) : NaN;
+  if (typeof terpene?.name !== 'string' || !(amount > 0)) continue;
+  const name = TERPENE_FAMILY[terpene.name] || terpene.name;
+  totals.set(name, (totals.get(name) || 0) + amount);
+ }
+ return [...totals].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? null;
+}
+// What each terpene smells like, beside it in the list. Aroma only: no effects or health claims.
+export const TERPENE_AROMAS = { Caryophyllene: 'peppery, spicy', Limonene: 'citrus', Linalool: 'floral, lavender', Myrcene: 'earthy, musky',
+ Humulene: 'hoppy, woody', Pinene: 'pine', Bisabolol: 'floral, chamomile', Terpinolene: 'fresh, fruity', 'Caryophyllene oxide': 'spicy, woody',
+ Eucalyptol: 'minty, cool', Nerolidol: 'woody, floral', Terpinene: 'citrus, woody' };
+// Headings where shoppers pick by terpene: flower and what's made from it to smoke or vape.
+export const TERPENE_HEADINGS = new Set(['Treehouse', 'Flower', 'Smalls', 'Shake', 'Pre-Rolls', 'Vapes', 'Concentrates']);
+
 // Checked values narrow: within a group any checked value matches; across groups every group
-// with something checked must match. A group with nothing checked allows all.
+// with something checked must match. A group with nothing checked allows all. The terpene group
+// matches each product's main terpene.
 export function matchesFacets(product, selected, skipGroup = null) {
  const groups = new Map();
  for (const id of selected) {
@@ -15,7 +39,7 @@ export function matchesFacets(product, selected, skipGroup = null) {
   if (!groups.has(key)) groups.set(key, new Set());
   groups.get(key).add(id.slice(at + 1));
  }
- return [...groups].every(([key, values]) => values.has(product.facets?.[key]));
+ return [...groups].every(([key, values]) => values.has(key === TERPENE ? mainTerpene(product) : product.facets?.[key]));
 }
 // The potency line on a product card. Edibles are shopped by milligrams, not by percent of
 // the edible's weight, so they show the package total (their mg size) instead of percentages.

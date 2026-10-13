@@ -134,6 +134,34 @@ try {
   assert.equal(await page.locator('.product').count(),1);
   await page.locator('#reset').click();
   assert.equal(await page.locator('.product').count(),11,'Unknown category remains visible (More); waste is never shown; reset clears subfilters');
+  // By terpene: closed until its box is checked, then each product's main terpene (pinenes together).
+  const lab=(...terpenes)=>({lab:{cannabinoids:[],terpenes:terpenes.map(([name,max])=>({name,range:[max,max]}))}});
+  const terpeneProducts=[['Lemon',lab(['Limonene',0.9],['Myrcene',0.3])],['Lime',lab(['Limonene',0.7],['Caryophyllene',0.6])],
+    ['Pepper',lab(['Caryophyllene',0.8],['Limonene',0.2])],['Forest',lab(['Caryophyllene',0.4],['α-Pinene',0.3],['β-Pinene',0.2])],['Untested',{}]]
+    .map(([name,extra],i)=>({...demoMenu.products[0],lab:undefined,...extra,id:`terp-${i}`,name,category:'Flower',facets:{Style:'Whole flower',Packaging:'Bulk'},also:[]}));
+  await page.route('**/api/app/menu',async route=>route.fulfill({contentType:'application/json',body:JSON.stringify({...demoMenu,updatedAt:Date.now(),categories:['Flower'],products:terpeneProducts})}));
+  await page.evaluate(()=>dispatchEvent(new Event('online')));
+  await page.waitForFunction(()=>document.querySelectorAll('.product').length===5);
+  await page.locator('#categories>button').filter({hasText:'Flower'}).click();
+  const byTerpene=page.getByRole('checkbox',{name:'By terpene'});
+  assert.equal(await byTerpene.isChecked(),false);
+  assert.equal(await page.locator('.terpene-option').count(),0,'the list stays closed until the box is checked');
+  await byTerpene.check();
+  assert.deepEqual(await page.locator('.terpene-option').allInnerTexts().then(texts=>texts.map(t=>t.replace(/\s+/g,' ').trim())),
+    ['Limonene citrus 2','Caryophyllene peppery, spicy 1','Pinene pine 1'],'most common first, with aromas and counts');
+  assert.equal(await page.locator('.product').count(),5,'opening the list alone filters nothing');
+  await page.getByRole('checkbox',{name:/^Limonene/}).check();
+  assert.deepEqual(await page.locator('.product h2').allInnerTexts(),['Lemon','Lime']);
+  await page.getByRole('checkbox',{name:/^Pinene/}).check();
+  assert.equal(await page.locator('.product').count(),3,'any checked terpene');
+  await byTerpene.uncheck();
+  assert.equal(await page.locator('.product').count(),5,'closing the box clears the terpenes');
+  assert.equal(await page.locator('.terpene-option').count(),0);
+  await byTerpene.check(); await page.getByRole('checkbox',{name:/^Caryophyllene/}).check();
+  assert.equal(await page.locator('.product').count(),1);
+  await page.clock.fastForward(121000);
+  assert.equal(await page.locator('.product').count(),5,'the idle reset clears it too');
+  assert.equal(await page.getByRole('checkbox',{name:'By terpene'}).count(),0,'and leaves the All heading, which has no sub-filters');
   assert.deepEqual(errors,[]);
   assert.deepEqual([...new Set(calls)],['/api/app/menu']);
   assert.equal(await page.evaluate(()=>localStorage.length+sessionStorage.length),0);
