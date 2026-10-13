@@ -77,9 +77,13 @@ try {
   await page.evaluate(()=>{ window.__firstCard=document.querySelector('.product'); });
   await page.evaluate(()=>dispatchEvent(new Event('online'))); await page.clock.runFor(2000);
   assert.equal(await page.evaluate(()=>window.__firstCard.isConnected),true,'unchanged refresh does not rebuild cards');
-  await page.evaluate(()=>scrollTo(0,1800)); await page.clock.runFor(200);
+  // Scroll and rotate only once the page has had each event: under the fake clock, scroll and resize
+  // events can arrive a little after the new position or size does.
+  const scrolled=y=>page.evaluate(y=>new Promise(resolve=>{ addEventListener('scroll',resolve,{once:true}); scrollTo(0,y); }),y);
+  await scrolled(1790); await scrolled(1800); await page.clock.runFor(200);
   const before=await page.evaluate(()=>[...document.querySelectorAll('.product')].find(p=>p.getBoundingClientRect().bottom>0)?.dataset.productId);
-  await page.setViewportSize({width:1280,height:800}); await page.clock.runFor(500);
+  await page.evaluate(()=>{ window.__rotated=new Promise(resolve=>addEventListener('resize',resolve,{once:true})); });
+  await page.setViewportSize({width:1280,height:800}); await page.evaluate(()=>window.__rotated); await page.clock.runFor(500);
   const after=await page.evaluate(()=>[...document.querySelectorAll('.product')].find(p=>p.getBoundingClientRect().bottom>0)?.dataset.productId);
   // Different column counts can expose an adjacent card in the same row, so verify the
   // previously visible card is still within the viewport rather than requiring first position.
@@ -162,6 +166,20 @@ try {
   await page.clock.fastForward(121000);
   assert.equal(await page.locator('.product').count(),5,'the idle reset clears it too');
   assert.equal(await page.getByRole('checkbox',{name:'By terpene'}).count(),0,'and leaves the All heading, which has no sub-filters');
+  // A new release: once the tablet page links a different script version, the tablet reloads itself
+  // when it's idle, and shows the version it's running.
+  const running=await page.evaluate(()=>document.querySelector('script[type=module]').src.match(/v=([0-9a-f]+)/)[1]);
+  assert.match(await page.locator('#freshness').innerText(),new RegExp(`version ${running.slice(0,7)}$`));
+  let reloads=0; page.on('framenavigated',frame=>{ if (frame===page.mainFrame()) reloads++; });
+  const released=(await (await fetch(`${origin}/tablet/`)).text()).replace(`menu.js?v=${running}`,'menu.js?v=0123456789ab');
+  await page.route('**/tablet/',route=>route.fulfill({contentType:'text/html',body:released}));
+  await page.clock.fastForward(301000);
+  await page.waitForFunction(()=>document.querySelector('script[type=module]')?.src.includes('v=0123456789ab'));
+  await page.locator('.product').first().waitFor();
+  assert.equal(reloads,1,'reloaded once, while idle');
+  assert.match(await page.locator('#freshness').innerText(),/version 0123456$/);
+  await page.clock.fastForward(301000);
+  assert.equal(reloads,1,'and not again for the same version');
   assert.deepEqual(errors,[]);
   assert.deepEqual([...new Set(calls)],['/api/app/menu']);
   assert.equal(await page.evaluate(()=>localStorage.length+sessionStorage.length),0);
